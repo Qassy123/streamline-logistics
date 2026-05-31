@@ -16,7 +16,7 @@ export default function Header() {
           <Link href="/" className="flex h-full items-center">
             <div className="relative h-[110px] w-[260px] sm:w-[280px]">
               <Image
-                src="/images/logos/logo.png"
+                src="/images/logos/Logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
