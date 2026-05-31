@@ -8,19 +8,21 @@ export default function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section className="bg-white pb-24">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-3xl bg-[#0b1f3a] p-10 text-white">
-          <div className="mb-8 text-7xl font-bold tracking-tight">FAQ</div>
+    <section className="bg-white py-16 lg:py-24">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 lg:grid-cols-2 lg:items-center lg:gap-12">
+        <div className="rounded-3xl bg-[#0b1f3a] p-8 text-white lg:p-10">
+          <div className="mb-5 text-5xl font-bold tracking-tight lg:mb-8 lg:text-7xl">
+            FAQ
+          </div>
 
-          <p className="text-2xl leading-9 text-white/85">
+          <p className="text-lg leading-8 text-white/85 lg:text-2xl lg:leading-9">
             Clear answers for businesses booking urgent courier and delivery
             services with Streamline Logistics Group.
           </p>
         </div>
 
         <div>
-          <h2 className="mb-8 border-b-4 border-[#a8dc8f] pb-3 text-4xl font-semibold text-[#0b1f3a]">
+          <h2 className="mb-6 border-b-4 border-[#a8dc8f] pb-3 text-3xl font-semibold leading-tight text-[#0b1f3a] lg:mb-8 lg:text-4xl">
             Streamline Logistics FAQ
           </h2>
 
@@ -35,15 +37,21 @@ export default function FAQ() {
                   onClick={() => setOpenIndex(isOpen ? null : index)}
                   className="w-full py-5 text-left"
                 >
-                  <div className="flex items-center justify-between gap-6">
-                    <h3 className="text-xl font-medium text-[#0b1f3a]">
+                  <div className="flex items-start justify-between gap-5">
+                    <h3 className="text-xl font-medium leading-8 text-[#0b1f3a] lg:text-xl">
                       {faq.question}
                     </h3>
 
                     {isOpen ? (
-                      <Minus className="shrink-0 text-[#ff6a00]" size={30} />
+                      <Minus
+                        className="mt-1 shrink-0 text-[#ff6a00]"
+                        size={28}
+                      />
                     ) : (
-                      <Plus className="shrink-0 text-[#a8dc8f]" size={30} />
+                      <Plus
+                        className="mt-1 shrink-0 text-[#a8dc8f]"
+                        size={28}
+                      />
                     )}
                   </div>
 
