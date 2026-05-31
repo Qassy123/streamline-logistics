@@ -7,7 +7,7 @@ export default function Footer() {
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-6 py-14 md:grid-cols-4">
         <div>
           <Image
-            src="/images/logos/logo.png"
+            src="/images/logos/Logo.png"
             alt="Streamline Logistics Group"
             width={190}
             height={70}
@@ -22,6 +22,7 @@ export default function Footer() {
 
         <div>
           <h3 className="mb-5 text-lg font-semibold">Company</h3>
+
           <div className="flex flex-col gap-3 text-base text-white/80">
             <Link href="/about">About Us</Link>
             <Link href="/contact">Contact Us</Link>
@@ -32,6 +33,7 @@ export default function Footer() {
 
         <div>
           <h3 className="mb-5 text-lg font-semibold">Services</h3>
+
           <div className="flex flex-col gap-3 text-base text-white/80">
             <span>Same Day Delivery</span>
             <span>Full Day & Half Day Rates</span>
@@ -43,19 +45,26 @@ export default function Footer() {
 
         <div>
           <h3 className="mb-5 text-lg font-semibold">Contact</h3>
+
           <div className="flex flex-col gap-3 text-base text-white/80">
             <a href="tel:03333440703">0333 344 0703</a>
+
             <a href="mailto:info@streamlinelogisticsgroup.co.uk">
               info@streamlinelogisticsgroup.co.uk
             </a>
-            <span>Available 24/7 for urgent business deliveries</span>
+
+            <span>
+              Available 24/7 for urgent business deliveries
+            </span>
           </div>
         </div>
       </div>
 
       <div className="border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-7 text-sm text-white/70 md:flex-row">
-          <p>© 2026 Streamline Logistics Group. All rights reserved.</p>
+          <p>
+            © 2026 Streamline Logistics Group. All rights reserved.
+          </p>
 
           <div className="flex gap-6">
             <Link href="/privacy">Privacy</Link>
