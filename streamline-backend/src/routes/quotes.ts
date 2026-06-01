@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
+import { calculateQuotePrice } from "../lib/pricing";
 
 const router = Router();
 
@@ -47,8 +48,19 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
+    const price = calculateQuotePrice({
+      deliveryType: req.body.deliveryType,
+      vehicleSize: req.body.vehicleSize,
+    });
+
     const quote = await prisma.quote.create({
-      data: req.body,
+      data: {
+        ...req.body,
+        status: "priced",
+        adminPrice: price.adminPrice,
+        vatAmount: price.vatAmount,
+        totalPrice: price.totalPrice,
+      },
     });
 
     res.status(201).json(quote);
@@ -82,6 +94,29 @@ router.patch("/:id/price", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to update quote price",
+    });
+  }
+});
+
+router.patch("/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    const quote = await prisma.quote.update({
+      where: {
+        id: req.params.id,
+      },
+      data: {
+        status,
+      },
+    });
+
+    res.json(quote);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Failed to update quote status",
     });
   }
 });
