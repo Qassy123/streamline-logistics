@@ -4,6 +4,7 @@ import Intro from "@/components/homepage/Intro";
 import Services from "@/components/homepage/Services";
 import WhyChooseUs from "@/components/homepage/WhyChooseUs";
 import LogisticsProvider from "@/components/homepage/LogisticsProvider";
+import Industries from "@/components/homepage/Industries";
 import FAQ from "@/components/homepage/FAQ";
 import Promise from "@/components/homepage/Promise";
 import CTA from "@/components/homepage/CTA";
@@ -18,6 +19,7 @@ export default function Home() {
       <Services />
       <WhyChooseUs />
       <LogisticsProvider />
+      <Industries />
       <FAQ />
       <Promise />
       <CTA />
