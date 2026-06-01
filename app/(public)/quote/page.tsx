@@ -13,12 +13,131 @@ type QuoteResponse = {
   totalPrice: string;
 };
 
+type ExtraStop = {
+  order: number;
+  address: string;
+};
+
 const API_URL = "https://streamline-logistics-production.up.railway.app/api/quotes";
+
+const hourlyWindows = [
+  "07:00-08:00",
+  "08:00-09:00",
+  "09:00-10:00",
+  "10:00-11:00",
+  "11:00-12:00",
+  "12:00-13:00",
+  "13:00-14:00",
+  "14:00-15:00",
+  "15:00-16:00",
+  "16:00-17:00",
+  "17:00-18:00",
+  "18:00-19:00",
+  "ASAP",
+];
+
+const vehicleDetails: Record<
+  string,
+  {
+    length: string;
+    width: string;
+    height: string;
+    pallets: string;
+    maxWeight: string;
+  }
+> = {
+  "Small Van": {
+    length: "1.5m",
+    width: "1.2m",
+    height: "1.1m",
+    pallets: "1 pallet",
+    maxWeight: "400kg",
+  },
+  "SWB Van": {
+    length: "2.4m",
+    width: "1.6m",
+    height: "1.4m",
+    pallets: "2 pallets",
+    maxWeight: "900kg",
+  },
+  "LWB Van": {
+    length: "3.4m",
+    width: "1.7m",
+    height: "1.7m",
+    pallets: "3 pallets",
+    maxWeight: "1,200kg",
+  },
+  "XLWB High Roof": {
+    length: "4.2m",
+    width: "1.7m",
+    height: "1.9m",
+    pallets: "4 pallets",
+    maxWeight: "1,400kg",
+  },
+  "Luton Tail Lift": {
+    length: "4.0m",
+    width: "2.0m",
+    height: "2.0m",
+    pallets: "6 pallets",
+    maxWeight: "1,000kg",
+  },
+  Curtainsider: {
+    length: "6.0m+",
+    width: "2.4m",
+    height: "2.4m",
+    pallets: "10+ pallets",
+    maxWeight: "Varies",
+  },
+};
 
 export default function QuotePage() {
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
+  const [selectedDeliveryType, setSelectedDeliveryType] = useState("");
+  const [selectedJourneyType, setSelectedJourneyType] = useState("");
+  const [selectedVehicle, setSelectedVehicle] = useState("");
+  const [capacityPercent, setCapacityPercent] = useState<number | null>(null);
+  const [extraStops, setExtraStops] = useState<ExtraStop[]>([]);
+
+  const showCapacity = selectedDeliveryType !== "Full Load";
+  const showExtraStops =
+    selectedDeliveryType === "Multi Drop" ||
+    selectedJourneyType === "Multi Drop";
+
+  function addStop() {
+    setExtraStops((currentStops) => [
+      ...currentStops,
+      {
+        order: currentStops.length + 1,
+        address: "",
+      },
+    ]);
+  }
+
+  function removeStop(index: number) {
+    setExtraStops((currentStops) =>
+      currentStops
+        .filter((_, stopIndex) => stopIndex !== index)
+        .map((stop, stopIndex) => ({
+          ...stop,
+          order: stopIndex + 1,
+        }))
+    );
+  }
+
+  function updateStop(index: number, value: string) {
+    setExtraStops((currentStops) =>
+      currentStops.map((stop, stopIndex) =>
+        stopIndex === index
+          ? {
+              ...stop,
+              address: value,
+            }
+          : stop
+      )
+    );
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -29,13 +148,38 @@ export default function QuotePage() {
     const form = event.currentTarget;
     const formData = new FormData(form);
 
+    if (!selectedJourneyType) {
+      setError("Select a journey type before generating a quote.");
+      setLoading(false);
+      return;
+    }
+
+    if (showCapacity && !capacityPercent) {
+      setError("Select a vehicle capacity before generating a quote.");
+      setLoading(false);
+      return;
+    }
+
+    const cleanedStops = extraStops.filter((stop) => stop.address.trim() !== "");
+
+    if (showExtraStops && cleanedStops.length === 0) {
+      setError("Add at least one extra stop for a multi-drop journey.");
+      setLoading(false);
+      return;
+    }
+
+    const collectionDateValue = String(formData.get("collectionDate"));
+
     const payload = {
       deliveryType: formData.get("deliveryType"),
-      collectionDate: new Date(String(formData.get("collectionDate"))).toISOString(),
+      journeyType: selectedJourneyType,
+      capacityPercent: showCapacity ? capacityPercent : null,
+      collectionDate: new Date(`${collectionDateValue}T00:00:00.000Z`).toISOString(),
       collectionWindow: formData.get("collectionWindow"),
       vehicleSize: formData.get("vehicleSize"),
       collectionAddress: formData.get("collectionAddress"),
       deliveryAddress: formData.get("deliveryAddress"),
+      extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
       customerName: formData.get("customerName"),
       customerEmail: formData.get("customerEmail"),
       customerPhone: formData.get("customerPhone"),
@@ -43,8 +187,6 @@ export default function QuotePage() {
     };
 
     try {
-      console.log("Submitting quote to:", API_URL);
-
       const response = await fetch(API_URL, {
         method: "POST",
         headers: {
@@ -52,8 +194,6 @@ export default function QuotePage() {
         },
         body: JSON.stringify(payload),
       });
-
-      console.log("Quote API status:", response.status);
 
       if (!response.ok) {
         throw new Error("Quote request failed");
@@ -63,6 +203,11 @@ export default function QuotePage() {
 
       setQuote(data);
       form.reset();
+      setSelectedDeliveryType("");
+      setSelectedJourneyType("");
+      setSelectedVehicle("");
+      setCapacityPercent(null);
+      setExtraStops([]);
     } catch (error) {
       console.error("Quote submission error:", error);
       setError("Unable to generate quote. Please try again.");
@@ -84,7 +229,8 @@ export default function QuotePage() {
           </h1>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            Enter your collection, delivery and vehicle details to generate a quote.
+            Enter your delivery details, vehicle requirements and journey type to
+            generate a quote.
           </p>
         </div>
 
@@ -176,10 +322,19 @@ export default function QuotePage() {
             <select
               name="deliveryType"
               required
+              value={selectedDeliveryType}
+              onChange={(event) => {
+                setSelectedDeliveryType(event.target.value);
+
+                if (event.target.value === "Full Load") {
+                  setCapacityPercent(null);
+                }
+              }}
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
               <option value="">Select delivery type</option>
-              <option value="Same Day">Same Day Delivery</option>
+              <option value="Same Day Delivery">Same Day Delivery</option>
+              <option value="Next Day Delivery">Next Day Delivery</option>
               <option value="Full Day Booking">Full Day Booking</option>
               <option value="Half Day Booking">Half Day Booking</option>
               <option value="Multi Drop">Multi-Drop Delivery</option>
@@ -189,10 +344,101 @@ export default function QuotePage() {
 
           <div>
             <label className="block text-sm font-semibold text-slate-800">
+              Journey Type
+            </label>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {["One Way", "Return", "Multi Drop"].map((option) => (
+                <label
+                  key={option}
+                  className={`cursor-pointer rounded-xl border p-4 text-sm font-semibold ${
+                    selectedJourneyType === option
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="journeyType"
+                    value={option}
+                    checked={selectedJourneyType === option}
+                    onChange={() => setSelectedJourneyType(option)}
+                    className="sr-only"
+                  />
+                  {option}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">
+              Vehicle Size
+            </label>
+            <select
+              name="vehicleSize"
+              required
+              value={selectedVehicle}
+              onChange={(event) => setSelectedVehicle(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
+            >
+              <option value="">Select vehicle</option>
+              <option value="Small Van">Small Van</option>
+              <option value="SWB Van">SWB Van</option>
+              <option value="LWB Van">LWB Van</option>
+              <option value="XLWB High Roof">XLWB High Roof</option>
+              <option value="Luton Tail Lift">Luton Tail Lift</option>
+              <option value="Curtainsider">Curtainsider</option>
+            </select>
+          </div>
+
+          {selectedVehicle && vehicleDetails[selectedVehicle] && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-sm font-semibold text-slate-950">
+                {selectedVehicle} details
+              </p>
+
+              <div className="mt-4 grid gap-3 text-sm text-slate-700 md:grid-cols-2">
+                <p>Length: {vehicleDetails[selectedVehicle].length}</p>
+                <p>Width: {vehicleDetails[selectedVehicle].width}</p>
+                <p>Height: {vehicleDetails[selectedVehicle].height}</p>
+                <p>Pallets: {vehicleDetails[selectedVehicle].pallets}</p>
+                <p>Max Weight: {vehicleDetails[selectedVehicle].maxWeight}</p>
+              </div>
+            </div>
+          )}
+
+          {showCapacity && selectedVehicle && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-800">
+                Vehicle Capacity Required
+              </label>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                {[25, 50, 75, 100].map((percent) => (
+                  <button
+                    key={percent}
+                    type="button"
+                    onClick={() => setCapacityPercent(percent)}
+                    className={`rounded-xl border p-4 text-sm font-semibold ${
+                      capacityPercent === percent
+                        ? "border-slate-950 bg-slate-950 text-white"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    {percent}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">
               Collection Date
             </label>
             <input
-              type="datetime-local"
+              type="date"
               name="collectionDate"
               required
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
@@ -209,28 +455,11 @@ export default function QuotePage() {
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
               <option value="">Select collection window</option>
-              <option value="09:00-12:00">09:00 - 12:00</option>
-              <option value="12:00-14:00">12:00 - 14:00</option>
-              <option value="ASAP">ASAP</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-800">
-              Vehicle Size
-            </label>
-            <select
-              name="vehicleSize"
-              required
-              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
-            >
-              <option value="">Select vehicle</option>
-              <option value="Small Van">Small Van</option>
-              <option value="SWB Van">SWB Van</option>
-              <option value="LWB Van">LWB Van</option>
-              <option value="XLWB High Roof">XLWB High Roof</option>
-              <option value="Luton Tail Lift">Luton Tail Lift</option>
-              <option value="Curtainsider">Curtainsider</option>
+              {hourlyWindows.map((window) => (
+                <option key={window} value={window}>
+                  {window}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -257,6 +486,63 @@ export default function QuotePage() {
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
+
+          {showExtraStops && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Extra Stops
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Add as many additional stops as required.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={addStop}
+                  className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Add Stop
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-4">
+                {extraStops.map((stop, index) => (
+                  <div
+                    key={index}
+                    className="rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-950">
+                        Stop {index + 1}
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={() => removeStop(index)}
+                        className="text-sm font-semibold text-red-600"
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    <input
+                      value={stop.address}
+                      onChange={(event) => updateStop(index, event.target.value)}
+                      placeholder="Stop address"
+                      className="w-full rounded-lg border border-slate-300 px-4 py-3"
+                    />
+
+                    <p className="mt-2 text-xs text-slate-500">
+                      Order: {index + 1}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-slate-800">

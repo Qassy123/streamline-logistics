@@ -12,6 +12,9 @@ model Quote {
   status            String   @default("submitted")
 
   deliveryType      String
+  journeyType       String?
+  capacityPercent   Int?
+
   collectionDate    DateTime
   collectionWindow  String
   vehicleSize       String

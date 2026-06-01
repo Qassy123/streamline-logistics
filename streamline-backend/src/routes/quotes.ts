@@ -55,14 +55,33 @@ router.post("/", async (req, res) => {
 
     const quote = await prisma.quote.create({
       data: {
-        ...req.body,
-
         status: "priced",
+
+        deliveryType: req.body.deliveryType,
+        journeyType: req.body.journeyType || null,
+        capacityPercent: req.body.capacityPercent
+          ? Number(req.body.capacityPercent)
+          : null,
+
+        collectionDate: req.body.collectionDate,
+        collectionWindow: req.body.collectionWindow,
+        vehicleSize: req.body.vehicleSize,
+
+        collectionAddress: req.body.collectionAddress,
+        deliveryAddress: req.body.deliveryAddress,
+
+        extraDrops: req.body.extraDrops || null,
+        finalDeliveryTime: req.body.finalDeliveryTime || null,
+
+        customerName: req.body.customerName,
+        customerEmail: req.body.customerEmail,
+        customerPhone: req.body.customerPhone,
+
+        companyName: req.body.companyName || null,
 
         distanceMiles: price.distanceMiles,
         basePrice: price.basePrice,
         fuelSurcharge: price.fuelSurcharge,
-
         adminPrice: price.adminPrice,
         vatAmount: price.vatAmount,
         totalPrice: price.totalPrice,
