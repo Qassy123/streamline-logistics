@@ -14,6 +14,7 @@ router.get("/", async (_, res) => {
     res.json(quotes);
   } catch (error) {
     console.error(error);
+
     res.status(500).json({
       error: "Failed to fetch quotes",
     });
@@ -37,6 +38,7 @@ router.get("/:id", async (req, res) => {
     res.json(quote);
   } catch (error) {
     console.error(error);
+
     res.status(500).json({
       error: "Failed to fetch quote",
     });
