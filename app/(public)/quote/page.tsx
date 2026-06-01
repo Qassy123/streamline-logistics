@@ -13,6 +13,8 @@ type QuoteResponse = {
   totalPrice: string;
 };
 
+const API_URL = "https://streamline-logistics-production.up.railway.app/api/quotes";
+
 export default function QuotePage() {
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
@@ -41,13 +43,17 @@ export default function QuotePage() {
     };
 
     try {
-      const response = await fetch("http://localhost:5000/api/quotes", {
+      console.log("Submitting quote to:", API_URL);
+
+      const response = await fetch(API_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
       });
+
+      console.log("Quote API status:", response.status);
 
       if (!response.ok) {
         throw new Error("Quote request failed");
@@ -57,7 +63,8 @@ export default function QuotePage() {
 
       setQuote(data);
       form.reset();
-    } catch {
+    } catch (error) {
+      console.error("Quote submission error:", error);
       setError("Unable to generate quote. Please try again.");
     } finally {
       setLoading(false);
@@ -141,9 +148,7 @@ export default function QuotePage() {
 
               <div className="rounded-xl border border-slate-950 bg-slate-950 p-4 text-white">
                 <p className="text-slate-300">Total</p>
-                <p className="mt-1 text-2xl font-bold">
-                  £{quote.totalPrice}
-                </p>
+                <p className="mt-1 text-2xl font-bold">£{quote.totalPrice}</p>
               </div>
             </div>
 
