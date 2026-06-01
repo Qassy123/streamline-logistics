@@ -35,11 +35,14 @@ export default function Footer() {
           <h3 className="mb-5 text-lg font-semibold">Services</h3>
 
           <div className="flex flex-col gap-3 text-base text-white/80">
-            <span>Same Day Delivery</span>
-            <span>Full Day & Half Day Rates</span>
-            <span>Multi-Drop Delivery</span>
-            <span>Parcel Delivery</span>
-            <span>Full Load</span>
+            <Link href="/services/same-day-delivery">Same Day Delivery</Link>
+            <Link href="/services/full-day-half-day-rates">
+              Full Day & Half Day Rates
+            </Link>
+            <Link href="/services/multi-drop-delivery">
+              Multi-Drop Delivery
+            </Link>
+            <Link href="/services/full-load">Full Load</Link>
           </div>
         </div>
 
@@ -53,18 +56,14 @@ export default function Footer() {
               info@streamlinelogisticsgroup.co.uk
             </a>
 
-            <span>
-              Available 24/7 for urgent business deliveries
-            </span>
+            <span>Available 24/7 for urgent business deliveries</span>
           </div>
         </div>
       </div>
 
       <div className="border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-7 text-sm text-white/70 md:flex-row">
-          <p>
-            © 2026 Streamline Logistics Group. All rights reserved.
-          </p>
+          <p>© 2026 Streamline Logistics Group. All rights reserved.</p>
 
           <div className="flex gap-6">
             <Link href="/privacy">Privacy</Link>

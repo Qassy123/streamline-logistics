@@ -15,11 +15,6 @@ export const services = [
     link: "/services/multi-drop-delivery",
   },
   {
-    title: "Parcel Delivery",
-    description: "Fast and secure parcel transportation.",
-    link: "/services/parcel-delivery",
-  },
-  {
     title: "Full Load",
     description: "Dedicated vehicle solutions for larger consignments.",
     link: "/services/full-load",

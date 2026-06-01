@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Boxes, Clock3, Package, Route, Truck } from "lucide-react";
+import { Boxes, Clock3, Route, Truck } from "lucide-react";
 import { services } from "@/data/services";
 
-const icons = [Truck, Clock3, Route, Package, Boxes];
+const icons = [Truck, Clock3, Route, Boxes];
 
 export default function Services() {
   return (
@@ -20,7 +20,7 @@ export default function Services() {
           </p>
         </div>
 
-        <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 lg:grid-cols-6">
+        <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 lg:grid-cols-4">
           {services.map((service, index) => {
             const Icon = icons[index];
 
@@ -28,13 +28,7 @@ export default function Services() {
               <Link
                 key={service.title}
                 href={service.link}
-                className={`text-center ${
-                  index < 3
-                    ? "lg:col-span-2"
-                    : index === 3
-                    ? "lg:col-span-2 lg:col-start-2"
-                    : "lg:col-span-2"
-                }`}
+                className="text-center"
               >
                 <div className="group mb-4 flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:border-[#ff6a00] hover:shadow-2xl lg:min-h-[210px] lg:p-8">
                   <Icon
