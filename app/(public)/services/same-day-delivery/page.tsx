@@ -1,5 +1,6 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import Industries from "@/components/homepage/Industries";
 import Link from "next/link";
 import {
   ArrowRight,
