@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Quote {
+  id                String   @id @default(cuid())
+  status            String   @default("submitted")
+
+  deliveryType      String
+  collectionDate    DateTime
+  collectionWindow  String
+  vehicleSize       String
+
+  collectionAddress String
+  deliveryAddress   String
+
+  extraDrops        Json?
+
+  finalDeliveryTime String?
+
+  customerName      String
+  customerEmail     String
+  customerPhone     String
+
+  companyName       String?
+
+  adminPrice        Decimal?
+  vatAmount         Decimal?
+  totalPrice        Decimal?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
