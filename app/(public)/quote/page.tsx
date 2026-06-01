@@ -65,7 +65,7 @@ const vehicleDetails: Record<
     height: "1.1m",
     pallets: "1 pallet",
     maxWeight: "400kg",
-    image: "/vehicles/smallvan.jpg",
+    image: "/Vehicles/smallvan.jpg",
   },
   "SWB Van": {
     length: "2.4m",
@@ -73,7 +73,7 @@ const vehicleDetails: Record<
     height: "1.4m",
     pallets: "2 pallets",
     maxWeight: "900kg",
-    image: "/vehicles/swb.jpeg",
+    image: "/Vehicles/swb.jpeg",
   },
   "LWB Van": {
     length: "3.4m",
@@ -81,7 +81,7 @@ const vehicleDetails: Record<
     height: "1.7m",
     pallets: "3 pallets",
     maxWeight: "1,200kg",
-    image: "/vehicles/lwb.jpg",
+    image: "/Vehicles/lwb.jpg",
   },
   "XLWB High Roof": {
     length: "4.2m",
@@ -89,7 +89,7 @@ const vehicleDetails: Record<
     height: "1.9m",
     pallets: "4 pallets",
     maxWeight: "1,400kg",
-    image: "/vehicles/XLWB High Roof.jpg",
+    image: "/Vehicles/XLWB High Roof.jpg",
   },
   "Luton Tail Lift": {
     length: "4.0m",
@@ -97,7 +97,7 @@ const vehicleDetails: Record<
     height: "2.0m",
     pallets: "6 pallets",
     maxWeight: "1,000kg",
-    image: "/vehicles/Luton Tail Lift.jpg",
+    image: "/Vehicles/Luton Tail Lift.jpg",
   },
   Curtainsider: {
     length: "6.0m+",
@@ -105,7 +105,7 @@ const vehicleDetails: Record<
     height: "2.4m",
     pallets: "10+ pallets",
     maxWeight: "Varies",
-    image: "/vehicles/Curtainsider.jpg",
+    image: "/Vehicles/Curtainsider.jpg",
   },
 };
 
