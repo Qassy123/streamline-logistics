@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Truck,
   Phone,
+  Package,
 } from "lucide-react";
 
 export default function SameDayDeliveryPage() {
@@ -30,8 +31,9 @@ export default function SameDayDeliveryPage() {
 
             <p className="max-w-3xl text-xl leading-9 text-white/90">
               When your business needs urgent goods moved quickly,
-              Streamline Logistics Group provides dependable same-day
-              collection and delivery services throughout the UK.
+              Streamline Logistics Group provides dedicated same-day delivery
+              services across the UK with professional drivers, direct delivery
+              routes and real-time communication.
             </p>
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
@@ -88,8 +90,8 @@ export default function SameDayDeliveryPage() {
               </h2>
 
               <p className="mx-auto max-w-3xl text-lg text-[#0b1f3a]">
-                A professional same-day delivery solution built around speed,
-                communication and reliability.
+                A professional same-day delivery service built around speed,
+                communication, reliability and business continuity.
               </p>
             </div>
 
@@ -102,8 +104,8 @@ export default function SameDayDeliveryPage() {
                 </h3>
 
                 <p className="text-gray-600">
-                  Fast response times for urgent business deliveries across the
-                  UK.
+                  Fast response times for urgent business deliveries throughout
+                  the UK.
                 </p>
               </div>
 
@@ -115,8 +117,8 @@ export default function SameDayDeliveryPage() {
                 </h3>
 
                 <p className="text-gray-600">
-                  Direct collection and delivery support without unnecessary
-                  delays.
+                  Your goods travel directly to the destination without being
+                  mixed with other consignments.
                 </p>
               </div>
 
@@ -128,7 +130,7 @@ export default function SameDayDeliveryPage() {
                 </h3>
 
                 <p className="text-gray-600">
-                  Supporting businesses throughout England, Scotland, Wales and
+                  Supporting businesses across England, Scotland, Wales and
                   Northern Ireland.
                 </p>
               </div>
@@ -141,57 +143,137 @@ export default function SameDayDeliveryPage() {
                 </h3>
 
                 <p className="text-gray-600">
-                  Professional drivers with DBS checks and appropriate
-                  insurance.
+                  Professional drivers with DBS checks and appropriate insurance
+                  protection.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* HOW IT WORKS */}
+        {/* SUITABLE FOR */}
         <section className="bg-white py-20">
+          <div className="mx-auto max-w-7xl px-6">
+            <div className="mb-14 text-center">
+              <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
+                Suitable For
+              </h2>
+
+              <p className="mx-auto max-w-3xl text-lg text-[#0b1f3a]">
+                Supporting businesses across a wide range of industries and
+                urgent delivery requirements.
+              </p>
+            </div>
+
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {[
+                "Construction Materials",
+                "Medical Supplies",
+                "Retail Stock Transfers",
+                "Business Documents",
+                "Manufacturing Components",
+                "Events & Exhibitions",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
+                >
+                  <Package className="mb-4 text-[#ff6a00]" size={32} />
+                  <h3 className="font-semibold text-[#0b1f3a]">{item}</h3>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* HOW IT WORKS */}
+        <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-6xl px-6">
-            <h2 className="mb-16 text-center text-4xl font-light text-[#ef1c24]">
+            <h2 className="mb-4 text-center text-4xl font-light text-[#ef1c24]">
               How Our Same Day Service Works
             </h2>
 
+            <p className="mx-auto mb-16 max-w-3xl text-center text-lg text-[#0b1f3a]">
+              A simple process designed to keep your business moving.
+            </p>
+
             <div className="grid gap-8 md:grid-cols-3">
-              <div className="rounded-3xl border border-gray-200 p-8 text-center">
+              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
                 <div className="mb-4 text-5xl font-bold text-[#ef1c24]">1</div>
 
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Request Collection
+                  Contact Our Team
                 </h3>
 
                 <p className="text-gray-600">
-                  Send us your collection and delivery details.
+                  Tell us what needs collecting and where it needs delivering.
                 </p>
               </div>
 
-              <div className="rounded-3xl border border-gray-200 p-8 text-center">
+              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
                 <div className="mb-4 text-5xl font-bold text-[#ef1c24]">2</div>
 
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  We Collect
+                  Driver Assigned
                 </h3>
 
                 <p className="text-gray-600">
-                  A suitable driver is assigned and collects your goods.
+                  We allocate the most suitable driver and vehicle.
                 </p>
               </div>
 
-              <div className="rounded-3xl border border-gray-200 p-8 text-center">
+              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
                 <div className="mb-4 text-5xl font-bold text-[#ef1c24]">3</div>
 
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  We Deliver
+                  Direct Delivery
                 </h3>
 
                 <p className="text-gray-600">
-                  Your goods are delivered safely and professionally.
+                  Goods are delivered safely with clear communication throughout.
                 </p>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section className="bg-white py-20">
+          <div className="mx-auto max-w-5xl px-6">
+            <h2 className="mb-12 text-center text-4xl font-light text-[#ef1c24]">
+              Same Day Delivery FAQ
+            </h2>
+
+            <div className="space-y-6">
+              {[
+                {
+                  q: "What is a dedicated same day delivery service?",
+                  a: "Your goods travel directly from collection to delivery without being combined with other consignments.",
+                },
+                {
+                  q: "Do you operate throughout the UK?",
+                  a: "Yes. We provide nationwide coverage across England, Scotland, Wales and Northern Ireland.",
+                },
+                {
+                  q: "Are your drivers insured?",
+                  a: "Yes. Our drivers operate with appropriate insurance and professional standards.",
+                },
+                {
+                  q: "Can businesses book regular deliveries?",
+                  a: "Yes. We support both one-off urgent deliveries and ongoing business transport requirements.",
+                },
+              ].map((faq) => (
+                <div
+                  key={faq.q}
+                  className="rounded-2xl border border-gray-200 p-6"
+                >
+                  <h3 className="mb-2 font-semibold text-[#0b1f3a]">
+                    {faq.q}
+                  </h3>
+
+                  <p className="text-gray-600">{faq.a}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
