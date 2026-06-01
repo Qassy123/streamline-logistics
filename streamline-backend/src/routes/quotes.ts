@@ -73,6 +73,15 @@ router.post("/", async (req, res) => {
         extraDrops: req.body.extraDrops || null,
         finalDeliveryTime: req.body.finalDeliveryTime || null,
 
+        loadDescription: req.body.loadDescription || null,
+        palletCount: req.body.palletCount ? Number(req.body.palletCount) : null,
+        weightKg: req.body.weightKg ? Number(req.body.weightKg) : null,
+        fragileGoods: Boolean(req.body.fragileGoods),
+        tailLiftRequired: Boolean(req.body.tailLiftRequired),
+        loadingHelp: req.body.loadingHelp || null,
+        contactPreference: req.body.contactPreference || null,
+        accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
+
         customerName: req.body.customerName,
         customerEmail: req.body.customerEmail,
         customerPhone: req.body.customerPhone,
