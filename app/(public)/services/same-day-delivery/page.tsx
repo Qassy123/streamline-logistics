@@ -126,7 +126,7 @@ export default function SameDayDeliveryPage() {
                 <MapPinned className="mb-5 text-[#ff6a00]" size={46} />
 
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Nationwide Coverage
+                  UK-Wide Coverage
                 </h3>
 
                 <p className="text-gray-600">
@@ -152,40 +152,24 @@ export default function SameDayDeliveryPage() {
         </section>
 
         {/* SUITABLE FOR */}
-        <section className="bg-white py-20">
-          <div className="mx-auto max-w-7xl px-6">
-            <div className="mb-14 text-center">
-              <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
-                Suitable For
-              </h2>
+<section className="bg-white py-20">
+  <div className="mx-auto max-w-7xl px-6">
+    <div className="mb-14 text-center">
+      <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
+        Industries We Support
+      </h2>
 
-              <p className="mx-auto max-w-3xl text-lg text-[#0b1f3a]">
-                Supporting businesses across a wide range of industries and
-                urgent delivery requirements.
-              </p>
-            </div>
+      <p className="mx-auto max-w-4xl text-lg text-[#0b1f3a]">
+        Our same day delivery service supports businesses across construction,
+        aviation, hospitality, healthcare, professional services,
+        manufacturing, wholesale, education, events and many other sectors
+        throughout the United Kingdom.
+      </p>
+    </div>
 
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[
-                "Construction Materials",
-                "Medical Supplies",
-                "Retail Stock Transfers",
-                "Business Documents",
-                "Manufacturing Components",
-                "Events & Exhibitions",
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
-                >
-                  <Package className="mb-4 text-[#ff6a00]" size={32} />
-                  <h3 className="font-semibold text-[#0b1f3a]">{item}</h3>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
+    <Industries />
+  </div>
+</section>
         {/* HOW IT WORKS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-6xl px-6">
@@ -252,7 +236,7 @@ export default function SameDayDeliveryPage() {
                 },
                 {
                   q: "Do you operate throughout the UK?",
-                  a: "Yes. We provide nationwide coverage across England, Scotland, Wales and Northern Ireland.",
+                  a: "Yes. We provide UK-Wide  coverage across England, Scotland, Wales and Northern Ireland.",
                 },
                 {
                   q: "Are your drivers insured?",
