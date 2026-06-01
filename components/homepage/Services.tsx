@@ -4,14 +4,6 @@ import { services } from "@/data/services";
 
 const icons = [Truck, Clock3, Route, Package, Boxes];
 
-const serviceLinks = [
-  "/services/same-day-delivery",
-  "/services/full-day-half-day-rates",
-  "/services/multi-drop-delivery",
-  "/services/parcel-delivery",
-  "/services/full-load",
-];
-
 export default function Services() {
   return (
     <section className="bg-white pb-16 lg:pb-28">
@@ -35,7 +27,7 @@ export default function Services() {
             return (
               <Link
                 key={service.title}
-                href={serviceLinks[index]}
+                href={service.link}
                 className={`text-center ${
                   index < 3
                     ? "lg:col-span-2"
