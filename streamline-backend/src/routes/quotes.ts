@@ -61,4 +61,29 @@ router.post("/", async (req, res) => {
   }
 });
 
+router.patch("/:id/price", async (req, res) => {
+  try {
+    const { adminPrice, vatAmount, totalPrice } = req.body;
+
+    const quote = await prisma.quote.update({
+      where: {
+        id: req.params.id,
+      },
+      data: {
+        adminPrice,
+        vatAmount,
+        totalPrice,
+      },
+    });
+
+    res.json(quote);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Failed to update quote price",
+    });
+  }
+});
+
 export default router;
