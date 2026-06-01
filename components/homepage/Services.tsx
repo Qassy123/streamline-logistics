@@ -1,7 +1,16 @@
+import Link from "next/link";
 import { Boxes, Clock3, Package, Route, Truck } from "lucide-react";
 import { services } from "@/data/services";
 
 const icons = [Truck, Clock3, Route, Package, Boxes];
+
+const serviceLinks = [
+  "/services/same-day-delivery",
+  "/services/full-day-half-day-rates",
+  "/services/multi-drop-delivery",
+  "/services/parcel-delivery",
+  "/services/full-load",
+];
 
 export default function Services() {
   return (
@@ -24,8 +33,9 @@ export default function Services() {
             const Icon = icons[index];
 
             return (
-              <div
+              <Link
                 key={service.title}
+                href={serviceLinks[index]}
                 className={`text-center ${
                   index < 3
                     ? "lg:col-span-2"
@@ -48,7 +58,7 @@ export default function Services() {
                 <p className="px-2 text-base leading-7 text-[#0b1f3a] lg:text-lg">
                   {service.description}
                 </p>
-              </div>
+              </Link>
             );
           })}
         </div>
