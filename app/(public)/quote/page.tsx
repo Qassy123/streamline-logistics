@@ -65,7 +65,7 @@ const vehicleDetails: Record<
     height: "1.1m",
     pallets: "1 pallet",
     maxWeight: "400kg",
-    image: "/vehicles/small-van.png",
+    image: "/vehicles/smallvan.jpg",
   },
   "SWB Van": {
     length: "2.4m",
@@ -73,7 +73,7 @@ const vehicleDetails: Record<
     height: "1.4m",
     pallets: "2 pallets",
     maxWeight: "900kg",
-    image: "/vehicles/swb-van.png",
+    image: "/vehicles/swb.jpeg",
   },
   "LWB Van": {
     length: "3.4m",
@@ -81,7 +81,7 @@ const vehicleDetails: Record<
     height: "1.7m",
     pallets: "3 pallets",
     maxWeight: "1,200kg",
-    image: "/vehicles/lwb-van.png",
+    image: "/vehicles/lwb.jpg",
   },
   "XLWB High Roof": {
     length: "4.2m",
@@ -89,7 +89,7 @@ const vehicleDetails: Record<
     height: "1.9m",
     pallets: "4 pallets",
     maxWeight: "1,400kg",
-    image: "/vehicles/xlwb-high-roof.png",
+    image: "/vehicles/XLWB High Roof.jpg",
   },
   "Luton Tail Lift": {
     length: "4.0m",
@@ -97,7 +97,7 @@ const vehicleDetails: Record<
     height: "2.0m",
     pallets: "6 pallets",
     maxWeight: "1,000kg",
-    image: "/vehicles/luton-tail-lift.png",
+    image: "/vehicles/Luton Tail Lift.jpg",
   },
   Curtainsider: {
     length: "6.0m+",
@@ -105,15 +105,31 @@ const vehicleDetails: Record<
     height: "2.4m",
     pallets: "10+ pallets",
     maxWeight: "Varies",
-    image: "/vehicles/curtainsider.png",
+    image: "/vehicles/Curtainsider.jpg",
   },
 };
 
 const capacityOptions = [
-  { percent: 25, label: "25%", pallets: "Approx. 1 pallet" },
-  { percent: 50, label: "50%", pallets: "Approx. half capacity" },
-  { percent: 75, label: "75%", pallets: "Approx. three-quarter capacity" },
-  { percent: 100, label: "100%", pallets: "Full capacity" },
+  {
+    percent: 25,
+    label: "25%",
+    pallets: "Quarter Load",
+  },
+  {
+    percent: 50,
+    label: "50%",
+    pallets: "Half Load",
+  },
+  {
+    percent: 75,
+    label: "75%",
+    pallets: "Three Quarter Load",
+  },
+  {
+    percent: 100,
+    label: "100%",
+    pallets: "Full Load",
+  },
 ];
 
 export default function QuotePage() {
@@ -129,36 +145,10 @@ export default function QuotePage() {
   const [extraStops, setExtraStops] = useState<ExtraStop[]>([]);
 
   const [fragileGoods, setFragileGoods] = useState(false);
-  const [tailLiftRequired, setTailLiftRequired] = useState(false);
   const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
 
-  const hideJourneyType =
-    selectedDeliveryType === "Same Day Delivery (A-B)" ||
-    selectedDeliveryType === "Same Day Multi Drop";
-
-  const showCapacity = selectedDeliveryType !== "Full Load";
-
-  const showExtraStops =
-    selectedDeliveryType === "Same Day Multi Drop" ||
-    selectedJourneyType === "Multi Drop";
-
-  function handleDeliveryTypeChange(value: string) {
-    setSelectedDeliveryType(value);
-    setError("");
-
-    if (value === "Same Day Delivery (A-B)") {
-      setSelectedJourneyType("One Way");
-      setExtraStops([]);
-    } else if (value === "Same Day Multi Drop") {
-      setSelectedJourneyType("Multi Drop");
-    } else {
-      setSelectedJourneyType("");
-    }
-
-    if (value === "Full Load") {
-      setCapacityPercent(null);
-    }
-  }
+  const showCapacity = selectedDeliveryType !== "Full Load (One Way, Return, Multi Drop)";
+  const showExtraStops = selectedJourneyType === "Multi Drop";
 
   function addStop() {
     setExtraStops((currentStops) => [
@@ -184,12 +174,7 @@ export default function QuotePage() {
   function updateStopAddress(index: number, value: string) {
     setExtraStops((currentStops) =>
       currentStops.map((stop, stopIndex) =>
-        stopIndex === index
-          ? {
-              ...stop,
-              address: value,
-            }
-          : stop
+        stopIndex === index ? { ...stop, address: value } : stop
       )
     );
   }
@@ -197,14 +182,18 @@ export default function QuotePage() {
   function updateStopOrder(index: number, value: number) {
     setExtraStops((currentStops) =>
       currentStops.map((stop, stopIndex) =>
-        stopIndex === index
-          ? {
-              ...stop,
-              order: value,
-            }
-          : stop
+        stopIndex === index ? { ...stop, order: value } : stop
       )
     );
+  }
+
+  function handleDeliveryTypeChange(value: string) {
+    setSelectedDeliveryType(value);
+    setError("");
+
+    if (value === "Full Load (One Way, Return, Multi Drop)") {
+      setCapacityPercent(null);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -259,14 +248,9 @@ export default function QuotePage() {
       deliveryAddress: formData.get("deliveryAddress"),
       extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
 
-      finalDeliveryTime: formData.get("finalDeliveryTime"),
-
       loadDescription: formData.get("loadDescription"),
       palletCount: formData.get("palletCount"),
-      weightKg: formData.get("weightKg"),
       fragileGoods,
-      tailLiftRequired,
-      loadingHelp: formData.get("loadingHelp"),
       contactPreference: formData.get("contactPreference"),
       accuracyConfirmed,
 
@@ -301,7 +285,6 @@ export default function QuotePage() {
       setCapacityPercent(null);
       setExtraStops([]);
       setFragileGoods(false);
-      setTailLiftRequired(false);
       setAccuracyConfirmed(false);
     } catch (error) {
       console.error("Quote submission error:", error);
@@ -324,8 +307,7 @@ export default function QuotePage() {
           </h1>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            Enter your delivery details, vehicle requirements and journey type to
-            generate a quote.
+            Enter your delivery details, vehicle requirements and journey type to generate a quote.
           </p>
         </div>
 
@@ -392,11 +374,6 @@ export default function QuotePage() {
                 <p className="mt-1 text-2xl font-bold">£{quote.totalPrice}</p>
               </div>
             </div>
-
-            <p className="mt-6 text-sm leading-6 text-slate-500">
-              This quote is generated from the current pricing rules and is subject to
-              confirmation if any collection or delivery details are inaccurate.
-            </p>
           </section>
         )}
 
@@ -422,47 +399,46 @@ export default function QuotePage() {
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
               <option value="">Select delivery type</option>
-              <option value="Same Day Delivery (A-B)">
-                Same Day Delivery (A-B)
+              <option value="Same Day Delivery (One Way, Return, Multi Drop)">
+                Same Day Delivery (One Way, Return, Multi Drop)
               </option>
-              <option value="Same Day Multi Drop">Same Day Multi Drop</option>
               <option value="Next Day Delivery">Next Day Delivery</option>
               <option value="Full Day Booking">Full Day Booking</option>
               <option value="Half Day Booking">Half Day Booking</option>
-              <option value="Full Load">Full Load</option>
+              <option value="Full Load (One Way, Return, Multi Drop)">
+                Full Load (One Way, Return, Multi Drop)
+              </option>
             </select>
           </div>
 
-          {!hideJourneyType && (
-            <div>
-              <label className="block text-sm font-semibold text-slate-800">
-                Journey Type
-              </label>
+          <div>
+            <label className="block text-sm font-semibold text-slate-800">
+              Journey Type
+            </label>
 
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                {["One Way", "Return", "Multi Drop"].map((option) => (
-                  <label
-                    key={option}
-                    className={`cursor-pointer rounded-xl border p-4 text-sm font-semibold ${
-                      selectedJourneyType === option
-                        ? "border-slate-950 bg-slate-950 text-white"
-                        : "border-slate-200 bg-white text-slate-700"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="journeyType"
-                      value={option}
-                      checked={selectedJourneyType === option}
-                      onChange={() => setSelectedJourneyType(option)}
-                      className="sr-only"
-                    />
-                    {option}
-                  </label>
-                ))}
-              </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {["One Way", "Return", "Multi Drop"].map((option) => (
+                <label
+                  key={option}
+                  className={`cursor-pointer rounded-xl border p-4 text-sm font-semibold ${
+                    selectedJourneyType === option
+                      ? "border-slate-950 bg-slate-950 text-white"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="journeyType"
+                    value={option}
+                    checked={selectedJourneyType === option}
+                    onChange={() => setSelectedJourneyType(option)}
+                    className="sr-only"
+                  />
+                  {option}
+                </label>
+              ))}
             </div>
-          )}
+          </div>
 
           <div>
             <label className="block text-sm font-semibold text-slate-800">
@@ -543,24 +519,6 @@ export default function QuotePage() {
                   {window}
                 </option>
               ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-800">
-              Final Delivery Deadline
-            </label>
-            <select
-              name="finalDeliveryTime"
-              required
-              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
-            >
-              <option value="">Select deadline</option>
-              <option value="ASAP">ASAP</option>
-              <option value="Before 10am">Before 10am</option>
-              <option value="Before 12pm">Before 12pm</option>
-              <option value="Before 5pm">Before 5pm</option>
-              <option value="Flexible">Flexible</option>
             </select>
           </div>
 
@@ -672,69 +630,27 @@ export default function QuotePage() {
             />
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-semibold text-slate-800">
-                Pallet Count
-              </label>
-              <input
-                type="number"
-                name="palletCount"
-                min="0"
-                required
-                className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-800">
-                Approx. Weight KG
-              </label>
-              <input
-                type="number"
-                name="weightKg"
-                min="0"
-                required
-                className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={fragileGoods}
-                onChange={(event) => setFragileGoods(event.target.checked)}
-              />
-              Fragile goods
-            </label>
-
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={tailLiftRequired}
-                onChange={(event) => setTailLiftRequired(event.target.checked)}
-              />
-              Tail lift required
-            </label>
-          </div>
-
           <div>
             <label className="block text-sm font-semibold text-slate-800">
-              Loading Help
+              Pallet Count
             </label>
-            <select
-              name="loadingHelp"
+            <input
+              type="number"
+              name="palletCount"
+              min="0"
               required
               className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
-            >
-              <option value="">Select loading help</option>
-              <option value="Driver only">Driver only</option>
-              <option value="Driver assist">Driver assist</option>
-              <option value="Two-man team">Two-man team</option>
-            </select>
+            />
           </div>
+
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={fragileGoods}
+              onChange={(event) => setFragileGoods(event.target.checked)}
+            />
+            Fragile goods
+          </label>
 
           <div>
             <label className="block text-sm font-semibold text-slate-800">
@@ -840,9 +756,11 @@ export default function QuotePage() {
               </button>
             </div>
 
-            <div className="mt-6 flex h-48 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm font-semibold text-slate-500">
-              Vehicle image placeholder
-            </div>
+            <img
+              src={vehicleDetails[selectedVehicle].image}
+              alt={selectedVehicle}
+              className="mt-6 h-48 w-full rounded-xl border border-slate-200 object-contain"
+            />
 
             <div className="mt-6 grid gap-4 text-sm text-slate-700 md:grid-cols-2">
               <p>Length: {vehicleDetails[selectedVehicle].length}</p>
