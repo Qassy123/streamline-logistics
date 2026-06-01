@@ -21,6 +21,7 @@ export default function Home() {
       <WhyChooseUs />
       <LogisticsProvider />
       <Industries />
+      <UrgentDeliveryCTA />
       <FAQ />
       <Promise />
       <CTA />
