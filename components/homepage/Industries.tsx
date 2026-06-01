@@ -1,142 +1,152 @@
-import {
-  BriefcaseBusiness,
-  Building2,
-  Car,
-  Clapperboard,
-  Factory,
-  GraduationCap,
-  Hammer,
-  HeartPulse,
-  Landmark,
-  Plane,
-  Sprout,
-  Store,
-  Truck,
-  Utensils,
-  Zap,
-} from "lucide-react";
+import Image from "next/image";
 
 const industries = [
   {
     title: "Construction",
-    description: "Tools, materials and urgent site deliveries moved quickly.",
-    icon: Hammer,
+    image: "/images/industries/construction.jpg",
+    description:
+      "Urgent site deliveries, materials, tools and project support logistics.",
   },
   {
     title: "Aviation",
-    description: "Time-sensitive parts and operational goods delivered safely.",
-    icon: Plane,
+    image: "/images/industries/aviation.jpg",
+    description:
+      "Time-critical collections and deliveries for aviation businesses.",
   },
   {
     title: "Hospitality",
-    description: "Reliable delivery support for venues, suppliers and events.",
-    icon: Utensils,
+    image: "/images/industries/hospitality.jpg",
+    description:
+      "Reliable transport support for venues, suppliers and hospitality groups.",
   },
   {
     title: "Farming",
-    description: "Business goods and supplies transported with care.",
-    icon: Sprout,
+    image: "/images/industries/farming.jpg",
+    description:
+      "Dependable movement of supplies and equipment across agricultural operations.",
   },
   {
     title: "Marketing & Print",
-    description: "Print materials, displays and campaign items delivered on time.",
-    icon: Landmark,
+    image: "/images/industries/marketing.jpg",
+    description:
+      "Printed materials, displays and campaign assets delivered on schedule.",
   },
   {
     title: "Pharmaceutical & Medical",
-    description: "Careful handling for business medical supplies and equipment.",
-    icon: HeartPulse,
+    image: "/images/industries/pharmacy.jpg",
+    description:
+      "Professional handling of medical supplies and business-critical deliveries.",
   },
   {
     title: "Film & Production",
-    description: "Production equipment, props and urgent shoot materials moved fast.",
-    icon: Clapperboard,
+    image: "/images/industries/film.jpg",
+    description:
+      "Equipment, props and production assets transported safely and efficiently.",
   },
   {
     title: "Events",
-    description: "Event stock, equipment and supplies delivered when needed.",
-    icon: Store,
+    image: "/images/industries/event.jpg",
+    description:
+      "Supporting events with dependable collection and delivery services.",
   },
   {
     title: "Professional Services",
-    description: "Secure document, parcel and office delivery support.",
-    icon: BriefcaseBusiness,
+    image: "/images/industries/professional.jpg",
+    description:
+      "Secure document, parcel and office logistics support.",
   },
   {
     title: "Education",
-    description: "Supplies, equipment and materials delivered between sites.",
-    icon: GraduationCap,
+    image: "/images/industries/education.jpg",
+    description:
+      "Transport solutions for schools, colleges and training providers.",
   },
   {
     title: "Arts & Antiques",
-    description: "Careful delivery support for delicate and valuable items.",
-    icon: Building2,
+    image: "/images/industries/arts.jpg",
+    description:
+      "Careful transportation of valuable and delicate items.",
   },
   {
     title: "Utilities",
-    description: "Urgent parts and operational goods delivered to teams.",
-    icon: Zap,
+    image: "/images/industries/utilities.jpg",
+    description:
+      "Fast response delivery support for utility providers and contractors.",
   },
   {
     title: "Fast-Moving Consumer Goods",
-    description: "Responsive delivery support for busy supply chains.",
-    icon: Truck,
+    image: "/images/industries/fast.jpg",
+    description:
+      "Reliable logistics support for high-volume consumer products.",
   },
   {
     title: "Automotive",
-    description: "Parts, stock and business items transported efficiently.",
-    icon: Car,
+    image: "/images/industries/automotive.jpg",
+    description:
+      "Parts, stock and business deliveries for the automotive sector.",
   },
   {
     title: "Wholesale",
-    description: "Bulk goods, stock movements and business deliveries handled.",
-    icon: Factory,
+    image: "/images/industries/wholesale.jpg",
+    description:
+      "Efficient movement of wholesale goods and business inventory.",
   },
 ];
 
 export default function Industries() {
   return (
-    <section className="bg-white py-16 lg:py-24">
+    <section className="bg-white py-20 lg:py-28">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="mx-auto mb-12 max-w-4xl text-center lg:mb-16">
+        <div className="mx-auto mb-14 max-w-4xl text-center">
           <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff6a00]">
-            Sectors We Support
+            Industries We Support
           </p>
 
-          <h2 className="mb-5 text-4xl font-light leading-tight text-[#ef1c24] lg:text-5xl">
+          <h2 className="mb-6 text-4xl font-light text-[#ef1c24] lg:text-5xl">
             Courier Services Tailored To Your Industry
           </h2>
 
           <p className="text-lg leading-8 text-[#0b1f3a] lg:text-xl">
-            From urgent site supplies to business parcels, Streamline Logistics
-            Group supports companies across a wide range of industries with
-            dependable collection and delivery services.
+            Streamline Logistics Group supports businesses across a wide range
+            of sectors with dependable collection and delivery services
+            throughout the United Kingdom.
           </p>
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {industries.map((industry) => {
-            const Icon = industry.icon;
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {industries.map((industry) => (
+            <div
+              key={industry.title}
+              className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#ff6a00] hover:shadow-xl"
+            >
+              <div className="relative h-52 overflow-hidden">
+                <Image
+                  src={industry.image}
+                  alt={industry.title}
+                  fill
+                  className="object-cover transition duration-500 group-hover:scale-110"
+                />
+              </div>
 
-            return (
-              <div
-                key={industry.title}
-                className="group rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#ff6a00] hover:shadow-xl"
-              >
-                <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff1e8] text-[#ef1c24] transition group-hover:bg-[#ef1c24] group-hover:text-white">
-                  <Icon size={28} />
-                </div>
-
-                <h3 className="mb-3 text-xl font-semibold leading-7 text-[#0b1f3a]">
+              <div className="p-5">
+                <h3 className="mb-3 text-lg font-semibold text-[#0b1f3a]">
                   {industry.title}
                 </h3>
 
-                <p className="text-base leading-7 text-gray-600">
+                <p className="text-sm leading-6 text-gray-600">
                   {industry.description}
                 </p>
               </div>
-            );
-          })}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-14 text-center">
+          <p className="mx-auto max-w-3xl text-lg leading-8 text-[#0b1f3a]">
+            Don't see your industry listed? We work with businesses across many
+            sectors and can tailor our collection and delivery services to your
+            specific requirements.
+          </p>
         </div>
       </div>
     </section>
