@@ -29,6 +29,9 @@ model Quote {
 
   companyName       String?
 
+  distanceMiles     Decimal?
+  basePrice         Decimal?
+  fuelSurcharge     Decimal?
   adminPrice        Decimal?
   vatAmount         Decimal?
   totalPrice        Decimal?

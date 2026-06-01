@@ -56,7 +56,13 @@ router.post("/", async (req, res) => {
     const quote = await prisma.quote.create({
       data: {
         ...req.body,
+
         status: "priced",
+
+        distanceMiles: price.distanceMiles,
+        basePrice: price.basePrice,
+        fuelSurcharge: price.fuelSurcharge,
+
         adminPrice: price.adminPrice,
         vatAmount: price.vatAmount,
         totalPrice: price.totalPrice,
@@ -75,13 +81,23 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id/price", async (req, res) => {
   try {
-    const { adminPrice, vatAmount, totalPrice } = req.body;
+    const {
+      distanceMiles,
+      basePrice,
+      fuelSurcharge,
+      adminPrice,
+      vatAmount,
+      totalPrice,
+    } = req.body;
 
     const quote = await prisma.quote.update({
       where: {
         id: req.params.id,
       },
       data: {
+        distanceMiles,
+        basePrice,
+        fuelSurcharge,
         adminPrice,
         vatAmount,
         totalPrice,

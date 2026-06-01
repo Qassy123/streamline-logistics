@@ -2,15 +2,30 @@
 
 import { useState } from "react";
 
+type QuoteResponse = {
+  id: string;
+  status: string;
+  distanceMiles: string;
+  basePrice: string;
+  fuelSurcharge: string;
+  adminPrice: string;
+  vatAmount: string;
+  totalPrice: string;
+};
+
 export default function QuotePage() {
   const [loading, setLoading] = useState(false);
-  const [successId, setSuccessId] = useState("");
+  const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  const [error, setError] = useState("");
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
+    setError("");
+    setQuote(null);
 
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     const payload = {
       deliveryType: formData.get("deliveryType"),
@@ -25,47 +40,138 @@ export default function QuotePage() {
       companyName: formData.get("companyName"),
     };
 
-    const response = await fetch("http://localhost:5000/api/quotes", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const response = await fetch("http://localhost:5000/api/quotes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await response.json();
+      if (!response.ok) {
+        throw new Error("Quote request failed");
+      }
 
-    setSuccessId(data.id);
-    setLoading(false);
-    event.currentTarget.reset();
+      const data = await response.json();
+
+      setQuote(data);
+      form.reset();
+    } catch {
+      setError("Unable to generate quote. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="min-h-screen bg-white px-6 py-20">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-4xl font-bold tracking-tight text-gray-900">
-          Get a Quote
-        </h1>
+    <main className="min-h-screen bg-slate-50 px-6 py-20">
+      <div className="mx-auto max-w-4xl">
+        <div className="max-w-2xl">
+          <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Instant Quote
+          </p>
 
-        <p className="mt-4 text-gray-600">
-          Submit your delivery details and our team will review your request.
-        </p>
+          <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-950 md:text-5xl">
+            Get an instant delivery quote
+          </h1>
 
-        {successId && (
-          <div className="mt-6 rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
-            Quote submitted successfully. Reference: {successId}
+          <p className="mt-5 text-lg leading-8 text-slate-600">
+            Enter your collection, delivery and vehicle details to generate a quote.
+          </p>
+        </div>
+
+        {quote && (
+          <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Quote generated
+                </p>
+
+                <h2 className="mt-2 text-4xl font-bold text-slate-950">
+                  £{quote.totalPrice}
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-500">
+                  Reference: {quote.id}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
+                {quote.status}
+              </div>
+            </div>
+
+            <div className="mt-8 grid gap-4 text-sm md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-slate-500">Estimated Distance</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  {quote.distanceMiles} miles
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-slate-500">Base Price</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  £{quote.basePrice}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-slate-500">Fuel Surcharge</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  £{quote.fuelSurcharge}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-slate-500">Subtotal Before VAT</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  £{quote.adminPrice}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-slate-500">VAT</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  £{quote.vatAmount}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-950 bg-slate-950 p-4 text-white">
+                <p className="text-slate-300">Total</p>
+                <p className="mt-1 text-2xl font-bold">
+                  £{quote.totalPrice}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-6 text-sm leading-6 text-slate-500">
+              This quote is generated from the current pricing rules and is subject to
+              confirmation if any collection or delivery details are inaccurate.
+            </p>
+          </section>
+        )}
+
+        {error && (
+          <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+            {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="mt-10 space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          className="mt-10 grid gap-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        >
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Delivery Type
             </label>
             <select
               name="deliveryType"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
               <option value="">Select delivery type</option>
               <option value="Same Day">Same Day Delivery</option>
@@ -77,27 +183,27 @@ export default function QuotePage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Collection Date
             </label>
             <input
               type="datetime-local"
               name="collectionDate"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Collection Window
             </label>
             <select
               name="collectionWindow"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
-              <option value="">Select time window</option>
+              <option value="">Select collection window</option>
               <option value="09:00-12:00">09:00 - 12:00</option>
               <option value="12:00-14:00">12:00 - 14:00</option>
               <option value="ASAP">ASAP</option>
@@ -105,13 +211,13 @@ export default function QuotePage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Vehicle Size
             </label>
             <select
               name="vehicleSize"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             >
               <option value="">Select vehicle</option>
               <option value="Small Van">Small Van</option>
@@ -124,77 +230,79 @@ export default function QuotePage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Collection Address
             </label>
             <textarea
               name="collectionAddress"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              rows={3}
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Delivery Address
             </label>
             <textarea
               name="deliveryAddress"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              rows={3}
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Your Name
             </label>
             <input
               name="customerName"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Email
             </label>
             <input
               type="email"
               name="customerEmail"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Phone
             </label>
             <input
               name="customerPhone"
               required
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-semibold text-slate-800">
               Company Name
             </label>
             <input
               name="companyName"
-              className="mt-2 w-full rounded-md border border-gray-300 px-4 py-3"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-black px-6 py-4 font-semibold text-white disabled:opacity-60"
+            className="rounded-lg bg-slate-950 px-6 py-4 font-semibold text-white disabled:opacity-60"
           >
-            {loading ? "Submitting..." : "Submit Quote Request"}
+            {loading ? "Generating Quote..." : "Get Instant Quote"}
           </button>
         </form>
       </div>
