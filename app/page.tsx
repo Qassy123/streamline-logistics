@@ -5,6 +5,7 @@ import Services from "@/components/homepage/Services";
 import WhyChooseUs from "@/components/homepage/WhyChooseUs";
 import LogisticsProvider from "@/components/homepage/LogisticsProvider";
 import Industries from "@/components/homepage/Industries";
+import UrgentDeliveryCTA from "@/components/homepage/UrgentDeliveryCTA";
 import FAQ from "@/components/homepage/FAQ";
 import Promise from "@/components/homepage/Promise";
 import CTA from "@/components/homepage/CTA";
