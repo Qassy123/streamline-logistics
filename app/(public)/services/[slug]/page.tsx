@@ -76,7 +76,10 @@ export default function ServicePage({ params }: ServicePageProps) {
 
               <div className="space-y-10">
                 {service.sections.map((section) => (
-                  <div key={section.title} className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+                  <div
+                    key={section.title}
+                    className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm"
+                  >
                     <div className="mb-4 flex items-center gap-4">
                       <CheckCircle className="text-[#ff6a00]" size={30} />
 
