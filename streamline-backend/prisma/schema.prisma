@@ -24,14 +24,9 @@ model Quote {
 
   extraDrops        Json?
 
-  finalDeliveryTime String?
-
   loadDescription   String?
   palletCount       Int?
-  weightKg          Int?
   fragileGoods      Boolean  @default(false)
-  tailLiftRequired  Boolean  @default(false)
-  loadingHelp       String?
   contactPreference String?
   accuracyConfirmed Boolean  @default(false)
 
