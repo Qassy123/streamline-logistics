@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import quoteRoutes from "./routes/quotes";
+import vehicleRoutes from "./routes/vehicles";
 
 dotenv.config();
 
@@ -12,6 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/quotes", quoteRoutes);
+app.use("/api/vehicles", vehicleRoutes);
 
 app.get("/", (_, res) => {
   res.json({
