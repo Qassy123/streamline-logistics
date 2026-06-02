@@ -1,6 +1,7 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Industries from "@/components/homepage/Industries";
+import ServiceQuoteSection from "@/components/services/ServiceQuoteSection";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -10,7 +11,6 @@ import {
   ShieldCheck,
   Truck,
   Phone,
-  Package,
 } from "lucide-react";
 
 export default function SameDayDeliveryPage() {
@@ -19,7 +19,6 @@ export default function SameDayDeliveryPage() {
       <Header />
 
       <main>
-        {/* HERO */}
         <section className="bg-gradient-to-r from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-20 text-white lg:py-28">
           <div className="mx-auto max-w-7xl px-6">
             <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff7f11]">
@@ -39,7 +38,7 @@ export default function SameDayDeliveryPage() {
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Link
-                href="/instant-quote"
+                href="/quote"
                 className="inline-flex items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 font-semibold text-white transition hover:bg-[#ff6a00]"
               >
                 Get Instant Quote
@@ -57,7 +56,6 @@ export default function SameDayDeliveryPage() {
           </div>
         </section>
 
-        {/* TRUST STATS */}
         <section className="border-b bg-white py-10">
           <div className="mx-auto grid max-w-6xl gap-8 px-6 text-center md:grid-cols-4">
             <div>
@@ -82,7 +80,6 @@ export default function SameDayDeliveryPage() {
           </div>
         </section>
 
-        {/* BENEFITS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-7xl px-6">
             <div className="mb-14 text-center">
@@ -99,11 +96,9 @@ export default function SameDayDeliveryPage() {
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <Clock3 className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Rapid Collection
                 </h3>
-
                 <p className="text-gray-600">
                   Fast response times for urgent business deliveries throughout
                   the UK.
@@ -112,11 +107,9 @@ export default function SameDayDeliveryPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <Truck className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Dedicated Delivery
                 </h3>
-
                 <p className="text-gray-600">
                   Your goods travel directly to the destination without being
                   mixed with other consignments.
@@ -125,11 +118,9 @@ export default function SameDayDeliveryPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <MapPinned className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   UK-Wide Coverage
                 </h3>
-
                 <p className="text-gray-600">
                   Supporting businesses across England, Scotland, Wales and
                   Northern Ireland.
@@ -138,11 +129,9 @@ export default function SameDayDeliveryPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <ShieldCheck className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Fully Insured
                 </h3>
-
                 <p className="text-gray-600">
                   Professional drivers with DBS checks and appropriate insurance
                   protection.
@@ -152,26 +141,32 @@ export default function SameDayDeliveryPage() {
           </div>
         </section>
 
-        {/* SUITABLE FOR */}
-<section className="bg-white py-20">
-  <div className="mx-auto max-w-7xl px-6">
-    <div className="mb-14 text-center">
-      <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
-        Industries We Support
-      </h2>
+        <ServiceQuoteSection
+          eyebrow="Get a Quote"
+          title="Get a quote for same day delivery"
+          description="Complete your same day delivery quote online with collection details, delivery details, vehicle size, capacity and contact information."
+          serviceName="Same Day Delivery"
+        />
 
-      <p className="mx-auto max-w-4xl text-lg text-[#0b1f3a]">
-        Our same day delivery service supports businesses across construction,
-        aviation, hospitality, healthcare, professional services,
-        manufacturing, wholesale, education, events and many other sectors
-        throughout the United Kingdom.
-      </p>
-    </div>
+        <section className="bg-white py-20">
+          <div className="mx-auto max-w-7xl px-6">
+            <div className="mb-14 text-center">
+              <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
+                Industries We Support
+              </h2>
 
-    <Industries />
-  </div>
-</section>
-        {/* HOW IT WORKS */}
+              <p className="mx-auto max-w-4xl text-lg text-[#0b1f3a]">
+                Our same day delivery service supports businesses across construction,
+                aviation, hospitality, healthcare, professional services,
+                manufacturing, wholesale, education, events and many other sectors
+                throughout the United Kingdom.
+              </p>
+            </div>
+
+            <Industries />
+          </div>
+        </section>
+
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-4 text-center text-4xl font-light text-[#ef1c24]">
@@ -183,46 +178,28 @@ export default function SameDayDeliveryPage() {
             </p>
 
             <div className="grid gap-8 md:grid-cols-3">
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">1</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Contact Our Team
-                </h3>
-
-                <p className="text-gray-600">
-                  Tell us what needs collecting and where it needs delivering.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">2</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Driver Assigned
-                </h3>
-
-                <p className="text-gray-600">
-                  We allocate the most suitable driver and vehicle.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">3</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Direct Delivery
-                </h3>
-
-                <p className="text-gray-600">
-                  Goods are delivered safely with clear communication throughout.
-                </p>
-              </div>
+              {[
+                ["1", "Contact Our Team", "Tell us what needs collecting and where it needs delivering."],
+                ["2", "Driver Assigned", "We allocate the most suitable driver and vehicle."],
+                ["3", "Direct Delivery", "Goods are delivered safely with clear communication throughout."],
+              ].map(([number, title, text]) => (
+                <div
+                  key={number}
+                  className="rounded-3xl border border-gray-200 bg-white p-8 text-center"
+                >
+                  <div className="mb-4 text-5xl font-bold text-[#ef1c24]">
+                    {number}
+                  </div>
+                  <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
+                    {title}
+                  </h3>
+                  <p className="text-gray-600">{text}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* FAQ */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-5xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light text-[#ef1c24]">
@@ -237,7 +214,7 @@ export default function SameDayDeliveryPage() {
                 },
                 {
                   q: "Do you operate throughout the UK?",
-                  a: "Yes. We provide UK-Wide  coverage across England, Scotland, Wales and Northern Ireland.",
+                  a: "Yes. We provide UK-wide coverage across England, Scotland, Wales and Northern Ireland.",
                 },
                 {
                   q: "Are your drivers insured?",
@@ -255,7 +232,6 @@ export default function SameDayDeliveryPage() {
                   <h3 className="mb-2 font-semibold text-[#0b1f3a]">
                     {faq.q}
                   </h3>
-
                   <p className="text-gray-600">{faq.a}</p>
                 </div>
               ))}
@@ -263,7 +239,6 @@ export default function SameDayDeliveryPage() {
           </div>
         </section>
 
-        {/* WHY STREAMLINE */}
         <section className="bg-[#0b1f3a] py-20 text-white">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light">
@@ -290,7 +265,6 @@ export default function SameDayDeliveryPage() {
           </div>
         </section>
 
-        {/* CTA */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-5xl rounded-[40px] bg-[#ef1c24] px-8 py-16 text-center text-white">
             <h2 className="mb-6 text-4xl font-semibold">
@@ -302,7 +276,7 @@ export default function SameDayDeliveryPage() {
             </p>
 
             <Link
-              href="/instant-quote"
+              href="/quote"
               className="inline-flex items-center gap-3 rounded-full bg-white px-8 py-4 font-semibold text-[#ef1c24]"
             >
               Get Instant Quote
