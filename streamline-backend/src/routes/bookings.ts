@@ -1,14 +1,33 @@
-import { Prisma, BookingStatus } from "@prisma/client";
+import { BookingStatus, Prisma, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
+
+const RESERVATION_MINUTES = 30;
 
 function generateBookingReference() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const randomPart = Math.floor(100000 + Math.random() * 900000);
 
   return `SL-${datePart}-${randomPart}`;
+}
+
+function getReservationWindow(collectionDate: Date, collectionWindow: string) {
+  const windowStart = collectionWindow.split("-")[0];
+
+  const [hours, minutes] = windowStart.split(":").map(Number);
+
+  const reservedFrom = new Date(collectionDate);
+  reservedFrom.setHours(hours, minutes, 0, 0);
+
+  const reservedUntil = new Date(reservedFrom);
+  reservedUntil.setMinutes(reservedUntil.getMinutes() + RESERVATION_MINUTES);
+
+  return {
+    reservedFrom,
+    reservedUntil,
+  };
 }
 
 router.get("/", async (_, res) => {
@@ -100,7 +119,18 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       });
     }
 
-    const vehicle = await prisma.vehicle.findFirst({
+    if (!quote.collectionWindow || quote.collectionWindow === "ASAP") {
+      return res.status(400).json({
+        error: "A fixed collection window is required before booking",
+      });
+    }
+
+    const { reservedFrom, reservedUntil } = getReservationWindow(
+      quote.collectionDate,
+      quote.collectionWindow
+    );
+
+    const vehicles = await prisma.vehicle.findMany({
       where: {
         vehicleType: quote.vehicleSize,
         active: true,
@@ -108,7 +138,38 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       orderBy: {
         createdAt: "asc",
       },
+      include: {
+        reservations: {
+          where: {
+            status: {
+              in: [
+                ReservationStatus.ACTIVE,
+                ReservationStatus.CONFIRMED,
+              ],
+            },
+            reservedFrom: {
+              lt: reservedUntil,
+            },
+            reservedUntil: {
+              gt: reservedFrom,
+            },
+          },
+        },
+      },
     });
+
+    const availableVehicle = vehicles.find(
+      (vehicle) => vehicle.reservations.length === 0
+    );
+
+    if (!availableVehicle) {
+      return res.status(409).json({
+        error: "No vehicle available for this collection window",
+      });
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + RESERVATION_MINUTES);
 
     const booking = await prisma.booking.create({
       data: {
@@ -118,7 +179,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         quoteId: quote.id,
         userId: quote.userId,
 
-        vehicleId: vehicle?.id || null,
+        vehicleId: availableVehicle.id,
 
         collectionDate: quote.collectionDate,
         collectionWindow: quote.collectionWindow,
@@ -128,12 +189,28 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         extraDrops:
           quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
 
+        estimatedStartTime: reservedFrom,
+        estimatedEndTime: reservedUntil,
+        vehicleAvailableAt: reservedUntil,
+
         totalPrice: quote.totalPrice,
+
+        reservation: {
+          create: {
+            vehicleId: availableVehicle.id,
+            quoteId: quote.id,
+            status: ReservationStatus.ACTIVE,
+            reservedFrom,
+            reservedUntil,
+            expiresAt,
+          },
+        },
       },
       include: {
         quote: true,
         vehicle: true,
         user: true,
+        reservation: true,
       },
     });
 
@@ -142,7 +219,8 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         id: quote.id,
       },
       data: {
-        status: "booking_created",
+        status: "payment_pending",
+        expiresAt,
       },
     });
 
