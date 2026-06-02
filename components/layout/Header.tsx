@@ -31,7 +31,7 @@ export default function Header() {
             </Link>
 
             <Link
-              href="/instant-quote"
+              href="/quote"
               className="font-medium text-[#0b1f3a] transition hover:text-[#ff6a00]"
             >
               Instant Quote
