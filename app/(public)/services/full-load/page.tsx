@@ -1,6 +1,7 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Industries from "@/components/homepage/Industries";
+import ServiceQuoteSection from "@/components/services/ServiceQuoteSection";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -41,7 +42,6 @@ export default function FullLoadPage() {
       <Header />
 
       <main>
-        {/* HERO */}
         <section className="bg-gradient-to-r from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-20 text-white lg:py-28">
           <div className="mx-auto max-w-7xl px-6">
             <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff7f11]">
@@ -60,7 +60,7 @@ export default function FullLoadPage() {
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Link
-                href="/instant-quote"
+                href="/quote"
                 className="inline-flex items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 font-semibold text-white transition hover:bg-[#ff6a00]"
               >
                 Get Instant Quote
@@ -78,7 +78,6 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* TRUST STATS */}
         <section className="border-b bg-white py-10">
           <div className="mx-auto grid max-w-6xl gap-8 px-6 text-center md:grid-cols-4">
             <div>
@@ -103,7 +102,6 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* BENEFITS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-7xl px-6">
             <div className="mb-14 text-center">
@@ -120,11 +118,9 @@ export default function FullLoadPage() {
             <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <Boxes className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Larger Consignments
                 </h3>
-
                 <p className="text-gray-600">
                   Suitable for larger loads, stock movements, equipment and
                   commercial goods.
@@ -133,11 +129,9 @@ export default function FullLoadPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <Truck className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Dedicated Vehicle
                 </h3>
-
                 <p className="text-gray-600">
                   Transport support focused on your goods from collection to
                   final delivery.
@@ -146,11 +140,9 @@ export default function FullLoadPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <PackageCheck className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Secure Handling
                 </h3>
-
                 <p className="text-gray-600">
                   Goods are handled professionally throughout the delivery
                   process.
@@ -159,11 +151,9 @@ export default function FullLoadPage() {
 
               <div className="rounded-3xl bg-white p-8 shadow-sm">
                 <ShieldCheck className="mb-5 text-[#ff6a00]" size={46} />
-
                 <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
                   Fully Insured
                 </h3>
-
                 <p className="text-gray-600">
                   Professional delivery support with appropriate insurance and
                   driver standards.
@@ -173,7 +163,13 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* INDUSTRIES */}
+        <ServiceQuoteSection
+          eyebrow="Get a Quote"
+          title="Get a quote for full load delivery"
+          description="Start your full load quote online with collection details, delivery details, vehicle selection, load information and business contact details."
+          serviceName="Full Load Delivery"
+        />
+
         <section className="bg-white py-20">
           <div className="mx-auto max-w-7xl px-6 text-center">
             <h2 className="mb-4 text-4xl font-light text-[#ef1c24]">
@@ -192,7 +188,6 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* HOW IT WORKS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-16 text-center text-4xl font-light text-[#ef1c24]">
@@ -200,49 +195,28 @@ export default function FullLoadPage() {
             </h2>
 
             <div className="grid gap-8 md:grid-cols-3">
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">1</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Confirm The Load
-                </h3>
-
-                <p className="text-gray-600">
-                  Tell us what needs moving, where it is being collected from
-                  and where it needs delivering.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">2</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Vehicle Assigned
-                </h3>
-
-                <p className="text-gray-600">
-                  A suitable vehicle and driver are allocated to support your
-                  delivery requirements.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">3</div>
-
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Delivered Directly
-                </h3>
-
-                <p className="text-gray-600">
-                  Your goods are delivered safely and professionally to their
-                  destination.
-                </p>
-              </div>
+              {[
+                ["1", "Confirm The Load", "Tell us what needs moving, where it is being collected from and where it needs delivering."],
+                ["2", "Vehicle Assigned", "A suitable vehicle and driver are allocated to support your delivery requirements."],
+                ["3", "Delivered Directly", "Your goods are delivered safely and professionally to their destination."],
+              ].map(([number, title, text]) => (
+                <div
+                  key={number}
+                  className="rounded-3xl border border-gray-200 bg-white p-8 text-center"
+                >
+                  <div className="mb-4 text-5xl font-bold text-[#ef1c24]">
+                    {number}
+                  </div>
+                  <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
+                    {title}
+                  </h3>
+                  <p className="text-gray-600">{text}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* FAQ */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-4xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light text-[#ef1c24]">
@@ -266,7 +240,6 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* WHY STREAMLINE */}
         <section className="bg-[#0b1f3a] py-20 text-white">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light">
@@ -293,7 +266,6 @@ export default function FullLoadPage() {
           </div>
         </section>
 
-        {/* CTA */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-5xl rounded-[40px] bg-[#ef1c24] px-8 py-16 text-center text-white">
             <h2 className="mb-6 text-4xl font-semibold">
@@ -306,7 +278,7 @@ export default function FullLoadPage() {
             </p>
 
             <Link
-              href="/instant-quote"
+              href="/quote"
               className="inline-flex items-center gap-3 rounded-full bg-white px-8 py-4 font-semibold text-[#ef1c24]"
             >
               Get Instant Quote
