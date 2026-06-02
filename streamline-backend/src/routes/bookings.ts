@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 const router = Router();
 
 const RESERVATION_MINUTES = 30;
+const COOLING_OFF_HOURS = 2;
 
 function generateBookingReference() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -15,7 +16,6 @@ function generateBookingReference() {
 
 function getReservationWindow(collectionDate: Date, collectionWindow: string) {
   const windowStart = collectionWindow.split("-")[0];
-
   const [hours, minutes] = windowStart.split(":").map(Number);
 
   const reservedFrom = new Date(collectionDate);
@@ -28,6 +28,13 @@ function getReservationWindow(collectionDate: Date, collectionWindow: string) {
     reservedFrom,
     reservedUntil,
   };
+}
+
+function getVehicleAvailableAt(reservedUntil: Date) {
+  const vehicleAvailableAt = new Date(reservedUntil);
+  vehicleAvailableAt.setHours(vehicleAvailableAt.getHours() + COOLING_OFF_HOURS);
+
+  return vehicleAvailableAt;
 }
 
 router.get("/", async (_, res) => {
@@ -90,6 +97,60 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+router.post("/expire-reservations", async (_, res) => {
+  try {
+    const now = new Date();
+
+    const expiredReservations = await prisma.vehicleReservation.updateMany({
+      where: {
+        status: ReservationStatus.ACTIVE,
+        expiresAt: {
+          lte: now,
+        },
+      },
+      data: {
+        status: ReservationStatus.EXPIRED,
+      },
+    });
+
+    const expiredBookings = await prisma.booking.updateMany({
+      where: {
+        status: BookingStatus.PENDING_PAYMENT,
+        reservation: {
+          status: ReservationStatus.EXPIRED,
+        },
+      },
+      data: {
+        status: BookingStatus.EXPIRED,
+      },
+    });
+
+    await prisma.quote.updateMany({
+      where: {
+        status: "payment_pending",
+        expiresAt: {
+          lte: now,
+        },
+      },
+      data: {
+        status: "expired",
+      },
+    });
+
+    res.json({
+      success: true,
+      expiredReservations: expiredReservations.count,
+      expiredBookings: expiredBookings.count,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Failed to expire reservations",
+    });
+  }
+});
+
 router.post("/from-quote/:quoteId", async (req, res) => {
   try {
     const quote = await prisma.quote.findUnique({
@@ -130,6 +191,8 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       quote.collectionWindow
     );
 
+    const vehicleAvailableAt = getVehicleAvailableAt(reservedUntil);
+
     const vehicles = await prisma.vehicle.findMany({
       where: {
         vehicleType: quote.vehicleSize,
@@ -142,13 +205,10 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         reservations: {
           where: {
             status: {
-              in: [
-                ReservationStatus.ACTIVE,
-                ReservationStatus.CONFIRMED,
-              ],
+              in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
             },
             reservedFrom: {
-              lt: reservedUntil,
+              lt: vehicleAvailableAt,
             },
             reservedUntil: {
               gt: reservedFrom,
@@ -191,7 +251,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
         estimatedStartTime: reservedFrom,
         estimatedEndTime: reservedUntil,
-        vehicleAvailableAt: reservedUntil,
+        vehicleAvailableAt,
 
         totalPrice: quote.totalPrice,
 
@@ -201,7 +261,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
             quoteId: quote.id,
             status: ReservationStatus.ACTIVE,
             reservedFrom,
-            reservedUntil,
+            reservedUntil: vehicleAvailableAt,
             expiresAt,
           },
         },
@@ -230,6 +290,68 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     res.status(500).json({
       error: "Failed to create booking from quote",
+    });
+  }
+});
+
+router.post("/:id/confirm-payment", async (req, res) => {
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      include: {
+        quote: true,
+        reservation: true,
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        error: "Booking not found",
+      });
+    }
+
+    if (!booking.reservation) {
+      return res.status(400).json({
+        error: "Booking has no reservation",
+      });
+    }
+
+    const updatedBooking = await prisma.booking.update({
+      where: {
+        id: booking.id,
+      },
+      data: {
+        status: BookingStatus.CONFIRMED,
+        reservation: {
+          update: {
+            status: ReservationStatus.CONFIRMED,
+            expiresAt: null,
+          },
+        },
+        quote: booking.quote
+          ? {
+              update: {
+                status: "paid",
+              },
+            }
+          : undefined,
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        user: true,
+        reservation: true,
+      },
+    });
+
+    res.json(updatedBooking);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: "Failed to confirm booking payment",
     });
   }
 });
