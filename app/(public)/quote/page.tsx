@@ -846,6 +846,152 @@ export default function QuotePage() {
         </div>
       </section>
 
+      <section className="px-6 pb-24">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+          <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 text-white shadow-2xl shadow-black/20">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+              What happens next
+            </p>
+
+            <h2 className="mt-3 text-3xl font-bold">
+              From quote request to confirmed delivery.
+            </h2>
+
+            <div className="mt-8 grid gap-4">
+              {[
+                [
+                  "1",
+                  "Submit your quote",
+                  "Enter the delivery type, route, vehicle, load and contact details.",
+                ],
+                [
+                  "2",
+                  "Review your price",
+                  "The system returns your quote with distance, VAT and total price.",
+                ],
+                [
+                  "3",
+                  "Confirm the booking",
+                  "Once payment is completed, the booking is created and the vehicle is reserved.",
+                ],
+                [
+                  "4",
+                  "Delivery is managed",
+                  "Your job moves through booking, dispatch, delivery and proof of delivery.",
+                ],
+              ].map(([number, title, text]) => (
+                <div
+                  key={number}
+                  className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5"
+                >
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-300 text-sm font-bold text-slate-950">
+                    {number}
+                  </span>
+
+                  <div>
+                    <h3 className="font-bold text-white">{title}</h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">
+                      {text}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] border border-white/10 bg-white p-8 text-slate-950 shadow-2xl shadow-black/20">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-700">
+              Vehicle size guide
+            </p>
+
+            <h2 className="mt-3 text-3xl font-bold">
+              Choose the right vehicle for your load.
+            </h2>
+
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              Use this guide to check the size, pallet capacity and maximum weight before
+              submitting your quote.
+            </p>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
+              {Object.entries(vehicleDetails).map(([vehicle, details]) => (
+                <div
+                  key={vehicle}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-bold text-slate-950">{vehicle}</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {details.pallets}
+                      </p>
+                    </div>
+
+                    <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
+                      {details.maxWeight}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                    <div className="rounded-xl bg-white p-3">
+                      <p className="font-bold text-slate-950">Length</p>
+                      <p className="mt-1">{details.length}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3">
+                      <p className="font-bold text-slate-950">Width</p>
+                      <p className="mt-1">{details.width}</p>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3">
+                      <p className="font-bold text-slate-950">Height</p>
+                      <p className="mt-1">{details.height}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <section className="mx-auto mt-8 max-w-7xl rounded-[2rem] border border-amber-300/20 bg-[linear-gradient(135deg,_rgba(251,191,36,0.14),_rgba(255,255,255,0.04))] p-8 text-white shadow-2xl shadow-black/20">
+          <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+                Quote promise
+              </p>
+
+              <h2 className="mt-3 text-3xl font-bold">
+                Clear delivery quotes for business customers.
+              </h2>
+
+              <p className="mt-4 text-sm leading-6 text-slate-300">
+                The quote form is built to collect the details needed for a reliable
+                business delivery price, without unnecessary questions or duplicated steps.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {[
+                ["No unnecessary fields", "Only the information needed to price and record the delivery."],
+                ["Business-ready records", "Quotes are saved for booking, payment, invoice and admin workflows."],
+                ["Vehicle clarity", "Vehicle dimensions and capacities are visible before submitting."],
+              ].map(([title, text]) => (
+                <div
+                  key={title}
+                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5"
+                >
+                  <h3 className="font-bold text-white">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    {text}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </section>
+
       {showVehicleModal && selectedVehicle && vehicleDetails[selectedVehicle] && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
           <div className="w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
