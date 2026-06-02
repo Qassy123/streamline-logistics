@@ -66,10 +66,10 @@ model User {
   email       String      @unique
   phone       String?
 
-  quotes    Quote[]
-  bookings  Booking[]
-  payments  Payment[]
-  invoices  Invoice[]
+  quotes   Quote[]
+  bookings Booking[]
+  payments Payment[]
+  invoices Invoice[]
 
   tradeAccount TradeAccount?
 
@@ -106,7 +106,7 @@ model TradeAccount {
 model Vehicle {
   id String @id @default(cuid())
 
-  name        String
+  name        String  @unique
   vehicleType String
   active      Boolean @default(true)
 
