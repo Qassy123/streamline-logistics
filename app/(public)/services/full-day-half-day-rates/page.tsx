@@ -1,6 +1,7 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Industries from "@/components/homepage/Industries";
+import ServiceQuoteSection from "@/components/services/ServiceQuoteSection";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -41,7 +42,6 @@ export default function FullDayHalfDayRatesPage() {
       <Header />
 
       <main>
-        {/* HERO */}
         <section className="bg-gradient-to-r from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-20 text-white lg:py-28">
           <div className="mx-auto max-w-7xl px-6">
             <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff7f11]">
@@ -61,7 +61,7 @@ export default function FullDayHalfDayRatesPage() {
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
               <Link
-                href="/instant-quote"
+                href="/quote"
                 className="inline-flex items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 font-semibold text-white transition hover:bg-[#ff6a00]"
               >
                 Get Instant Quote
@@ -79,40 +79,30 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        {/* TRUST STATS */}
         <section className="border-b bg-white py-10">
           <div className="mx-auto grid max-w-6xl gap-8 px-6 text-center md:grid-cols-4">
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">
-                Half Day
-              </h3>
+              <h3 className="text-4xl font-bold text-[#ef1c24]">Half Day</h3>
               <p className="text-[#0b1f3a]">Flexible Bookings</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">
-                Full Day
-              </h3>
+              <h3 className="text-4xl font-bold text-[#ef1c24]">Full Day</h3>
               <p className="text-[#0b1f3a]">Dedicated Vehicle</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">
-                UK Wide
-              </h3>
+              <h3 className="text-4xl font-bold text-[#ef1c24]">UK Wide</h3>
               <p className="text-[#0b1f3a]">Coverage</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">
-                24/7
-              </h3>
+              <h3 className="text-4xl font-bold text-[#ef1c24]">24/7</h3>
               <p className="text-[#0b1f3a]">Support</p>
             </div>
           </div>
         </section>
 
-        {/* BENEFITS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-7xl px-6">
             <div className="mb-14 text-center">
@@ -173,7 +163,13 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        {/* INDUSTRIES */}
+        <ServiceQuoteSection
+          eyebrow="Get a Quote"
+          title="Get a quote for full day or half day courier support"
+          description="Start your dedicated vehicle quote online with booking type, collection details, vehicle size, load information and business contact details."
+          serviceName="Full Day & Half Day Courier Support"
+        />
+
         <section className="bg-white py-20">
           <div className="mx-auto max-w-7xl px-6 text-center">
             <h2 className="mb-4 text-4xl font-light text-[#ef1c24]">
@@ -190,7 +186,6 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        {/* HOW IT WORKS */}
         <section className="bg-[#f8fafc] py-20">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-16 text-center text-4xl font-light text-[#ef1c24]">
@@ -198,40 +193,28 @@ export default function FullDayHalfDayRatesPage() {
             </h2>
 
             <div className="grid gap-8 md:grid-cols-3">
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">1</div>
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Book Your Vehicle
-                </h3>
-                <p className="text-gray-600">
-                  Tell us how long you require transport support.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">2</div>
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Driver Assigned
-                </h3>
-                <p className="text-gray-600">
-                  A dedicated driver and suitable vehicle are allocated.
-                </p>
-              </div>
-
-              <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center">
-                <div className="mb-4 text-5xl font-bold text-[#ef1c24]">3</div>
-                <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
-                  Operate All Day
-                </h3>
-                <p className="text-gray-600">
-                  Collections and deliveries are completed throughout the booking.
-                </p>
-              </div>
+              {[
+                ["1", "Book Your Vehicle", "Tell us how long you require transport support."],
+                ["2", "Driver Assigned", "A dedicated driver and suitable vehicle are allocated."],
+                ["3", "Operate All Day", "Collections and deliveries are completed throughout the booking."],
+              ].map(([number, title, text]) => (
+                <div
+                  key={number}
+                  className="rounded-3xl border border-gray-200 bg-white p-8 text-center"
+                >
+                  <div className="mb-4 text-5xl font-bold text-[#ef1c24]">
+                    {number}
+                  </div>
+                  <h3 className="mb-3 text-xl font-semibold text-[#0b1f3a]">
+                    {title}
+                  </h3>
+                  <p className="text-gray-600">{text}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* FAQ */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-4xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light text-[#ef1c24]">
@@ -255,7 +238,6 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        {/* WHY STREAMLINE */}
         <section className="bg-[#0b1f3a] py-20 text-white">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="mb-12 text-center text-4xl font-light">
@@ -282,7 +264,6 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        {/* CTA */}
         <section className="bg-white py-20">
           <div className="mx-auto max-w-5xl rounded-[40px] bg-[#ef1c24] px-8 py-16 text-center text-white">
             <h2 className="mb-6 text-4xl font-semibold">
@@ -294,7 +275,7 @@ export default function FullDayHalfDayRatesPage() {
             </p>
 
             <Link
-              href="/instant-quote"
+              href="/quote"
               className="inline-flex items-center gap-3 rounded-full bg-white px-8 py-4 font-semibold text-[#ef1c24]"
             >
               Get Instant Quote
