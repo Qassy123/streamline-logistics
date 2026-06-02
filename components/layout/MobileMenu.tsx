@@ -28,7 +28,7 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
           Home
         </Link>
 
-        <Link href="/instant-quote" onClick={onClose}>
+        <Link href="/quote" onClick={onClose}>
           Instant Quote
         </Link>
 

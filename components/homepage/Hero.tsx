@@ -31,7 +31,7 @@ export default function Hero() {
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <Link
-              href="/instant-quote"
+              href="/quote"
               className="rounded-full bg-[#ef1c24] px-8 py-4 text-center text-base font-semibold text-white transition hover:bg-[#ff6a00]"
             >
               Get Instant Quote
@@ -48,7 +48,7 @@ export default function Hero() {
       </div>
 
       <Link
-        href="/instant-quote"
+        href="/quote"
         className="fixed right-0 top-1/2 z-50 hidden -translate-y-1/2 rounded-l-3xl bg-[#a8dc8f] px-5 py-12 text-sm font-semibold text-[#0b1f3a] [writing-mode:vertical-rl] lg:block"
       >
         Get A Quote
