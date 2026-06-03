@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type QuoteResponse = {
   id: string;
@@ -15,37 +15,37 @@ type QuoteResponse = {
 
 type ExtraStop = {
   order: number;
-  address: string;
+  addressLine1: string;
+  addressLine2: string;
+  townCity: string;
+  county: string;
+  postcode: string;
+  capacityPercent: number | null;
+};
+
+type AddressFields = {
+  addressLine1: string;
+  addressLine2: string;
+  townCity: string;
+  county: string;
+  postcode: string;
 };
 
 const API_URL = "https://streamline-logistics-production.up.railway.app/api/quotes";
 
-const hourlyWindows = [
-  "00:00-01:00",
-  "01:00-02:00",
-  "02:00-03:00",
-  "03:00-04:00",
-  "04:00-05:00",
-  "05:00-06:00",
-  "06:00-07:00",
-  "07:00-08:00",
-  "08:00-09:00",
-  "09:00-10:00",
-  "10:00-11:00",
-  "11:00-12:00",
-  "12:00-13:00",
-  "13:00-14:00",
-  "14:00-15:00",
-  "15:00-16:00",
-  "16:00-17:00",
-  "17:00-18:00",
-  "18:00-19:00",
-  "19:00-20:00",
-  "20:00-21:00",
-  "21:00-22:00",
-  "22:00-23:00",
-  "23:00-00:00",
-  "ASAP",
+const twoHourWindows = [
+  "00:00-02:00",
+  "02:00-04:00",
+  "04:00-06:00",
+  "06:00-08:00",
+  "08:00-10:00",
+  "10:00-12:00",
+  "12:00-14:00",
+  "14:00-16:00",
+  "16:00-18:00",
+  "18:00-20:00",
+  "20:00-22:00",
+  "22:00-00:00",
 ];
 
 const vehicleDetails: Record<
@@ -75,7 +75,7 @@ const vehicleDetails: Record<
     maxWeight: "900kg",
     image: "/Vehicles/swb.jpeg",
   },
-  "LWB Van": {
+  "LWB High Roof Van": {
     length: "3.4m",
     width: "1.7m",
     height: "1.7m",
@@ -91,21 +91,13 @@ const vehicleDetails: Record<
     maxWeight: "1,400kg",
     image: "/Vehicles/XLWB High Roof.jpg",
   },
-  "Luton Tail Lift": {
+  "Luton Tail Lift Curtainsider": {
     length: "4.0m",
     width: "2.0m",
     height: "2.0m",
     pallets: "6 pallets",
     maxWeight: "1,000kg",
     image: "/Vehicles/Luton Tail Lift.jpg",
-  },
-  Curtainsider: {
-    length: "6.0m+",
-    width: "2.4m",
-    height: "2.4m",
-    pallets: "10+ pallets",
-    maxWeight: "Varies",
-    image: "/Vehicles/Curtainsider.jpg",
   },
 };
 
@@ -132,6 +124,48 @@ const capacityOptions = [
   },
 ];
 
+const emptyAddress: AddressFields = {
+  addressLine1: "",
+  addressLine2: "",
+  townCity: "",
+  county: "",
+  postcode: "",
+};
+
+function getTodayDateString() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getWindowStartHour(window: string) {
+  return Number(window.split(":")[0]);
+}
+
+function formatAddress(address: AddressFields) {
+  return [
+    address.addressLine1,
+    address.addressLine2,
+    address.townCity,
+    address.county,
+    address.postcode,
+  ]
+    .filter((value) => value.trim() !== "")
+    .join(", ");
+}
+
+function isAddressComplete(address: AddressFields) {
+  return (
+    address.addressLine1.trim() !== "" &&
+    address.townCity.trim() !== "" &&
+    address.county.trim() !== "" &&
+    address.postcode.trim() !== ""
+  );
+}
+
 export default function QuotePage() {
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
@@ -144,18 +178,67 @@ export default function QuotePage() {
   const [capacityPercent, setCapacityPercent] = useState<number | null>(null);
   const [extraStops, setExtraStops] = useState<ExtraStop[]>([]);
 
+  const [collectionDate, setCollectionDate] = useState("");
+  const [collectionWindow, setCollectionWindow] = useState("");
+  const [collectionAddress, setCollectionAddress] =
+    useState<AddressFields>(emptyAddress);
+  const [deliveryAddress, setDeliveryAddress] =
+    useState<AddressFields>(emptyAddress);
+
   const [fragileGoods, setFragileGoods] = useState(false);
   const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
 
+  const hideJourneyType =
+    selectedDeliveryType === "Full Day Booking" ||
+    selectedDeliveryType === "Half Day Booking";
+
   const showCapacity = selectedDeliveryType !== "Full Load (One Way, Return, Multi Drop)";
   const showExtraStops = selectedJourneyType === "Multi Drop";
+  const showAddressFields = Boolean(collectionDate && collectionWindow);
+  const returnAddress = formatAddress(collectionAddress);
+
+  const availableCollectionWindows = useMemo(() => {
+    if (
+      selectedDeliveryType !== "Same Day Delivery (One Way, Return, Multi Drop)" ||
+      collectionDate !== getTodayDateString()
+    ) {
+      return twoHourWindows;
+    }
+
+    const now = new Date();
+    const earliestHour = now.getHours() + 2;
+
+    return twoHourWindows.filter((window) => {
+      const startHour = getWindowStartHour(window);
+      return startHour >= earliestHour;
+    });
+  }, [selectedDeliveryType, collectionDate]);
+
+  function updateCollectionAddress(field: keyof AddressFields, value: string) {
+    setCollectionAddress((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateDeliveryAddress(field: keyof AddressFields, value: string) {
+    setDeliveryAddress((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
 
   function addStop() {
     setExtraStops((currentStops) => [
       ...currentStops,
       {
-        order: currentStops.length + 1,
-        address: "",
+        order: currentStops.length + 2,
+        addressLine1: "",
+        addressLine2: "",
+        townCity: "",
+        county: "",
+        postcode: "",
+        capacityPercent: null,
       },
     ]);
   }
@@ -166,23 +249,27 @@ export default function QuotePage() {
         .filter((_, stopIndex) => stopIndex !== index)
         .map((stop, stopIndex) => ({
           ...stop,
-          order: stopIndex + 1,
+          order: stopIndex + 2,
         }))
     );
   }
 
-  function updateStopAddress(index: number, value: string) {
+  function updateStopAddress(
+    index: number,
+    field: keyof Omit<ExtraStop, "order" | "capacityPercent">,
+    value: string
+  ) {
     setExtraStops((currentStops) =>
       currentStops.map((stop, stopIndex) =>
-        stopIndex === index ? { ...stop, address: value } : stop
+        stopIndex === index ? { ...stop, [field]: value } : stop
       )
     );
   }
 
-  function updateStopOrder(index: number, value: number) {
+  function updateStopCapacity(index: number, value: number) {
     setExtraStops((currentStops) =>
       currentStops.map((stop, stopIndex) =>
-        stopIndex === index ? { ...stop, order: value } : stop
+        stopIndex === index ? { ...stop, capacityPercent: value } : stop
       )
     );
   }
@@ -190,9 +277,15 @@ export default function QuotePage() {
   function handleDeliveryTypeChange(value: string) {
     setSelectedDeliveryType(value);
     setError("");
+    setCollectionWindow("");
 
     if (value === "Full Load (One Way, Return, Multi Drop)") {
       setCapacityPercent(null);
+    }
+
+    if (value === "Full Day Booking" || value === "Half Day Booking") {
+      setSelectedJourneyType("");
+      setExtraStops([]);
     }
   }
 
@@ -205,8 +298,32 @@ export default function QuotePage() {
     const form = event.currentTarget;
     const formData = new FormData(form);
 
-    if (!selectedJourneyType) {
+    if (!hideJourneyType && !selectedJourneyType) {
       setError("Please select One Way, Return, or Multi Drop.");
+      setLoading(false);
+      return;
+    }
+
+    if (!collectionDate || !collectionWindow) {
+      setError("Please select collection date and collection window.");
+      setLoading(false);
+      return;
+    }
+
+    if (!showAddressFields) {
+      setError("Please select collection date and time before entering route details.");
+      setLoading(false);
+      return;
+    }
+
+    if (!isAddressComplete(collectionAddress)) {
+      setError("Please complete the full collection address.");
+      setLoading(false);
+      return;
+    }
+
+    if (!isAddressComplete(deliveryAddress)) {
+      setError("Please complete the full delivery address.");
       setLoading(false);
       return;
     }
@@ -224,7 +341,17 @@ export default function QuotePage() {
     }
 
     const cleanedStops = extraStops
-      .filter((stop) => stop.address.trim() !== "")
+      .filter((stop) => formatAddress(stop).trim() !== "")
+      .map((stop) => ({
+        order: stop.order,
+        address: formatAddress(stop),
+        addressLine1: stop.addressLine1,
+        addressLine2: stop.addressLine2,
+        townCity: stop.townCity,
+        county: stop.county,
+        postcode: stop.postcode,
+        capacityPercent: stop.capacityPercent,
+      }))
       .sort((a, b) => a.order - b.order);
 
     if (showExtraStops && cleanedStops.length === 0) {
@@ -233,23 +360,38 @@ export default function QuotePage() {
       return;
     }
 
-    const collectionDateValue = String(formData.get("collectionDate"));
+    if (
+      showExtraStops &&
+      extraStops.some(
+        (stop) => !isAddressComplete(stop) || stop.capacityPercent === null
+      )
+    ) {
+      setError("Please complete the address and capacity for every extra stop.");
+      setLoading(false);
+      return;
+    }
 
     const payload = {
       deliveryType: formData.get("deliveryType"),
-      journeyType: selectedJourneyType,
+      journeyType: hideJourneyType ? null : selectedJourneyType,
       capacityPercent: showCapacity ? capacityPercent : null,
 
-      collectionDate: new Date(`${collectionDateValue}T00:00:00.000Z`).toISOString(),
-      collectionWindow: formData.get("collectionWindow"),
+      collectionDate: new Date(`${collectionDate}T00:00:00.000Z`).toISOString(),
+      collectionWindow,
       vehicleSize: formData.get("vehicleSize"),
 
-      collectionAddress: formData.get("collectionAddress"),
-      deliveryAddress: formData.get("deliveryAddress"),
+      collectionAddress: formatAddress(collectionAddress),
+      collectionAddressDetails: collectionAddress,
+
+      deliveryAddress: formatAddress(deliveryAddress),
+      deliveryAddressDetails: deliveryAddress,
+
+      returnAddress:
+        selectedJourneyType === "Return" ? formatAddress(collectionAddress) : null,
+
       extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
 
       loadDescription: formData.get("loadDescription"),
-      palletCount: formData.get("palletCount"),
       fragileGoods,
       contactPreference: formData.get("contactPreference"),
       accuracyConfirmed,
@@ -257,7 +399,8 @@ export default function QuotePage() {
       customerName: formData.get("customerName"),
       customerEmail: formData.get("customerEmail"),
       customerPhone: formData.get("customerPhone"),
-      companyName: formData.get("companyName"),
+      legalEntity: formData.get("legalEntity"),
+      tradingName: formData.get("tradingName"),
     };
 
     try {
@@ -284,6 +427,10 @@ export default function QuotePage() {
       setShowVehicleModal(false);
       setCapacityPercent(null);
       setExtraStops([]);
+      setCollectionDate("");
+      setCollectionWindow("");
+      setCollectionAddress(emptyAddress);
+      setDeliveryAddress(emptyAddress);
       setFragileGoods(false);
       setAccuracyConfirmed(false);
     } catch (error) {
@@ -336,9 +483,9 @@ export default function QuotePage() {
               <div className="mt-6 grid gap-4">
                 {[
                   ["1", "Choose delivery type"],
-                  ["2", "Select vehicle and capacity"],
-                  ["3", "Enter addresses and load details"],
-                  ["4", "Receive instant quote"],
+                  ["2", "Enter collection date and route"],
+                  ["3", "Select vehicle and capacity"],
+                  ["4", "Enter load and contact details"],
                 ].map(([number, label]) => (
                   <div key={number} className="flex items-center gap-4 rounded-2xl bg-slate-50 p-4">
                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
@@ -470,7 +617,9 @@ export default function QuotePage() {
                       <option value="Same Day Delivery (One Way, Return, Multi Drop)">
                         Same Day Delivery (One Way, Return, Multi Drop)
                       </option>
-                      <option value="Next Day Delivery">Next Day Delivery</option>
+                      <option value="Next Day Delivery (One Way, Return, Multi Drop)">
+                        Next Day Delivery (One Way, Return, Multi Drop)
+                      </option>
                       <option value="Full Day Booking">Full Day Booking</option>
                       <option value="Half Day Booking">Half Day Booking</option>
                       <option value="Full Load (One Way, Return, Multi Drop)">
@@ -479,41 +628,362 @@ export default function QuotePage() {
                     </select>
                   </div>
 
+                  {!hideJourneyType && (
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-800">
+                        Journey Type
+                      </label>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        {["One Way", "Return", "Multi Drop"].map((option) => (
+                          <label
+                            key={option}
+                            className={`cursor-pointer rounded-2xl border p-5 text-sm font-bold transition ${
+                              selectedJourneyType === option
+                                ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="journeyType"
+                              value={option}
+                              checked={selectedJourneyType === option}
+                              onChange={() => setSelectedJourneyType(option)}
+                              className="sr-only"
+                            />
+                            {option}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                <div className="mb-6">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                    Step 2
+                  </p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-950">
+                    Collection and delivery route
+                  </h3>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-2">
                   <div>
                     <label className="block text-sm font-semibold text-slate-800">
-                      Journey Type
+                      Collection Date
                     </label>
+                    <input
+                      type="date"
+                      name="collectionDate"
+                      required
+                      min={getTodayDateString()}
+                      value={collectionDate}
+                      onChange={(event) => {
+                        setCollectionDate(event.target.value);
+                        setCollectionWindow("");
+                      }}
+                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                    />
+                  </div>
 
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
-                      {["One Way", "Return", "Multi Drop"].map((option) => (
-                        <label
-                          key={option}
-                          className={`cursor-pointer rounded-2xl border p-5 text-sm font-bold transition ${
-                            selectedJourneyType === option
-                              ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="journeyType"
-                            value={option}
-                            checked={selectedJourneyType === option}
-                            onChange={() => setSelectedJourneyType(option)}
-                            className="sr-only"
-                          />
-                          {option}
-                        </label>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Collection Window
+                    </label>
+                    <select
+                      name="collectionWindow"
+                      required
+                      value={collectionWindow}
+                      onChange={(event) => setCollectionWindow(event.target.value)}
+                      disabled={!collectionDate}
+                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      <option value="">Select collection window</option>
+                      {availableCollectionWindows.map((window) => (
+                        <option key={window} value={window}>
+                          {window}
+                        </option>
                       ))}
-                    </div>
+                    </select>
                   </div>
                 </div>
+
+                {!showAddressFields && (
+                  <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-slate-800">
+                    Select the collection date and collection window before entering collection and delivery addresses.
+                  </div>
+                )}
+
+                {showAddressFields && (
+                  <div className="mt-6 grid gap-6">
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                      <h4 className="text-base font-bold text-slate-950">
+                        Collection Address
+                      </h4>
+
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        <input
+                          required
+                          placeholder="Address line 1"
+                          value={collectionAddress.addressLine1}
+                          onChange={(event) =>
+                            updateCollectionAddress("addressLine1", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          placeholder="Address line 2"
+                          value={collectionAddress.addressLine2}
+                          onChange={(event) =>
+                            updateCollectionAddress("addressLine2", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="Town / City"
+                          value={collectionAddress.townCity}
+                          onChange={(event) =>
+                            updateCollectionAddress("townCity", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="County"
+                          value={collectionAddress.county}
+                          onChange={(event) =>
+                            updateCollectionAddress("county", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="Postcode"
+                          value={collectionAddress.postcode}
+                          onChange={(event) =>
+                            updateCollectionAddress("postcode", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                      <h4 className="text-base font-bold text-slate-950">
+                        {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
+                      </h4>
+
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
+                        <input
+                          required
+                          placeholder="Address line 1"
+                          value={deliveryAddress.addressLine1}
+                          onChange={(event) =>
+                            updateDeliveryAddress("addressLine1", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          placeholder="Address line 2"
+                          value={deliveryAddress.addressLine2}
+                          onChange={(event) =>
+                            updateDeliveryAddress("addressLine2", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="Town / City"
+                          value={deliveryAddress.townCity}
+                          onChange={(event) =>
+                            updateDeliveryAddress("townCity", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="County"
+                          value={deliveryAddress.county}
+                          onChange={(event) =>
+                            updateDeliveryAddress("county", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                        />
+
+                        <input
+                          required
+                          placeholder="Postcode"
+                          value={deliveryAddress.postcode}
+                          onChange={(event) =>
+                            updateDeliveryAddress("postcode", event.target.value)
+                          }
+                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                        />
+                      </div>
+                    </div>
+
+                    {selectedJourneyType === "Return" && (
+                      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+                        <label className="block text-sm font-semibold text-slate-800">
+                          Return Address
+                        </label>
+
+                        <textarea
+                          readOnly
+                          rows={3}
+                          value={returnAddress}
+                          className="mt-2 w-full resize-none rounded-2xl border border-amber-200 bg-white px-4 py-4 text-slate-700 outline-none"
+                        />
+
+                        <p className="mt-3 text-sm font-semibold text-slate-700">
+                          Return address is automatically set to the collection address.
+                          If the return address is different, select Multi Drop instead.
+                        </p>
+                      </div>
+                    )}
+
+                    {showExtraStops && (
+                      <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-slate-950">
+                              Extra Stops
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              Delivery Address is Stop 1. Added stops begin from Stop 2.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={addStop}
+                            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+                          >
+                            Add Stop
+                          </button>
+                        </div>
+
+                        <div className="mt-5 grid gap-4">
+                          {extraStops.map((stop, index) => (
+                            <div
+                              key={index}
+                              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                            >
+                              <div className="mb-3 flex items-center justify-between">
+                                <p className="text-sm font-bold text-slate-950">
+                                  Stop {stop.order}
+                                </p>
+
+                                <button
+                                  type="button"
+                                  onClick={() => removeStop(index)}
+                                  className="text-sm font-bold text-red-600"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <input
+                                  required
+                                  value={stop.addressLine1}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "addressLine1", event.target.value)
+                                  }
+                                  placeholder="Address line 1"
+                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                />
+
+                                <input
+                                  value={stop.addressLine2}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "addressLine2", event.target.value)
+                                  }
+                                  placeholder="Address line 2"
+                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                />
+
+                                <input
+                                  required
+                                  value={stop.townCity}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "townCity", event.target.value)
+                                  }
+                                  placeholder="Town / City"
+                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                />
+
+                                <input
+                                  required
+                                  value={stop.county}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "county", event.target.value)
+                                  }
+                                  placeholder="County"
+                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                />
+
+                                <input
+                                  required
+                                  value={stop.postcode}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "postcode", event.target.value)
+                                  }
+                                  placeholder="Postcode"
+                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                                />
+                              </div>
+
+                              <div className="mt-4">
+                                <label className="block text-sm font-semibold text-slate-800">
+                                  Capacity Required At Stop {stop.order}
+                                </label>
+
+                                <div className="mt-3 grid gap-3 md:grid-cols-4">
+                                  {capacityOptions.map((option) => (
+                                    <button
+                                      key={option.percent}
+                                      type="button"
+                                      onClick={() => updateStopCapacity(index, option.percent)}
+                                      className={`rounded-2xl border p-4 text-left text-sm font-bold transition ${
+                                        stop.capacityPercent === option.percent
+                                          ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
+                                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                                      }`}
+                                    >
+                                      <span className="block text-xl">{option.label}</span>
+                                      <span className="mt-1 block text-xs opacity-80">
+                                        {option.pallets}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
 
               <section className="rounded-3xl border border-slate-200 bg-white p-6">
                 <div className="mb-6">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
-                    Step 2
+                    Step 3
                   </p>
                   <h3 className="mt-2 text-xl font-bold text-slate-950">
                     Vehicle and load capacity
@@ -538,10 +1008,11 @@ export default function QuotePage() {
                       <option value="">Select vehicle</option>
                       <option value="Small Van">Small Van</option>
                       <option value="SWB Van">SWB Van</option>
-                      <option value="LWB Van">LWB Van</option>
+                      <option value="LWB High Roof Van">LWB High Roof Van</option>
                       <option value="XLWB High Roof">XLWB High Roof</option>
-                      <option value="Luton Tail Lift">Luton Tail Lift</option>
-                      <option value="Curtainsider">Curtainsider</option>
+                      <option value="Luton Tail Lift Curtainsider">
+                        Luton Tail Lift Curtainsider
+                      </option>
                     </select>
                   </div>
 
@@ -575,144 +1046,6 @@ export default function QuotePage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <div className="mb-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
-                    Step 3
-                  </p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">
-                    Collection and delivery route
-                  </h3>
-                </div>
-
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800">
-                      Collection Date
-                    </label>
-                    <input
-                      type="date"
-                      name="collectionDate"
-                      required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800">
-                      Collection Window
-                    </label>
-                    <select
-                      name="collectionWindow"
-                      required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                    >
-                      <option value="">Select collection window</option>
-                      {hourlyWindows.map((window) => (
-                        <option key={window} value={window}>
-                          {window}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800">
-                      Collection Address
-                    </label>
-                    <textarea
-                      name="collectionAddress"
-                      required
-                      rows={3}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800">
-                      Delivery Address
-                    </label>
-                    <textarea
-                      name="deliveryAddress"
-                      required
-                      rows={3}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                    />
-                  </div>
-                </div>
-
-                {showExtraStops && (
-                  <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-slate-950">
-                          Extra Stops
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Add unlimited extra stops and set the stop order.
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={addStop}
-                        className="rounded-full bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
-                      >
-                        Add Stop
-                      </button>
-                    </div>
-
-                    <div className="mt-5 grid gap-4">
-                      {extraStops.map((stop, index) => (
-                        <div
-                          key={index}
-                          className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                        >
-                          <div className="mb-3 flex items-center justify-between">
-                            <p className="text-sm font-bold text-slate-950">
-                              Stop {index + 1}
-                            </p>
-
-                            <button
-                              type="button"
-                              onClick={() => removeStop(index)}
-                              className="text-sm font-bold text-red-600"
-                            >
-                              Remove
-                            </button>
-                          </div>
-
-                          <div className="grid gap-3 md:grid-cols-[1fr_140px]">
-                            <input
-                              value={stop.address}
-                              onChange={(event) =>
-                                updateStopAddress(index, event.target.value)
-                              }
-                              placeholder="Stop address"
-                              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                            />
-
-                            <select
-                              value={stop.order}
-                              onChange={(event) =>
-                                updateStopOrder(index, Number(event.target.value))
-                              }
-                              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                            >
-                              {extraStops.map((_, orderIndex) => (
-                                <option key={orderIndex + 1} value={orderIndex + 1}>
-                                  Stop {orderIndex + 1}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </section>
-
               <section className="rounded-3xl border border-slate-200 bg-white p-6">
                 <div className="mb-6">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
@@ -732,20 +1065,7 @@ export default function QuotePage() {
                       name="loadDescription"
                       required
                       rows={3}
-                      placeholder="Example: palletised goods, furniture, machinery, boxed items"
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-800">
-                      Pallet Count
-                    </label>
-                    <input
-                      type="number"
-                      name="palletCount"
-                      min="0"
-                      required
+                      placeholder="Example: palletised goods, machinery, boxed items"
                       className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
                     />
                   </div>
@@ -811,10 +1131,21 @@ export default function QuotePage() {
 
                   <div>
                     <label className="block text-sm font-semibold text-slate-800">
-                      Company Name
+                      Legal Entity
                     </label>
                     <input
-                      name="companyName"
+                      name="legalEntity"
+                      required
+                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Trading Name If Different
+                    </label>
+                    <input
+                      name="tradingName"
                       className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
                     />
                   </div>
