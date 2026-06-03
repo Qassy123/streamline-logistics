@@ -28,9 +28,9 @@ export default function ServiceQuoteSection({
     <section className="relative overflow-hidden bg-[#071426] py-24 text-white">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(239,28,36,0.35),_transparent_35%),radial-gradient(circle_at_bottom_left,_rgba(255,106,0,0.18),_transparent_32%)]" />
 
-      <div className="relative mx-auto max-w-7xl px-6">
+      <div className="relative mx-auto max-w-7xl overflow-hidden px-6">
         <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:items-stretch">
-          <div className="rounded-[36px] border border-white/10 bg-white/[0.04] p-8 shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="min-w-0 overflow-hidden rounded-[36px] border border-white/10 bg-white/[0.04] p-8 shadow-2xl shadow-black/20 backdrop-blur">
             <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff7f11]">
               {eyebrow}
             </p>
@@ -46,22 +46,30 @@ export default function ServiceQuoteSection({
             <div className="grid gap-4">
               <a
                 href="tel:03333440703"
-                className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 font-semibold text-white"
+                className="flex min-w-0 items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 font-semibold text-white"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#ef1c24]">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ef1c24]">
                   <Phone size={20} />
                 </span>
-                <span>0333 344 0703</span>
+
+                <div className="min-w-0">
+                  <span className="block">0333 344 0703</span>
+                </div>
               </a>
 
               <a
                 href="mailto:info@streamlinelogisticsgroup.co.uk"
-                className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 font-semibold text-white"
+                className="flex min-w-0 items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 font-semibold text-white"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#ef1c24]">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ef1c24]">
                   <Mail size={20} />
                 </span>
-                <span>info@streamlinelogisticsgroup.co.uk</span>
+
+                <div className="min-w-0 flex-1">
+                  <span className="block break-all text-sm leading-relaxed sm:text-base">
+                    info@streamlinelogisticsgroup.co.uk
+                  </span>
+                </div>
               </a>
             </div>
           </div>
