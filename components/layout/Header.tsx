@@ -12,19 +12,17 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full bg-white shadow-sm">
-        <div className="mx-auto flex h-[110px] max-w-[1500px] items-center justify-between px-5 lg:h-[130px] lg:px-10">
+        <div className="mx-auto flex h-[92px] max-w-[1500px] items-center justify-between px-5 lg:h-[100px] lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[310px] shrink-0 items-center lg:w-[420px]"
-            aria-label="Streamline Logistics Group home"
+            className="flex h-full w-[300px] items-center lg:w-[420px]"
           >
-            <div className="relative h-[105px] w-[300px] lg:h-[125px] lg:w-[400px]">
+            <div className="relative h-[70px] w-[260px] lg:h-[80px] lg:w-[380px]">
               <Image
-                src="/images/logos/Logo.png"
+                src="/images/logos/header-logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
-                sizes="(min-width: 1024px) 400px, 300px"
                 className="object-contain object-left"
               />
             </div>
