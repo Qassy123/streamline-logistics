@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type QuoteResponse = {
   id: string;
@@ -167,6 +168,8 @@ function isAddressComplete(address: AddressFields) {
 }
 
 export default function QuotePage() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
@@ -418,21 +421,7 @@ export default function QuotePage() {
 
       const data = await response.json();
 
-      setQuote(data);
-      form.reset();
-
-      setSelectedDeliveryType("");
-      setSelectedJourneyType("");
-      setSelectedVehicle("");
-      setShowVehicleModal(false);
-      setCapacityPercent(null);
-      setExtraStops([]);
-      setCollectionDate("");
-      setCollectionWindow("");
-      setCollectionAddress(emptyAddress);
-      setDeliveryAddress(emptyAddress);
-      setFragileGoods(false);
-      setAccuracyConfirmed(false);
+      router.push(`/quote/${data.id}`);
     } catch (error) {
       console.error("Quote submission error:", error);
       setError("Unable to generate quote. Please try again.");
