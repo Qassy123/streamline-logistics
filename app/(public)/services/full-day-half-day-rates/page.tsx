@@ -41,18 +41,18 @@ export default function FullDayHalfDayRatesPage() {
     <>
       <Header />
 
-      <main>
-        <section className="bg-gradient-to-r from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-20 text-white lg:py-28">
-          <div className="mx-auto max-w-7xl px-6">
+      <main className="overflow-x-hidden">
+        <section className="bg-gradient-to-r from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-16 text-white sm:py-20 lg:py-28">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6">
             <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff7f11]">
               Full Day & Half Day Rates
             </p>
 
-            <h1 className="mb-6 max-w-5xl text-5xl font-semibold leading-tight lg:text-7xl">
+            <h1 className="mb-6 max-w-5xl text-4xl font-semibold leading-tight sm:text-5xl lg:text-7xl">
               Flexible Full Day & Half Day Courier Solutions
             </h1>
 
-            <p className="max-w-3xl text-xl leading-9 text-white/90">
+            <p className="max-w-3xl text-lg leading-8 text-white/90 sm:text-xl sm:leading-9">
               For businesses that require a dedicated vehicle for several
               hours or a full working day, Streamline Logistics Group
               provides flexible transport solutions tailored around your
@@ -80,31 +80,39 @@ export default function FullDayHalfDayRatesPage() {
         </section>
 
         <section className="border-b bg-white py-10">
-          <div className="mx-auto grid max-w-6xl gap-8 px-6 text-center md:grid-cols-4">
+          <div className="mx-auto grid max-w-6xl gap-8 px-5 text-center sm:px-6 sm:grid-cols-2 md:grid-cols-4">
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">Half Day</h3>
+              <h3 className="text-3xl font-bold text-[#ef1c24] sm:text-4xl">
+                Half Day
+              </h3>
               <p className="text-[#0b1f3a]">Flexible Bookings</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">Full Day</h3>
+              <h3 className="text-3xl font-bold text-[#ef1c24] sm:text-4xl">
+                Full Day
+              </h3>
               <p className="text-[#0b1f3a]">Dedicated Vehicle</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">UK Wide</h3>
+              <h3 className="text-3xl font-bold text-[#ef1c24] sm:text-4xl">
+                UK Wide
+              </h3>
               <p className="text-[#0b1f3a]">Coverage</p>
             </div>
 
             <div>
-              <h3 className="text-4xl font-bold text-[#ef1c24]">24/7</h3>
+              <h3 className="text-3xl font-bold text-[#ef1c24] sm:text-4xl">
+                24/7
+              </h3>
               <p className="text-[#0b1f3a]">Support</p>
             </div>
           </div>
         </section>
 
         <section className="bg-[#f8fafc] py-20">
-          <div className="mx-auto max-w-7xl px-6">
+          <div className="mx-auto max-w-7xl px-5 sm:px-6">
             <div className="mb-14 text-center">
               <h2 className="mb-4 text-4xl font-light text-[#ef1c24] lg:text-5xl">
                 Why Businesses Choose Streamline
@@ -171,7 +179,7 @@ export default function FullDayHalfDayRatesPage() {
         />
 
         <section className="bg-white py-20">
-          <div className="mx-auto max-w-7xl px-6 text-center">
+          <div className="mx-auto max-w-7xl px-5 text-center sm:px-6">
             <h2 className="mb-4 text-4xl font-light text-[#ef1c24]">
               Businesses Using Our Full Day & Half Day Service
             </h2>
@@ -182,21 +190,35 @@ export default function FullDayHalfDayRatesPage() {
               and businesses with regular delivery requirements.
             </p>
 
-            <Industries />
+            <div className="overflow-x-hidden">
+              <Industries />
+            </div>
           </div>
         </section>
 
         <section className="bg-[#f8fafc] py-20">
-          <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-6xl px-5 sm:px-6">
             <h2 className="mb-16 text-center text-4xl font-light text-[#ef1c24]">
               How It Works
             </h2>
 
             <div className="grid gap-8 md:grid-cols-3">
               {[
-                ["1", "Book Your Vehicle", "Tell us how long you require transport support."],
-                ["2", "Driver Assigned", "A dedicated driver and suitable vehicle are allocated."],
-                ["3", "Operate All Day", "Collections and deliveries are completed throughout the booking."],
+                [
+                  "1",
+                  "Book Your Vehicle",
+                  "Tell us how long you require transport support.",
+                ],
+                [
+                  "2",
+                  "Driver Assigned",
+                  "A dedicated driver and suitable vehicle are allocated.",
+                ],
+                [
+                  "3",
+                  "Operate All Day",
+                  "Collections and deliveries are completed throughout the booking.",
+                ],
               ].map(([number, title, text]) => (
                 <div
                   key={number}
@@ -216,7 +238,7 @@ export default function FullDayHalfDayRatesPage() {
         </section>
 
         <section className="bg-white py-20">
-          <div className="mx-auto max-w-4xl px-6">
+          <div className="mx-auto max-w-4xl px-5 sm:px-6">
             <h2 className="mb-12 text-center text-4xl font-light text-[#ef1c24]">
               Full Day & Half Day FAQ
             </h2>
@@ -239,7 +261,7 @@ export default function FullDayHalfDayRatesPage() {
         </section>
 
         <section className="bg-[#0b1f3a] py-20 text-white">
-          <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-6xl px-5 sm:px-6">
             <h2 className="mb-12 text-center text-4xl font-light">
               Why Choose Streamline Logistics Group
             </h2>
@@ -255,8 +277,8 @@ export default function FullDayHalfDayRatesPage() {
                 "Fully insured service",
                 "Business-focused logistics solutions",
               ].map((item) => (
-                <div key={item} className="flex items-center gap-3">
-                  <CheckCircle className="text-[#ff6a00]" />
+                <div key={item} className="flex min-w-0 items-center gap-3">
+                  <CheckCircle className="shrink-0 text-[#ff6a00]" />
                   <span>{item}</span>
                 </div>
               ))}
@@ -264,13 +286,13 @@ export default function FullDayHalfDayRatesPage() {
           </div>
         </section>
 
-        <section className="bg-white py-20">
-          <div className="mx-auto max-w-5xl rounded-[40px] bg-[#ef1c24] px-8 py-16 text-center text-white">
-            <h2 className="mb-6 text-4xl font-semibold">
+        <section className="bg-white px-5 py-20 sm:px-6">
+          <div className="mx-auto max-w-5xl rounded-[32px] bg-[#ef1c24] px-6 py-14 text-center text-white sm:rounded-[40px] sm:px-8 sm:py-16">
+            <h2 className="mb-6 text-3xl font-semibold sm:text-4xl">
               Need Dedicated Transport Support?
             </h2>
 
-            <p className="mb-8 text-xl text-white/90">
+            <p className="mb-8 text-lg text-white/90 sm:text-xl">
               Book a half-day or full-day vehicle and keep your business moving efficiently.
             </p>
 
