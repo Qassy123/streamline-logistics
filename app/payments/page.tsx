@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   Apple,
   Building2,
@@ -25,11 +25,11 @@ type QuoteDetails = {
   adminPrice: string | number | null;
 };
 
-const API_URL = "https://streamline-logistics-production.up.railway.app/api/quotes";
+const BACKEND_API_URL = "https://streamline-logistics-production.up.railway.app/api";
 
 async function getQuote(id: string): Promise<QuoteDetails | null> {
   try {
-    const response = await fetch(`${API_URL}/${id}`, {
+    const response = await fetch(`${BACKEND_API_URL}/quotes/${id}`, {
       cache: "no-store",
     });
 
@@ -41,6 +41,37 @@ async function getQuote(id: string): Promise<QuoteDetails | null> {
     console.error("Payment quote fetch error:", error);
     return null;
   }
+}
+
+async function createCheckoutSession(formData: FormData) {
+  "use server";
+
+  const quoteId = String(formData.get("quoteId") || "");
+
+  if (!quoteId) {
+    throw new Error("Missing quote ID");
+  }
+
+  const response = await fetch(`${BACKEND_API_URL}/payments/create-checkout-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ quoteId }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create Stripe checkout session");
+  }
+
+  const data = await response.json();
+
+  if (!data.checkoutUrl) {
+    throw new Error("Stripe checkout URL missing");
+  }
+
+  redirect(data.checkoutUrl);
 }
 
 function formatMoney(value: string | number | null) {
@@ -109,25 +140,28 @@ export default async function PaymentsPage({
                 </div>
 
                 <div className="grid gap-4">
-                  <button
-                    type="button"
-                    disabled
-                    className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 text-left opacity-70"
-                  >
-                    <span className="flex items-center gap-3">
-                      <Apple size={26} />
-                      <span>
-                        <span className="block font-bold">Apple Pay / Card</span>
-                        <span className="text-sm text-slate-500">
-                          Stripe checkout connection coming next.
+                  <form action={createCheckoutSession}>
+                    <input type="hidden" name="quoteId" value={quote.id} />
+
+                    <button
+                      type="submit"
+                      className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 text-left transition hover:border-slate-950 hover:shadow-lg"
+                    >
+                      <span className="flex items-center gap-3">
+                        <Apple size={26} />
+                        <span>
+                          <span className="block font-bold">Apple Pay / Card</span>
+                          <span className="text-sm text-slate-500">
+                            Pay securely by card. Apple Pay appears automatically on supported devices.
+                          </span>
                         </span>
                       </span>
-                    </span>
 
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                      Pending
-                    </span>
-                  </button>
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                        Available
+                      </span>
+                    </button>
+                  </form>
 
                   <button
                     type="button"
@@ -223,14 +257,17 @@ export default async function PaymentsPage({
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled
-                className="mt-6 flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 text-sm font-bold text-white opacity-70"
-              >
-                <ShieldCheck size={20} />
-                Payment Gateway Pending
-              </button>
+              <form action={createCheckoutSession}>
+                <input type="hidden" name="quoteId" value={quote.id} />
+
+                <button
+                  type="submit"
+                  className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#ff6a00]"
+                >
+                  <ShieldCheck size={20} />
+                  Pay Securely Now
+                </button>
+              </form>
 
               <Link
                 href={`/quote/${quote.id}`}

@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import quoteRoutes from "./routes/quotes";
 import vehicleRoutes from "./routes/vehicles";
 import bookingRoutes from "./routes/bookings";
+import paymentRoutes from "./routes/payments";
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ app.use(express.json());
 app.use("/api/quotes", quoteRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.get("/", (_, res) => {
   res.json({
