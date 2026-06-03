@@ -117,9 +117,10 @@ function formatExtraDrops(extraDrops: unknown) {
 export default async function QuoteDetailsPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const quote = await getQuote(params.id);
+  const { id } = await params;
+  const quote = await getQuote(id);
 
   if (!quote) {
     notFound();
@@ -293,7 +294,10 @@ export default async function QuoteDetailsPage({
                   <Detail label="Customer Name" value={quote.customerName} />
                   <Detail label="Email" value={quote.customerEmail} />
                   <Detail label="Phone" value={quote.customerPhone} />
-                  <Detail label="Contact Preference" value={quote.contactPreference} />
+                  <Detail
+                    label="Contact Preference"
+                    value={quote.contactPreference}
+                  />
                   <Detail label="Legal Entity" value={businessName} />
                   <Detail label="Trading Name" value={quote.tradingName} />
                 </div>
