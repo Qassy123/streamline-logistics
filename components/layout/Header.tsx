@@ -12,15 +12,15 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full bg-white shadow-sm">
-        <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 lg:h-[120px] lg:px-10">
+        <div className="mx-auto flex h-[110px] max-w-[1500px] items-center justify-between px-5 lg:h-[130px] lg:px-10">
           <Link href="/" className="flex h-full items-center">
-            <div className="relative h-[92px] w-[270px] sm:w-[320px] lg:h-[118px] lg:w-[380px]">
+            <div className="relative h-[100px] w-[420px] lg:h-[120px] lg:w-[520px]">
               <Image
                 src="/images/logos/Logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
-                className="object-contain"
+                className="object-contain object-left"
               />
             </div>
           </Link>
