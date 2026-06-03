@@ -68,8 +68,12 @@ router.post("/", async (req, res) => {
         vehicleSize: req.body.vehicleSize,
 
         collectionAddress: req.body.collectionAddress,
-        deliveryAddress: req.body.deliveryAddress,
+        collectionAddressDetails: req.body.collectionAddressDetails || null,
 
+        deliveryAddress: req.body.deliveryAddress,
+        deliveryAddressDetails: req.body.deliveryAddressDetails || null,
+
+        returnAddress: req.body.returnAddress || null,
         extraDrops: req.body.extraDrops || null,
 
         loadDescription: req.body.loadDescription || null,
@@ -82,7 +86,9 @@ router.post("/", async (req, res) => {
         customerEmail: req.body.customerEmail,
         customerPhone: req.body.customerPhone,
 
-        companyName: req.body.companyName || null,
+        companyName: req.body.companyName || req.body.legalEntity || null,
+        legalEntity: req.body.legalEntity || req.body.companyName || null,
+        tradingName: req.body.tradingName || null,
 
         distanceMiles: price.distanceMiles,
         basePrice: price.basePrice,

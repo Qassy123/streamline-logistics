@@ -138,10 +138,14 @@ model Quote {
   collectionWindow String
   vehicleSize      String
 
-  collectionAddress String
-  deliveryAddress   String
+  collectionAddress        String
+  collectionAddressDetails Json?
 
-  extraDrops Json?
+  deliveryAddress        String
+  deliveryAddressDetails Json?
+
+  returnAddress String?
+  extraDrops    Json?
 
   loadDescription   String?
   palletCount       Int?
@@ -153,7 +157,9 @@ model Quote {
   customerEmail String
   customerPhone String
 
-  companyName String?
+  companyName  String?
+  legalEntity  String?
+  tradingName  String?
 
   distanceMiles Decimal?
   basePrice     Decimal?
