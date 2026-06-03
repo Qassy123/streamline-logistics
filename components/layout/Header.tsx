@@ -12,9 +12,9 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full bg-white shadow-sm">
-        <div className="mx-auto flex h-[118px] max-w-[1500px] items-center justify-between px-5 lg:h-[128px] lg:px-10">
-          <Link href="/" className="flex h-full w-[260px] items-center lg:w-[320px]">
-            <div className="relative h-[112px] w-[220px] lg:h-[122px] lg:w-[260px]">
+        <div className="mx-auto flex h-[88px] max-w-[1500px] items-center justify-between px-5 lg:h-[96px] lg:px-10">
+          <Link href="/" className="flex h-full w-[190px] items-center lg:w-[230px]">
+            <div className="relative h-[82px] w-[170px] lg:h-[90px] lg:w-[200px]">
               <Image
                 src="/images/logos/Logo.png"
                 alt="Streamline Logistics Group"
