@@ -55,7 +55,11 @@ async function geocodeAddress(address: string, apiKey: string) {
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to geocode address: ${address}`);
+    const errorText = await response.text();
+
+    throw new Error(
+      `Failed to geocode address: ${address}. Status: ${response.status}. Body: ${errorText}`
+    );
   }
 
   const data = (await response.json()) as GeocodeResponse;
@@ -92,7 +96,7 @@ async function calculateRouteDistanceMiles(
   const apiKey = getOpenRouteServiceApiKey();
 
   if (!apiKey) {
-    return null;
+    throw new Error("OpenRouteService API key missing");
   }
 
   const collectionCoordinates = await geocodeAddress(collectionAddress, apiKey);
@@ -113,7 +117,11 @@ async function calculateRouteDistanceMiles(
   );
 
   if (!routeResponse.ok) {
-    throw new Error("Failed to calculate route");
+    const errorText = await routeResponse.text();
+
+    throw new Error(
+      `Failed to calculate route. Status: ${routeResponse.status}. Body: ${errorText}`
+    );
   }
 
   const routeData = (await routeResponse.json()) as RouteResponse;
@@ -171,6 +179,7 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     let distanceMiles: number | null = null;
+    let distanceSource = "fallback";
 
     if (req.body.collectionAddress && req.body.deliveryAddress) {
       try {
@@ -178,6 +187,8 @@ router.post("/", async (req, res) => {
           req.body.collectionAddress,
           req.body.deliveryAddress
         );
+
+        distanceSource = "openrouteservice";
       } catch (distanceError) {
         console.error("Route distance failed, using fallback pricing:", distanceError);
       }
@@ -187,6 +198,17 @@ router.post("/", async (req, res) => {
       deliveryType: req.body.deliveryType,
       vehicleSize: req.body.vehicleSize,
       distanceMiles,
+    });
+
+    console.log("Quote pricing:", {
+      collectionAddress: req.body.collectionAddress,
+      deliveryAddress: req.body.deliveryAddress,
+      calculatedDistanceMiles: distanceMiles,
+      savedDistanceMiles: price.distanceMiles,
+      distanceSource,
+      deliveryType: req.body.deliveryType,
+      vehicleSize: req.body.vehicleSize,
+      totalPrice: price.totalPrice,
     });
 
     const quote = await prisma.quote.create({
@@ -235,7 +257,11 @@ router.post("/", async (req, res) => {
       },
     });
 
-    res.status(201).json(quote);
+    res.status(201).json({
+      ...quote,
+      distanceSource,
+      calculatedDistanceMiles: distanceMiles,
+    });
   } catch (error) {
     console.error(error);
 
