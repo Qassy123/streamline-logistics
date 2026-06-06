@@ -1,12 +1,23 @@
 @import "tailwindcss";
 
 :root {
-  --streamline-orange: #ff6a00;
-  --streamline-orange-light: #ff7f11;
-  --streamline-red: #ef1c24;
+  --streamline-orange: #f97316;
+  --streamline-orange-light: #fb923c;
+
+  --streamline-green: #15803d;
+  --streamline-green-light: #22c55e;
+
   --streamline-navy: #0b1f3a;
   --streamline-light: #f8f8f8;
-  --streamline-green: #a8dc8f;
+
+  --streamline-background: #ffffff;
+  --streamline-text: #0b1f3a;
+
+  --streamline-success: #16a34a;
+  --streamline-warning: #f97316;
+
+  --streamline-accent: #15803d;
+  --streamline-accent-light: #dcfce7;
 }
 
 * {
@@ -19,8 +30,8 @@ html {
 
 body {
   margin: 0;
-  background: #ffffff;
-  color: var(--streamline-navy);
+  background: var(--streamline-background);
+  color: var(--streamline-text);
   font-family: Arial, Helvetica, sans-serif;
 }
 

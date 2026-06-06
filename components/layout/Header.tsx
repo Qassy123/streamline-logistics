@@ -29,27 +29,27 @@ export default function Header() {
           </Link>
 
           <nav className="hidden items-center gap-10 lg:flex">
-            <Link href="/" className="font-medium text-[#ef1c24]">
+            <Link href="/" className="font-medium text-[#15803d]">
               Home
             </Link>
 
             <Link
               href="/quote"
-              className="font-medium text-[#0b1f3a] transition hover:text-[#ff6a00]"
+              className="font-medium text-[#062015] transition hover:text-[#f97316]"
             >
               Instant Quote
             </Link>
 
             <Link
               href="/about"
-              className="font-medium text-[#0b1f3a] transition hover:text-[#ff6a00]"
+              className="font-medium text-[#062015] transition hover:text-[#f97316]"
             >
               About Us
             </Link>
 
             <Link
               href="/contact"
-              className="font-medium text-[#0b1f3a] transition hover:text-[#ff6a00]"
+              className="font-medium text-[#062015] transition hover:text-[#f97316]"
             >
               Contact
             </Link>
@@ -58,26 +58,26 @@ export default function Header() {
           <div className="hidden items-center gap-6 lg:flex">
             <a
               href="tel:03333440703"
-              className="flex items-center gap-2 font-medium text-[#0b1f3a]"
+              className="flex items-center gap-2 font-medium text-[#062015]"
             >
-              <Phone size={18} className="text-[#ef1c24]" />
+              <Phone size={18} className="text-[#f97316]" />
               0333 344 0703
             </a>
 
             <Link
               href="/payments"
-              className="rounded-full bg-[#0b1f3a] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#ff6a00]"
+              className="rounded-full bg-[#15803d] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#f97316]"
             >
               Make Payment
             </Link>
 
-            <Search size={22} className="cursor-pointer text-[#0b1f3a]" />
+            <Search size={22} className="cursor-pointer text-[#062015]" />
           </div>
 
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="text-[#0b1f3a] lg:hidden"
+            className="text-[#062015] lg:hidden"
             aria-label="Open menu"
           >
             <Menu size={34} />
