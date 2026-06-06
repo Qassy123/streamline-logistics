@@ -46,6 +46,12 @@ type ExtraDrop = {
   address?: string;
 };
 
+type RouteStop = {
+  address: string;
+  coordinates: Coordinates;
+  type: "collection" | "extraDrop" | "delivery";
+};
+
 function getOpenRouteServiceApiKey() {
   return (
     process.env.ORS_API_KEY ||
@@ -56,15 +62,15 @@ function getOpenRouteServiceApiKey() {
 }
 
 function extractUkPostcode(address: string) {
-  const match = address.match(
-    /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i
-  );
+  const match = address.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
 
   return match ? match[1].toUpperCase().replace(/\s+/g, "") : null;
 }
 
 function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
-  if (!extraDrops) return [];
+  if (!extraDrops) {
+    return [];
+  }
 
   if (Array.isArray(extraDrops)) {
     return extraDrops
@@ -79,7 +85,8 @@ function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
 
   if (typeof extraDrops === "string") {
     try {
-      return normaliseExtraDrops(JSON.parse(extraDrops));
+      const parsed = JSON.parse(extraDrops);
+      return normaliseExtraDrops(parsed);
     } catch {
       return [];
     }
@@ -88,7 +95,7 @@ function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
   return [];
 }
 
-function buildRouteAddresses(
+function buildOriginalRouteAddresses(
   collectionAddress: string,
   deliveryAddress: string,
   extraDrops: unknown
@@ -105,17 +112,23 @@ function buildRouteAddresses(
 async function geocodePostcode(address: string): Promise<Coordinates | null> {
   const postcode = extractUkPostcode(address);
 
-  if (!postcode) return null;
+  if (!postcode) {
+    return null;
+  }
 
   const response = await fetch(
     `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`
   );
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    return null;
+  }
 
   const data = (await response.json()) as PostcodesIoResponse;
 
-  if (!data.result?.longitude || !data.result?.latitude) return null;
+  if (!data.result?.longitude || !data.result?.latitude) {
+    return null;
+  }
 
   return [data.result.longitude, data.result.latitude];
 }
@@ -166,30 +179,101 @@ async function geocodeAddress(address: string, apiKey: string) {
 function getDistanceMeters(routeData: RouteResponse) {
   const routesDistance = routeData.routes?.[0]?.summary?.distance;
 
-  if (typeof routesDistance === "number") return routesDistance;
+  if (typeof routesDistance === "number") {
+    return routesDistance;
+  }
 
   const featuresDistance =
     routeData.features?.[0]?.properties?.summary?.distance;
 
-  if (typeof featuresDistance === "number") return featuresDistance;
+  if (typeof featuresDistance === "number") {
+    return featuresDistance;
+  }
 
   return null;
 }
 
-async function calculateRoute(addresses: string[]) {
+function calculateStraightLineDistanceMiles(
+  start: Coordinates,
+  end: Coordinates
+) {
+  const [lon1, lat1] = start;
+  const [lon2, lat2] = end;
+
+  const earthRadiusMiles = 3958.8;
+  const degreesToRadians = Math.PI / 180;
+
+  const deltaLat = (lat2 - lat1) * degreesToRadians;
+  const deltaLon = (lon2 - lon1) * degreesToRadians;
+
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1 * degreesToRadians) *
+      Math.cos(lat2 * degreesToRadians) *
+      Math.sin(deltaLon / 2) *
+      Math.sin(deltaLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadiusMiles * c;
+}
+
+function optimiseExtraDropOrder(stops: RouteStop[]) {
+  const collection = stops.find((stop) => stop.type === "collection");
+  const delivery = stops.find((stop) => stop.type === "delivery");
+  const extraDrops = stops.filter((stop) => stop.type === "extraDrop");
+
+  if (!collection || !delivery || extraDrops.length <= 1) {
+    return stops;
+  }
+
+  const orderedDrops: RouteStop[] = [];
+  const remainingDrops = [...extraDrops];
+  let currentStop = collection;
+
+  while (remainingDrops.length > 0) {
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    remainingDrops.forEach((drop, index) => {
+      const distanceToDrop = calculateStraightLineDistanceMiles(
+        currentStop.coordinates,
+        drop.coordinates
+      );
+
+      const dropToDelivery = calculateStraightLineDistanceMiles(
+        drop.coordinates,
+        delivery.coordinates
+      );
+
+      const score = distanceToDrop + dropToDelivery * 0.15;
+
+      if (score < nearestDistance) {
+        nearestDistance = score;
+        nearestIndex = index;
+      }
+    });
+
+    const [nearestDrop] = remainingDrops.splice(nearestIndex, 1);
+    orderedDrops.push(nearestDrop);
+    currentStop = nearestDrop;
+  }
+
+  return [collection, ...orderedDrops, delivery];
+}
+
+async function calculateRoute(stops: RouteStop[]) {
   const apiKey = getOpenRouteServiceApiKey();
 
   if (!apiKey) {
     throw new Error("OpenRouteService API key missing");
   }
 
-  if (addresses.length < 2) {
+  if (stops.length < 2) {
     throw new Error("At least two addresses are required");
   }
 
-  const coordinates = await Promise.all(
-    addresses.map((address) => geocodeAddress(address, apiKey))
-  );
+  const coordinates = stops.map((stop) => stop.coordinates);
 
   const routeResponse = await fetch(
     "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
@@ -229,6 +313,42 @@ async function calculateRoute(addresses: string[]) {
   };
 }
 
+async function buildRouteStops(
+  collectionAddress: string,
+  deliveryAddress: string,
+  extraDrops: unknown
+) {
+  const apiKey = getOpenRouteServiceApiKey();
+
+  if (!apiKey) {
+    throw new Error("OpenRouteService API key missing");
+  }
+
+  const drops = normaliseExtraDrops(extraDrops);
+
+  const stopsToGeocode = [
+    {
+      address: collectionAddress,
+      type: "collection" as const,
+    },
+    ...drops.map((drop) => ({
+      address: String(drop.address),
+      type: "extraDrop" as const,
+    })),
+    {
+      address: deliveryAddress,
+      type: "delivery" as const,
+    },
+  ];
+
+  return Promise.all(
+    stopsToGeocode.map(async (stop) => ({
+      ...stop,
+      coordinates: await geocodeAddress(stop.address, apiKey),
+    }))
+  );
+}
+
 router.post("/", async (req, res) => {
   try {
     const { collectionAddress, deliveryAddress, extraDrops } = req.body;
@@ -239,19 +359,28 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const routeAddresses = buildRouteAddresses(
+    const originalRouteAddresses = buildOriginalRouteAddresses(
       collectionAddress,
       deliveryAddress,
       extraDrops
     );
 
-    const route = await calculateRoute(routeAddresses);
+    const routeStops = await buildRouteStops(
+      collectionAddress,
+      deliveryAddress,
+      extraDrops
+    );
+
+    const optimisedRouteStops = optimiseExtraDropOrder(routeStops);
+    const route = await calculateRoute(optimisedRouteStops);
 
     res.json({
       collectionAddress,
       deliveryAddress,
       extraDrops: normaliseExtraDrops(extraDrops),
-      routeAddresses,
+      originalRouteAddresses,
+      optimisedRouteAddresses: optimisedRouteStops.map((stop) => stop.address),
+      optimised: true,
       ...route,
     });
   } catch (error) {

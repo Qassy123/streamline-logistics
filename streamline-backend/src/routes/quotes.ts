@@ -48,6 +48,12 @@ type ExtraDrop = {
   address?: string;
 };
 
+type RouteStop = {
+  address: string;
+  coordinates: Coordinates;
+  type: "collection" | "extraDrop" | "delivery";
+};
+
 function getOpenRouteServiceApiKey() {
   return (
     process.env.ORS_API_KEY ||
@@ -91,7 +97,7 @@ function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
   return [];
 }
 
-function buildRouteAddresses(
+function buildOriginalRouteAddresses(
   collectionAddress: string,
   deliveryAddress: string,
   extraDrops: unknown
@@ -189,20 +195,123 @@ function getDistanceMeters(routeData: RouteResponse) {
   return null;
 }
 
-async function calculateRouteDistanceMiles(addresses: string[]) {
+function calculateStraightLineDistanceMiles(
+  start: Coordinates,
+  end: Coordinates
+) {
+  const [lon1, lat1] = start;
+  const [lon2, lat2] = end;
+
+  const earthRadiusMiles = 3958.8;
+  const degreesToRadians = Math.PI / 180;
+
+  const deltaLat = (lat2 - lat1) * degreesToRadians;
+  const deltaLon = (lon2 - lon1) * degreesToRadians;
+
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1 * degreesToRadians) *
+      Math.cos(lat2 * degreesToRadians) *
+      Math.sin(deltaLon / 2) *
+      Math.sin(deltaLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadiusMiles * c;
+}
+
+function optimiseExtraDropOrder(stops: RouteStop[]) {
+  const collection = stops.find((stop) => stop.type === "collection");
+  const delivery = stops.find((stop) => stop.type === "delivery");
+  const extraDrops = stops.filter((stop) => stop.type === "extraDrop");
+
+  if (!collection || !delivery || extraDrops.length <= 1) {
+    return stops;
+  }
+
+  const orderedDrops: RouteStop[] = [];
+  const remainingDrops = [...extraDrops];
+  let currentStop = collection;
+
+  while (remainingDrops.length > 0) {
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    remainingDrops.forEach((drop, index) => {
+      const distanceToDrop = calculateStraightLineDistanceMiles(
+        currentStop.coordinates,
+        drop.coordinates
+      );
+
+      const dropToDelivery = calculateStraightLineDistanceMiles(
+        drop.coordinates,
+        delivery.coordinates
+      );
+
+      const score = distanceToDrop + dropToDelivery * 0.15;
+
+      if (score < nearestDistance) {
+        nearestDistance = score;
+        nearestIndex = index;
+      }
+    });
+
+    const [nearestDrop] = remainingDrops.splice(nearestIndex, 1);
+    orderedDrops.push(nearestDrop);
+    currentStop = nearestDrop;
+  }
+
+  return [collection, ...orderedDrops, delivery];
+}
+
+async function buildRouteStops(
+  collectionAddress: string,
+  deliveryAddress: string,
+  extraDrops: unknown
+) {
   const apiKey = getOpenRouteServiceApiKey();
 
   if (!apiKey) {
     throw new Error("OpenRouteService API key missing");
   }
 
-  if (addresses.length < 2) {
+  const drops = normaliseExtraDrops(extraDrops);
+
+  const stopsToGeocode = [
+    {
+      address: collectionAddress,
+      type: "collection" as const,
+    },
+    ...drops.map((drop) => ({
+      address: String(drop.address),
+      type: "extraDrop" as const,
+    })),
+    {
+      address: deliveryAddress,
+      type: "delivery" as const,
+    },
+  ];
+
+  return Promise.all(
+    stopsToGeocode.map(async (stop) => ({
+      ...stop,
+      coordinates: await geocodeAddress(stop.address, apiKey),
+    }))
+  );
+}
+
+async function calculateRouteDistanceMiles(stops: RouteStop[]) {
+  const apiKey = getOpenRouteServiceApiKey();
+
+  if (!apiKey) {
+    throw new Error("OpenRouteService API key missing");
+  }
+
+  if (stops.length < 2) {
     throw new Error("At least two addresses are required");
   }
 
-  const coordinates = await Promise.all(
-    addresses.map((address) => geocodeAddress(address, apiKey))
-  );
+  const coordinates = stops.map((stop) => stop.coordinates);
 
   const routeResponse = await fetch(
     "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
@@ -282,20 +391,31 @@ router.post("/", async (req, res) => {
   try {
     let distanceMiles: number | null = null;
     let distanceSource = "fallback";
+    let originalRouteAddresses: string[] = [];
+    let optimisedRouteAddresses: string[] = [];
 
-    const routeAddresses =
-      req.body.collectionAddress && req.body.deliveryAddress
-        ? buildRouteAddresses(
-            req.body.collectionAddress,
-            req.body.deliveryAddress,
-            req.body.extraDrops
-          )
-        : [];
+    if (req.body.collectionAddress && req.body.deliveryAddress) {
+      originalRouteAddresses = buildOriginalRouteAddresses(
+        req.body.collectionAddress,
+        req.body.deliveryAddress,
+        req.body.extraDrops
+      );
 
-    if (routeAddresses.length >= 2) {
       try {
-        distanceMiles = await calculateRouteDistanceMiles(routeAddresses);
-        distanceSource = "openrouteservice";
+        const routeStops = await buildRouteStops(
+          req.body.collectionAddress,
+          req.body.deliveryAddress,
+          req.body.extraDrops
+        );
+
+        const optimisedRouteStops = optimiseExtraDropOrder(routeStops);
+
+        optimisedRouteAddresses = optimisedRouteStops.map(
+          (stop) => stop.address
+        );
+
+        distanceMiles = await calculateRouteDistanceMiles(optimisedRouteStops);
+        distanceSource = "openrouteservice_optimised";
       } catch (distanceError) {
         console.error("Route distance failed, using fallback pricing:", distanceError);
       }
@@ -308,7 +428,8 @@ router.post("/", async (req, res) => {
     });
 
     console.log("Quote pricing:", {
-      routeAddresses,
+      originalRouteAddresses,
+      optimisedRouteAddresses,
       calculatedDistanceMiles: distanceMiles,
       savedDistanceMiles: price.distanceMiles,
       distanceSource,
@@ -368,7 +489,8 @@ router.post("/", async (req, res) => {
       ...quote,
       distanceSource,
       calculatedDistanceMiles: distanceMiles,
-      routeAddresses,
+      originalRouteAddresses,
+      optimisedRouteAddresses,
     });
   } catch (error) {
     console.error(error);
