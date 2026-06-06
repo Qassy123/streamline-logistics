@@ -95,18 +95,18 @@ const industries = [
 
 export default function Industries() {
   return (
-    <section className="bg-white py-20 lg:py-28">
+    <section className="bg-[#071D49] py-20 lg:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <div className="mx-auto mb-14 max-w-4xl text-center">
-          <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#ff6a00]">
+          <p className="mb-4 text-sm font-bold uppercase tracking-[3px] text-[#2D8CFF]">
             Industries We Support
           </p>
 
-          <h2 className="mb-6 text-4xl font-light text-[#ef1c24] lg:text-5xl">
+          <h2 className="mb-6 text-4xl font-bold text-white lg:text-5xl">
             Courier Services Tailored To Your Industry
           </h2>
 
-          <p className="text-lg leading-8 text-[#0b1f3a] lg:text-xl">
+          <p className="text-lg leading-8 text-white/85 lg:text-xl">
             Streamline Logistics Group supports businesses across a wide range
             of sectors with dependable collection and delivery services
             throughout the United Kingdom.
@@ -117,7 +117,7 @@ export default function Industries() {
           {industries.map((industry) => (
             <div
               key={industry.title}
-              className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#ff6a00] hover:shadow-xl"
+              className="group overflow-hidden rounded-3xl border border-[#1F4D94] bg-[#0B2A63] shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-[#006CFF] hover:shadow-2xl"
             >
               <div className="relative h-52 overflow-hidden">
                 <Image
@@ -126,14 +126,16 @@ export default function Industries() {
                   fill
                   className="object-cover transition duration-500 group-hover:scale-110"
                 />
+
+                <div className="absolute inset-0 bg-gradient-to-t from-[#020B1F]/70 via-transparent to-transparent" />
               </div>
 
               <div className="p-5">
-                <h3 className="mb-3 text-lg font-semibold text-[#0b1f3a]">
+                <h3 className="mb-3 text-lg font-bold text-white">
                   {industry.title}
                 </h3>
 
-                <p className="text-sm leading-6 text-gray-600">
+                <p className="text-sm leading-6 text-white/75">
                   {industry.description}
                 </p>
               </div>
@@ -142,7 +144,7 @@ export default function Industries() {
         </div>
 
         <div className="mt-14 text-center">
-          <p className="mx-auto max-w-3xl text-lg leading-8 text-[#0b1f3a]">
+          <p className="mx-auto max-w-3xl text-lg leading-8 text-white/85">
             Don't see your industry listed? We work with businesses across many
             sectors and can tailor our collection and delivery services to your
             specific requirements.

@@ -11,7 +11,7 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full bg-white shadow-sm">
+      <header className="sticky top-0 z-40 w-full bg-[#071D49] shadow-sm">
         <div className="mx-auto flex h-[92px] max-w-[1500px] items-center justify-between px-5 lg:h-[100px] lg:px-10">
           <Link
             href="/"
@@ -29,27 +29,30 @@ export default function Header() {
           </Link>
 
           <nav className="hidden items-center gap-10 lg:flex">
-            <Link href="/" className="font-medium text-[#15803d]">
+            <Link
+              href="/"
+              className="font-medium text-[#006CFF]"
+            >
               Home
             </Link>
 
             <Link
               href="/quote"
-              className="font-medium text-[#062015] transition hover:text-[#f97316]"
+              className="font-medium text-white transition hover:text-[#2D8CFF]"
             >
               Instant Quote
             </Link>
 
             <Link
               href="/about"
-              className="font-medium text-[#062015] transition hover:text-[#f97316]"
+              className="font-medium text-white transition hover:text-[#2D8CFF]"
             >
               About Us
             </Link>
 
             <Link
               href="/contact"
-              className="font-medium text-[#062015] transition hover:text-[#f97316]"
+              className="font-medium text-white transition hover:text-[#2D8CFF]"
             >
               Contact
             </Link>
@@ -58,26 +61,29 @@ export default function Header() {
           <div className="hidden items-center gap-6 lg:flex">
             <a
               href="tel:03333440703"
-              className="flex items-center gap-2 font-medium text-[#062015]"
+              className="flex items-center gap-2 font-medium text-white"
             >
-              <Phone size={18} className="text-[#f97316]" />
+              <Phone size={18} className="text-[#006CFF]" />
               0333 344 0703
             </a>
 
             <Link
               href="/payments"
-              className="rounded-full bg-[#15803d] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#f97316]"
+              className="rounded-full bg-[#006CFF] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
             >
               Make Payment
             </Link>
 
-            <Search size={22} className="cursor-pointer text-[#062015]" />
+            <Search
+              size={22}
+              className="cursor-pointer text-white"
+            />
           </div>
 
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="text-[#062015] lg:hidden"
+            className="text-white lg:hidden"
             aria-label="Open menu"
           >
             <Menu size={34} />
@@ -85,7 +91,10 @@ export default function Header() {
         </div>
       </header>
 
-      <MobileMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
+      <MobileMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+      />
     </>
   );
 }

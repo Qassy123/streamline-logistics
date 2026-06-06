@@ -48,38 +48,41 @@ const features = [
 
 export default function LogisticsProvider() {
   return (
-    <section className="bg-gradient-to-br from-[#0b1f3a] via-[#102d52] to-[#ef1c24] py-20 text-white lg:py-28">
+    <section className="bg-[#F4F8FF] py-20 lg:py-28">
       <div className="mx-auto max-w-7xl px-6">
         <div className="mx-auto mb-16 max-w-4xl text-center">
-          <h2 className="mb-5 text-4xl font-semibold leading-tight lg:text-5xl">
+          <h2 className="mb-5 text-4xl font-bold leading-tight text-[#071D49] lg:text-5xl">
             Business Delivery Support You Can Depend On
           </h2>
 
-          <p className="text-lg leading-8 text-white/85 lg:text-xl">
+          <p className="text-lg leading-8 text-[#4B5D7A] lg:text-xl">
             Streamline Logistics Group gives businesses a simple, reliable way
             to move goods across the UK with speed, care and clear
             communication.
           </p>
         </div>
 
-        <div className="grid gap-x-10 gap-y-14 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => {
             const Icon = feature.icon;
 
             return (
               <div
                 key={feature.title}
-                className="group text-center"
+                className="rounded-3xl border border-[#D7E6FF] bg-white p-8 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:border-[#006CFF] hover:shadow-2xl"
               >
-                <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/20 bg-white/10 backdrop-blur transition group-hover:-translate-y-1 group-hover:bg-white group-hover:text-[#ef1c24]">
-                  <Icon size={38} />
+                <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#006CFF]">
+                  <Icon
+                    size={30}
+                    className="text-white"
+                  />
                 </div>
 
-                <h3 className="mb-4 text-2xl font-semibold">
+                <h3 className="mb-4 text-2xl font-bold text-[#071D49]">
                   {feature.title}
                 </h3>
 
-                <p className="mx-auto max-w-[320px] text-base leading-7 text-white/80">
+                <p className="text-base leading-7 text-[#4B5D7A]">
                   {feature.description}
                 </p>
               </div>

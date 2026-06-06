@@ -6,21 +6,21 @@ const icons = [Truck, Clock3, Route, Boxes];
 
 export default function Services() {
   return (
-    <section className="bg-white pb-16 lg:pb-28">
-      <div className="mx-auto max-w-[1200px] px-6">
+    <section className="bg-[#F4F8FF] py-16 lg:py-24">
+      <div className="mx-auto max-w-[1400px] px-6">
         <div className="mb-12 text-center lg:mb-16">
-          <h2 className="mb-6 text-4xl font-light leading-tight text-[#ef1c24] lg:text-5xl">
+          <h2 className="mb-6 text-4xl font-bold leading-tight text-[#071D49] lg:text-5xl">
             Our Transport Services
           </h2>
 
-          <p className="mx-auto max-w-5xl text-lg leading-8 text-[#0b1f3a] sm:text-xl lg:text-2xl lg:leading-10">
+          <p className="mx-auto max-w-5xl text-lg leading-8 text-[#3B4A66] sm:text-xl lg:text-2xl lg:leading-10">
             Whether you require an urgent same-day delivery or a dependable
             logistics partner, Streamline Logistics Group delivers professional
             transport solutions tailored to your business.
           </p>
         </div>
 
-        <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {services.map((service, index) => {
             const Icon = icons[index];
 
@@ -28,22 +28,28 @@ export default function Services() {
               <Link
                 key={service.title}
                 href={service.link}
-                className="text-center"
+                className="group"
               >
-                <div className="group mb-4 flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white p-6 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:border-[#ff6a00] hover:shadow-2xl lg:min-h-[210px] lg:p-8">
-                  <Icon
-                    size={58}
-                    className="mb-5 text-[#0b1f3a] transition group-hover:text-[#ff6a00] lg:size-[66px]"
-                  />
+                <div className="h-full rounded-3xl border border-[#D7E6FF] bg-white p-8 shadow-lg transition-all duration-300 hover:-translate-y-2 hover:border-[#006CFF] hover:shadow-2xl">
+                  <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#006CFF]">
+                    <Icon
+                      size={34}
+                      className="text-white"
+                    />
+                  </div>
 
-                  <h3 className="text-xl font-medium leading-7 text-[#ef1c24] lg:text-2xl">
+                  <h3 className="mb-4 text-2xl font-bold text-[#071D49]">
                     {service.title}
                   </h3>
-                </div>
 
-                <p className="px-2 text-base leading-7 text-[#0b1f3a] lg:text-lg">
-                  {service.description}
-                </p>
+                  <p className="mb-6 text-base leading-7 text-[#4B5D7A]">
+                    {service.description}
+                  </p>
+
+                  <div className="inline-flex items-center font-semibold text-[#006CFF] transition group-hover:text-[#2D8CFF]">
+                    Learn More →
+                  </div>
+                </div>
               </Link>
             );
           })}

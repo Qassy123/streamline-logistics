@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer className="bg-[#0b1f3a] text-white">
+    <footer className="bg-[#071D49] text-white">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-6 py-14 md:grid-cols-4">
         <div>
           <Image
@@ -21,38 +21,94 @@ export default function Footer() {
         </div>
 
         <div>
-          <h3 className="mb-5 text-lg font-semibold">Company</h3>
+          <h3 className="mb-5 text-lg font-bold text-[#2D8CFF]">
+            Company
+          </h3>
 
           <div className="flex flex-col gap-3 text-base text-white/80">
-            <Link href="/about">About Us</Link>
-            <Link href="/contact">Contact Us</Link>
-            <Link href="/faq">FAQ</Link>
-            <Link href="/instant-quote">Instant Quote</Link>
+            <Link
+              href="/about"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              About Us
+            </Link>
+
+            <Link
+              href="/contact"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Contact Us
+            </Link>
+
+            <Link
+              href="/faq"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              FAQ
+            </Link>
+
+            <Link
+              href="/quote"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Instant Quote
+            </Link>
           </div>
         </div>
 
         <div>
-          <h3 className="mb-5 text-lg font-semibold">Services</h3>
+          <h3 className="mb-5 text-lg font-bold text-[#2D8CFF]">
+            Services
+          </h3>
 
           <div className="flex flex-col gap-3 text-base text-white/80">
-            <Link href="/services/same-day-delivery">Same Day Delivery</Link>
-            <Link href="/services/full-day-half-day-rates">
+            <Link
+              href="/services/same-day-delivery"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Same Day Delivery
+            </Link>
+
+            <Link
+              href="/services/full-day-half-day-rates"
+              className="transition hover:text-[#2D8CFF]"
+            >
               Full Day & Half Day Rates
             </Link>
-            <Link href="/services/multi-drop-delivery">
+
+            <Link
+              href="/services/multi-drop-delivery"
+              className="transition hover:text-[#2D8CFF]"
+            >
               Multi-Drop Delivery
             </Link>
-            <Link href="/services/full-load">Full Load</Link>
+
+            <Link
+              href="/services/full-load"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Full Load
+            </Link>
           </div>
         </div>
 
         <div>
-          <h3 className="mb-5 text-lg font-semibold">Contact</h3>
+          <h3 className="mb-5 text-lg font-bold text-[#2D8CFF]">
+            Contact
+          </h3>
 
           <div className="flex flex-col gap-3 text-base text-white/80">
-            <a href="tel:03333440703">0333 344 0703</a>
+            <a
+              href="tel:03333440703"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              0333 344 0703
+            </a>
 
-            <a href="mailto:info@streamlinelogisticsgroup.co.uk">
+            <a
+              href="mailto:info@streamlinelogisticsgroup.co.uk"
+              className="transition hover:text-[#2D8CFF]"
+            >
               info@streamlinelogisticsgroup.co.uk
             </a>
 
@@ -61,14 +117,31 @@ export default function Footer() {
         </div>
       </div>
 
-      <div className="border-t border-white/10">
+      <div className="border-t border-[#1F4D94]">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-7 text-sm text-white/70 md:flex-row">
           <p>© 2026 Streamline Logistics Group. All rights reserved.</p>
 
           <div className="flex gap-6">
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/terms">Terms</Link>
-            <Link href="/payments">Payments</Link>
+            <Link
+              href="/privacy"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Privacy
+            </Link>
+
+            <Link
+              href="/terms"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Terms
+            </Link>
+
+            <Link
+              href="/payments"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Payments
+            </Link>
           </div>
         </div>
       </div>
