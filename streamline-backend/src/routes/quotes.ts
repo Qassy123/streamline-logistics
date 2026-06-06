@@ -6,9 +6,11 @@ const router = Router();
 
 const METERS_IN_MILE = 1609.344;
 
+type Coordinates = [number, number];
+
 type GeocodeFeature = {
   geometry: {
-    coordinates: [number, number];
+    coordinates: Coordinates;
   };
 };
 
@@ -33,6 +35,19 @@ type RouteResponse = {
   }[];
 };
 
+type PostcodesIoResponse = {
+  status: number;
+  result?: {
+    longitude: number;
+    latitude: number;
+  };
+};
+
+type ExtraDrop = {
+  order?: number;
+  address?: string;
+};
+
 function getOpenRouteServiceApiKey() {
   return (
     process.env.ORS_API_KEY ||
@@ -42,11 +57,86 @@ function getOpenRouteServiceApiKey() {
   );
 }
 
-async function geocodeAddress(address: string, apiKey: string) {
+function extractUkPostcode(address: string) {
+  const match = address.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+
+  return match ? match[1].toUpperCase().replace(/\s+/g, "") : null;
+}
+
+function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
+  if (!extraDrops) {
+    return [];
+  }
+
+  if (Array.isArray(extraDrops)) {
+    return extraDrops
+      .filter((drop) => drop && typeof drop === "object")
+      .map((drop) => drop as ExtraDrop)
+      .filter(
+        (drop) =>
+          typeof drop.address === "string" && drop.address.trim() !== ""
+      )
+      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  }
+
+  if (typeof extraDrops === "string") {
+    try {
+      const parsed = JSON.parse(extraDrops);
+      return normaliseExtraDrops(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function buildRouteAddresses(
+  collectionAddress: string,
+  deliveryAddress: string,
+  extraDrops: unknown
+) {
+  const stops = normaliseExtraDrops(extraDrops);
+
+  return [
+    collectionAddress,
+    ...stops.map((stop) => String(stop.address)),
+    deliveryAddress,
+  ].filter((address) => address.trim() !== "");
+}
+
+async function geocodePostcode(address: string): Promise<Coordinates | null> {
+  const postcode = extractUkPostcode(address);
+
+  if (!postcode) {
+    return null;
+  }
+
+  const response = await fetch(
+    `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = (await response.json()) as PostcodesIoResponse;
+
+  if (!data.result?.longitude || !data.result?.latitude) {
+    return null;
+  }
+
+  return [data.result.longitude, data.result.latitude];
+}
+
+async function geocodeWithOpenRouteService(
+  address: string,
+  apiKey: string
+): Promise<Coordinates> {
   const response = await fetch(
     `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
-      address
-    )}`,
+      `${address}, United Kingdom`
+    )}&boundary.country=GB`,
     {
       headers: {
         Authorization: apiKey,
@@ -72,6 +162,16 @@ async function geocodeAddress(address: string, apiKey: string) {
   return coordinates;
 }
 
+async function geocodeAddress(address: string, apiKey: string) {
+  const postcodeCoordinates = await geocodePostcode(address);
+
+  if (postcodeCoordinates) {
+    return postcodeCoordinates;
+  }
+
+  return geocodeWithOpenRouteService(address, apiKey);
+}
+
 function getDistanceMeters(routeData: RouteResponse) {
   const routesDistance = routeData.routes?.[0]?.summary?.distance;
 
@@ -89,18 +189,20 @@ function getDistanceMeters(routeData: RouteResponse) {
   return null;
 }
 
-async function calculateRouteDistanceMiles(
-  collectionAddress: string,
-  deliveryAddress: string
-) {
+async function calculateRouteDistanceMiles(addresses: string[]) {
   const apiKey = getOpenRouteServiceApiKey();
 
   if (!apiKey) {
     throw new Error("OpenRouteService API key missing");
   }
 
-  const collectionCoordinates = await geocodeAddress(collectionAddress, apiKey);
-  const deliveryCoordinates = await geocodeAddress(deliveryAddress, apiKey);
+  if (addresses.length < 2) {
+    throw new Error("At least two addresses are required");
+  }
+
+  const coordinates = await Promise.all(
+    addresses.map((address) => geocodeAddress(address, apiKey))
+  );
 
   const routeResponse = await fetch(
     "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
@@ -111,7 +213,7 @@ async function calculateRouteDistanceMiles(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        coordinates: [collectionCoordinates, deliveryCoordinates],
+        coordinates,
       }),
     }
   );
@@ -181,13 +283,18 @@ router.post("/", async (req, res) => {
     let distanceMiles: number | null = null;
     let distanceSource = "fallback";
 
-    if (req.body.collectionAddress && req.body.deliveryAddress) {
-      try {
-        distanceMiles = await calculateRouteDistanceMiles(
-          req.body.collectionAddress,
-          req.body.deliveryAddress
-        );
+    const routeAddresses =
+      req.body.collectionAddress && req.body.deliveryAddress
+        ? buildRouteAddresses(
+            req.body.collectionAddress,
+            req.body.deliveryAddress,
+            req.body.extraDrops
+          )
+        : [];
 
+    if (routeAddresses.length >= 2) {
+      try {
+        distanceMiles = await calculateRouteDistanceMiles(routeAddresses);
         distanceSource = "openrouteservice";
       } catch (distanceError) {
         console.error("Route distance failed, using fallback pricing:", distanceError);
@@ -201,12 +308,12 @@ router.post("/", async (req, res) => {
     });
 
     console.log("Quote pricing:", {
-      collectionAddress: req.body.collectionAddress,
-      deliveryAddress: req.body.deliveryAddress,
+      routeAddresses,
       calculatedDistanceMiles: distanceMiles,
       savedDistanceMiles: price.distanceMiles,
       distanceSource,
       deliveryType: req.body.deliveryType,
+      journeyType: req.body.journeyType,
       vehicleSize: req.body.vehicleSize,
       totalPrice: price.totalPrice,
     });
@@ -261,6 +368,7 @@ router.post("/", async (req, res) => {
       ...quote,
       distanceSource,
       calculatedDistanceMiles: distanceMiles,
+      routeAddresses,
     });
   } catch (error) {
     console.error(error);
