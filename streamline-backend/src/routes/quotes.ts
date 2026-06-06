@@ -4,6 +4,128 @@ import { calculateQuotePrice } from "../lib/pricing";
 
 const router = Router();
 
+const METERS_IN_MILE = 1609.344;
+
+type GeocodeFeature = {
+  geometry: {
+    coordinates: [number, number];
+  };
+};
+
+type GeocodeResponse = {
+  features?: GeocodeFeature[];
+};
+
+type RouteResponse = {
+  routes?: {
+    summary?: {
+      distance?: number;
+      duration?: number;
+    };
+  }[];
+  features?: {
+    properties?: {
+      summary?: {
+        distance?: number;
+        duration?: number;
+      };
+    };
+  }[];
+};
+
+function getOpenRouteServiceApiKey() {
+  return (
+    process.env.ORS_API_KEY ||
+    process.env.OPENROUTESERVICE_API_KEY ||
+    process.env.OPEN_ROUTE_SERVICE_API_KEY ||
+    ""
+  );
+}
+
+async function geocodeAddress(address: string, apiKey: string) {
+  const response = await fetch(
+    `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
+      address
+    )}`,
+    {
+      headers: {
+        Authorization: apiKey,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to geocode address: ${address}`);
+  }
+
+  const data = (await response.json()) as GeocodeResponse;
+  const coordinates = data.features?.[0]?.geometry?.coordinates;
+
+  if (!coordinates) {
+    throw new Error(`Address not found: ${address}`);
+  }
+
+  return coordinates;
+}
+
+function getDistanceMeters(routeData: RouteResponse) {
+  const routesDistance = routeData.routes?.[0]?.summary?.distance;
+
+  if (typeof routesDistance === "number") {
+    return routesDistance;
+  }
+
+  const featuresDistance =
+    routeData.features?.[0]?.properties?.summary?.distance;
+
+  if (typeof featuresDistance === "number") {
+    return featuresDistance;
+  }
+
+  return null;
+}
+
+async function calculateRouteDistanceMiles(
+  collectionAddress: string,
+  deliveryAddress: string
+) {
+  const apiKey = getOpenRouteServiceApiKey();
+
+  if (!apiKey) {
+    return null;
+  }
+
+  const collectionCoordinates = await geocodeAddress(collectionAddress, apiKey);
+  const deliveryCoordinates = await geocodeAddress(deliveryAddress, apiKey);
+
+  const routeResponse = await fetch(
+    "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+    {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        coordinates: [collectionCoordinates, deliveryCoordinates],
+      }),
+    }
+  );
+
+  if (!routeResponse.ok) {
+    throw new Error("Failed to calculate route");
+  }
+
+  const routeData = (await routeResponse.json()) as RouteResponse;
+  const distanceMeters = getDistanceMeters(routeData);
+
+  if (distanceMeters === null) {
+    throw new Error("No route distance returned");
+  }
+
+  return Number((distanceMeters / METERS_IN_MILE).toFixed(1));
+}
+
 router.get("/", async (_, res) => {
   try {
     const quotes = await prisma.quote.findMany({
@@ -48,9 +170,23 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
+    let distanceMiles: number | null = null;
+
+    if (req.body.collectionAddress && req.body.deliveryAddress) {
+      try {
+        distanceMiles = await calculateRouteDistanceMiles(
+          req.body.collectionAddress,
+          req.body.deliveryAddress
+        );
+      } catch (distanceError) {
+        console.error("Route distance failed, using fallback pricing:", distanceError);
+      }
+    }
+
     const price = calculateQuotePrice({
       deliveryType: req.body.deliveryType,
       vehicleSize: req.body.vehicleSize,
+      distanceMiles,
     });
 
     const quote = await prisma.quote.create({

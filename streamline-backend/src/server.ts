@@ -1,13 +1,17 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
 
 import quoteRoutes from "./routes/quotes";
 import vehicleRoutes from "./routes/vehicles";
 import bookingRoutes from "./routes/bookings";
 import paymentRoutes from "./routes/payments";
+import distanceRoutes from "./routes/distance";
 
-dotenv.config();
+dotenv.config({
+  path: path.resolve(process.cwd(), ".env"),
+});
 
 const app = express();
 
@@ -18,6 +22,7 @@ app.use("/api/quotes", quoteRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/distance", distanceRoutes);
 
 app.get("/", (_, res) => {
   res.json({
