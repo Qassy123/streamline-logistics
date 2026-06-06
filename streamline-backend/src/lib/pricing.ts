@@ -1,11 +1,14 @@
 type QuotePricingInput = {
   deliveryType: string;
+  journeyType?: string | null;
   vehicleSize: string;
   distanceMiles?: number | null;
+  extraDropCount?: number;
 };
 
 const fallbackMilesByService: Record<string, number> = {
   "Same Day Delivery (One Way, Return, Multi Drop)": 50,
+  "Next Day Delivery (One Way, Return, Multi Drop)": 50,
   "Full Day Booking": 150,
   "Half Day Booking": 75,
   "Full Load (One Way, Return, Multi Drop)": 120,
@@ -24,6 +27,7 @@ const pricePerMileByVehicle: Record<string, number> = {
 
 const serviceMultiplier: Record<string, number> = {
   "Same Day Delivery (One Way, Return, Multi Drop)": 1.25,
+  "Next Day Delivery (One Way, Return, Multi Drop)": 1.15,
   "Full Day Booking": 1,
   "Half Day Booking": 1,
   "Full Load (One Way, Return, Multi Drop)": 1.45,
@@ -40,6 +44,17 @@ const minimumBasePriceByVehicle: Record<string, number> = {
   Curtainsider: 180,
 };
 
+const extraDropFeeByVehicle: Record<string, number> = {
+  "Small Van": 10,
+  "SWB Van": 10,
+  "LWB Van": 10,
+  "LWB High Roof Van": 10,
+  "XLWB High Roof": 15,
+  "Luton Tail Lift": 20,
+  "Luton Tail Lift Curtainsider": 20,
+  Curtainsider: 25,
+};
+
 function getDistanceMiles(input: QuotePricingInput) {
   if (input.distanceMiles && input.distanceMiles > 0) {
     return Number(input.distanceMiles.toFixed(1));
@@ -48,14 +63,39 @@ function getDistanceMiles(input: QuotePricingInput) {
   return fallbackMilesByService[input.deliveryType] ?? 50;
 }
 
+function getJourneyMultiplier(input: QuotePricingInput) {
+  if (input.journeyType === "Return") {
+    return 1.9;
+  }
+
+  return 1;
+}
+
+function getExtraDropFee(input: QuotePricingInput) {
+  const extraDropCount = input.extraDropCount ?? 0;
+
+  if (extraDropCount <= 0) {
+    return 0;
+  }
+
+  const feePerDrop = extraDropFeeByVehicle[input.vehicleSize] ?? 10;
+
+  return extraDropCount * feePerDrop;
+}
+
 export function calculateQuotePrice(input: QuotePricingInput) {
   const distanceMiles = getDistanceMiles(input);
   const pricePerMile = pricePerMileByVehicle[input.vehicleSize] ?? 1.35;
-  const multiplier = serviceMultiplier[input.deliveryType] ?? 1;
+  const serviceRateMultiplier = serviceMultiplier[input.deliveryType] ?? 1;
+  const journeyMultiplier = getJourneyMultiplier(input);
   const minimumBasePrice = minimumBasePriceByVehicle[input.vehicleSize] ?? 75;
+  const extraDropPrice = getExtraDropFee(input);
 
-  const mileagePrice = distanceMiles * pricePerMile * multiplier;
-  const basePrice = Math.max(Math.round(mileagePrice), minimumBasePrice);
+  const mileagePrice =
+    distanceMiles * pricePerMile * serviceRateMultiplier * journeyMultiplier;
+
+  const basePrice =
+    Math.max(Math.round(mileagePrice), minimumBasePrice) + extraDropPrice;
 
   const fuelSurcharge = Math.round(basePrice * 0.08);
   const adminPrice = basePrice + fuelSurcharge;

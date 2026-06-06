@@ -5,12 +5,13 @@ import { calculateQuotePrice } from "../lib/pricing";
 const router = Router();
 
 const METERS_IN_MILE = 1609.344;
+const MAX_FULL_ADDRESS_DISTANCE_FROM_POSTCODE_MILES = 2;
 
 type Coordinates = [number, number];
 
 type GeocodeFeature = {
-  geometry: {
-    coordinates: Coordinates;
+  geometry?: {
+    coordinates?: Coordinates;
   };
 };
 
@@ -35,6 +36,14 @@ type RouteResponse = {
   }[];
 };
 
+type PostcodesIoResponse = {
+  status: number;
+  result?: {
+    longitude: number;
+    latitude: number;
+  };
+};
+
 type ExtraDrop = {
   order?: number;
   address?: string;
@@ -43,6 +52,7 @@ type ExtraDrop = {
 type RouteStop = {
   address: string;
   coordinates: Coordinates;
+  coordinateSource: "ors-full-address" | "postcodes.io";
   type: "collection" | "extraDrop" | "delivery";
 };
 
@@ -53,6 +63,11 @@ function getOpenRouteServiceApiKey() {
     process.env.OPEN_ROUTE_SERVICE_API_KEY ||
     ""
   );
+}
+
+function extractUkPostcode(address: string) {
+  const match = address.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  return match ? match[1].toUpperCase().replace(/\s+/g, "") : null;
 }
 
 function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
@@ -94,52 +109,6 @@ function buildOriginalRouteAddresses(
   ].filter((address) => address.trim() !== "");
 }
 
-async function geocodeAddress(
-  address: string,
-  apiKey: string
-): Promise<Coordinates> {
-  const response = await fetch(
-    `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
-      `${address}, United Kingdom`
-    )}&boundary.country=GB&size=1`,
-    {
-      headers: {
-        Authorization: apiKey,
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-
-    throw new Error(
-      `Failed to geocode address: ${address}. Status: ${response.status}. Body: ${errorText}`
-    );
-  }
-
-  const data = (await response.json()) as GeocodeResponse;
-  const coordinates = data.features?.[0]?.geometry?.coordinates;
-
-  if (!coordinates) {
-    throw new Error(`Address not found: ${address}`);
-  }
-
-  return coordinates;
-}
-
-function getDistanceMeters(routeData: RouteResponse) {
-  const routesDistance = routeData.routes?.[0]?.summary?.distance;
-
-  if (typeof routesDistance === "number") return routesDistance;
-
-  const featuresDistance =
-    routeData.features?.[0]?.properties?.summary?.distance;
-
-  if (typeof featuresDistance === "number") return featuresDistance;
-
-  return null;
-}
-
 function calculateStraightLineDistanceMiles(
   start: Coordinates,
   end: Coordinates
@@ -163,6 +132,143 @@ function calculateStraightLineDistanceMiles(
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return earthRadiusMiles * c;
+}
+
+async function getPostcodeCoordinates(address: string): Promise<Coordinates> {
+  const postcode = extractUkPostcode(address);
+
+  if (!postcode) {
+    throw new Error(`Postcode required for address: ${address}`);
+  }
+
+  const response = await fetch(
+    `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `The postcode ${postcode} could not be found. Please check and try again.`
+    );
+  }
+
+  const data = (await response.json()) as PostcodesIoResponse;
+
+  if (
+    data.status !== 200 ||
+    typeof data.result?.longitude !== "number" ||
+    typeof data.result?.latitude !== "number"
+  ) {
+    throw new Error(
+      `The postcode ${postcode} could not be found. Please check and try again.`
+    );
+  }
+
+  return [data.result.longitude, data.result.latitude];
+}
+
+async function geocodeWithOpenRouteService(
+  address: string,
+  apiKey: string
+): Promise<Coordinates | null> {
+  const response = await fetch(
+    `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
+      `${address}, United Kingdom`
+    )}&boundary.country=GB&size=1`,
+    {
+      headers: {
+        Authorization: apiKey,
+      },
+    }
+  );
+
+  if (!response.ok) return null;
+
+  const data = (await response.json()) as GeocodeResponse;
+  const coordinates = data.features?.[0]?.geometry?.coordinates;
+
+  if (
+    !Array.isArray(coordinates) ||
+    typeof coordinates[0] !== "number" ||
+    typeof coordinates[1] !== "number"
+  ) {
+    return null;
+  }
+
+  return coordinates;
+}
+
+async function geocodeAddress(
+  address: string
+): Promise<{
+  coordinates: Coordinates;
+  coordinateSource: "ors-full-address" | "postcodes.io";
+}> {
+  const apiKey = getOpenRouteServiceApiKey();
+
+  if (!apiKey) {
+    throw new Error("OpenRouteService API key missing");
+  }
+
+  const postcodeCoordinates = await getPostcodeCoordinates(address);
+  const orsCoordinates = await geocodeWithOpenRouteService(address, apiKey);
+
+  if (!orsCoordinates) {
+    return {
+      coordinates: postcodeCoordinates,
+      coordinateSource: "postcodes.io",
+    };
+  }
+
+  const milesFromPostcode = calculateStraightLineDistanceMiles(
+    postcodeCoordinates,
+    orsCoordinates
+  );
+
+  if (milesFromPostcode <= MAX_FULL_ADDRESS_DISTANCE_FROM_POSTCODE_MILES) {
+    return {
+      coordinates: orsCoordinates,
+      coordinateSource: "ors-full-address",
+    };
+  }
+
+  console.warn(
+    `ORS coordinate rejected for ${address}. ORS: ${orsCoordinates.join(
+      ","
+    )}. Postcode: ${postcodeCoordinates.join(
+      ","
+    )}. Difference: ${milesFromPostcode.toFixed(2)} miles`
+  );
+
+  return {
+    coordinates: postcodeCoordinates,
+    coordinateSource: "postcodes.io",
+  };
+}
+
+function getDistanceMeters(routeData: RouteResponse) {
+  const routesDistance = routeData.routes?.[0]?.summary?.distance;
+
+  if (typeof routesDistance === "number") return routesDistance;
+
+  const featuresDistance =
+    routeData.features?.[0]?.properties?.summary?.distance;
+
+  if (typeof featuresDistance === "number") return featuresDistance;
+
+  return null;
+}
+
+function getDurationSeconds(routeData: RouteResponse) {
+  const routesDuration = routeData.routes?.[0]?.summary?.duration;
+
+  if (typeof routesDuration === "number") return routesDuration;
+
+  const featuresDuration =
+    routeData.features?.[0]?.properties?.summary?.duration;
+
+  if (typeof featuresDuration === "number") return featuresDuration;
+
+  return null;
 }
 
 function optimiseExtraDropOrder(stops: RouteStop[]) {
@@ -210,14 +316,10 @@ function optimiseExtraDropOrder(stops: RouteStop[]) {
 async function buildRouteStops(
   collectionAddress: string,
   deliveryAddress: string,
-  extraDrops: unknown
+  extraDrops: unknown,
+  journeyType?: string | null,
+  returnAddress?: string | null
 ) {
-  const apiKey = getOpenRouteServiceApiKey();
-
-  if (!apiKey) {
-    throw new Error("OpenRouteService API key missing");
-  }
-
   const drops = normaliseExtraDrops(extraDrops);
 
   const stopsToGeocode = [
@@ -229,15 +331,27 @@ async function buildRouteStops(
     { address: deliveryAddress, type: "delivery" as const },
   ];
 
+  if (journeyType === "Return") {
+    stopsToGeocode.push({
+      address: returnAddress || collectionAddress,
+      type: "delivery" as const,
+    });
+  }
+
   return Promise.all(
-    stopsToGeocode.map(async (stop) => ({
-      ...stop,
-      coordinates: await geocodeAddress(stop.address, apiKey),
-    }))
+    stopsToGeocode.map(async (stop) => {
+      const result = await geocodeAddress(stop.address);
+
+      return {
+        ...stop,
+        coordinates: result.coordinates,
+        coordinateSource: result.coordinateSource,
+      };
+    })
   );
 }
 
-async function calculateRouteDistanceMiles(stops: RouteStop[]) {
+async function calculateRouteDistance(stops: RouteStop[]) {
   const apiKey = getOpenRouteServiceApiKey();
 
   if (!apiKey) {
@@ -270,12 +384,19 @@ async function calculateRouteDistanceMiles(stops: RouteStop[]) {
 
   const routeData = (await routeResponse.json()) as RouteResponse;
   const distanceMeters = getDistanceMeters(routeData);
+  const durationSeconds = getDurationSeconds(routeData);
 
   if (distanceMeters === null) {
     throw new Error("No route distance returned");
   }
 
-  return Number((distanceMeters / METERS_IN_MILE).toFixed(1));
+  return {
+    distanceMiles: Number((distanceMeters / METERS_IN_MILE).toFixed(1)),
+    durationMinutes:
+      typeof durationSeconds === "number"
+        ? Math.round(durationSeconds / 60)
+        : null,
+  };
 }
 
 router.get("/", async (_, res) => {
@@ -323,9 +444,11 @@ router.get("/:id", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     let distanceMiles: number | null = null;
+    let durationMinutes: number | null = null;
     let distanceSource = "fallback";
     let originalRouteAddresses: string[] = [];
     let optimisedRouteAddresses: string[] = [];
+    let coordinateSources: { address: string; source: string }[] = [];
 
     if (req.body.collectionAddress && req.body.deliveryAddress) {
       originalRouteAddresses = buildOriginalRouteAddresses(
@@ -334,41 +457,59 @@ router.post("/", async (req, res) => {
         req.body.extraDrops
       );
 
-      try {
-        const routeStops = await buildRouteStops(
-          req.body.collectionAddress,
-          req.body.deliveryAddress,
-          req.body.extraDrops
-        );
+      const routeStops = await buildRouteStops(
+        req.body.collectionAddress,
+        req.body.deliveryAddress,
+        req.body.extraDrops,
+        req.body.journeyType,
+        req.body.returnAddress
+      );
 
-        const optimisedRouteStops = optimiseExtraDropOrder(routeStops);
+      const optimisedRouteStops =
+        req.body.journeyType === "Return"
+          ? routeStops
+          : optimiseExtraDropOrder(routeStops);
 
-        optimisedRouteAddresses = optimisedRouteStops.map(
-          (stop) => stop.address
-        );
+      optimisedRouteAddresses = optimisedRouteStops.map((stop) => stop.address);
 
-        distanceMiles = await calculateRouteDistanceMiles(optimisedRouteStops);
-        distanceSource = "openrouteservice_full_address_optimised";
-      } catch (distanceError) {
-        console.error("Route distance failed, using fallback pricing:", distanceError);
-      }
+      coordinateSources = optimisedRouteStops.map((stop) => ({
+        address: stop.address,
+        source: stop.coordinateSource,
+      }));
+
+      const route = await calculateRouteDistance(optimisedRouteStops);
+
+      distanceMiles = route.distanceMiles;
+      durationMinutes = route.durationMinutes;
+
+      distanceSource = coordinateSources.some(
+        (stop) => stop.source === "ors-full-address"
+      )
+        ? "hybrid-postcode-validated-full-address"
+        : "postcodes.io";
     }
+
+    const extraDropCount = normaliseExtraDrops(req.body.extraDrops).length;
 
     const price = calculateQuotePrice({
       deliveryType: req.body.deliveryType,
+      journeyType: req.body.journeyType,
       vehicleSize: req.body.vehicleSize,
       distanceMiles,
+      extraDropCount,
     });
 
     console.log("Quote pricing:", {
       originalRouteAddresses,
       optimisedRouteAddresses,
       calculatedDistanceMiles: distanceMiles,
-      savedDistanceMiles: price.distanceMiles,
+      durationMinutes,
       distanceSource,
+      coordinateSources,
       deliveryType: req.body.deliveryType,
       journeyType: req.body.journeyType,
       vehicleSize: req.body.vehicleSize,
+      extraDropCount,
       totalPrice: price.totalPrice,
     });
 
@@ -422,14 +563,20 @@ router.post("/", async (req, res) => {
       ...quote,
       distanceSource,
       calculatedDistanceMiles: distanceMiles,
+      durationMinutes,
       originalRouteAddresses,
       optimisedRouteAddresses,
+      coordinateSources,
+      extraDropCount,
     });
   } catch (error) {
     console.error(error);
 
-    res.status(500).json({
-      error: "Failed to create quote",
+    const message =
+      error instanceof Error ? error.message : "Failed to create quote";
+
+    res.status(400).json({
+      error: message,
     });
   }
 });

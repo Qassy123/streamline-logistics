@@ -7,6 +7,190 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String        @id @default(cuid())
+  accountType  AccountType   @default(BUSINESS)
+  companyName  String?
+  name         String
+  email        String        @unique
+  phone        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  bookings     Booking[]
+  invoices     Invoice[]
+  payments     Payment[]
+  quotes       Quote[]
+  tradeAccount TradeAccount?
+}
+
+model TradeAccount {
+  id                        String             @id @default(cuid())
+  userId                    String             @unique
+  status                    TradeAccountStatus @default(PENDING)
+  companyName               String
+  companyRegistrationNumber String?
+  vatNumber                 String?
+  directorName              String?
+  businessAddress           String?
+  tradeReferences           String?
+  creditLimit               Decimal            @default(2500)
+  currentBalance            Decimal            @default(0)
+  paymentTermsDays          Int                @default(30)
+  approvedAt                DateTime?
+  rejectedAt                DateTime?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+  user                      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Vehicle {
+  id              String               @id @default(cuid())
+  name            String               @unique
+  vehicleType     String
+  active          Boolean              @default(true)
+  registration    String?
+  motExpiry       DateTime?
+  insuranceExpiry DateTime?
+  serviceDueDate  DateTime?
+  gpsDeviceId     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  bookings        Booking[]
+  reservations    VehicleReservation[]
+}
+
+model Quote {
+  id                       String               @id @default(cuid())
+  status                   String               @default("submitted")
+  deliveryType             String
+  collectionDate           DateTime
+  collectionWindow         String
+  vehicleSize              String
+  collectionAddress        String
+  deliveryAddress          String
+  extraDrops               Json?
+  customerName             String
+  customerEmail            String
+  customerPhone            String
+  companyName              String?
+  distanceMiles            Decimal?
+  basePrice                Decimal?
+  fuelSurcharge            Decimal?
+  adminPrice               Decimal?
+  vatAmount                Decimal?
+  totalPrice               Decimal?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  capacityPercent          Int?
+  journeyType              String?
+  accuracyConfirmed        Boolean              @default(false)
+  contactPreference        String?
+  fragileGoods             Boolean              @default(false)
+  loadDescription          String?
+  palletCount              Int?
+  expiresAt                DateTime?
+  userId                   String?
+  collectionAddressDetails Json?
+  deliveryAddressDetails   Json?
+  legalEntity              String?
+  returnAddress            String?
+  tradingName              String?
+  booking                  Booking?
+  user                     User?                @relation(fields: [userId], references: [id])
+  reservations             VehicleReservation[]
+}
+
+model Booking {
+  id                 String              @id @default(cuid())
+  reference          String              @unique
+  status             BookingStatus       @default(PENDING_PAYMENT)
+  quoteId            String?             @unique
+  userId             String?
+  vehicleId          String?
+  collectionDate     DateTime
+  collectionWindow   String
+  collectionAddress  String
+  deliveryAddress    String
+  extraDrops         Json?
+  estimatedStartTime DateTime?
+  estimatedEndTime   DateTime?
+  vehicleAvailableAt DateTime?
+  totalPrice         Decimal
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  quote              Quote?              @relation(fields: [quoteId], references: [id])
+  user               User?               @relation(fields: [userId], references: [id])
+  vehicle            Vehicle?            @relation(fields: [vehicleId], references: [id])
+  invoices           Invoice[]
+  pod                POD?
+  payments           Payment[]
+  reservation        VehicleReservation?
+}
+
+model VehicleReservation {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  bookingId     String?           @unique
+  quoteId       String?
+  status        ReservationStatus @default(ACTIVE)
+  reservedFrom  DateTime
+  reservedUntil DateTime
+  expiresAt     DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  booking       Booking?          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  quote         Quote?            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  bookingId         String?
+  userId            String?
+  provider          String
+  providerPaymentId String?
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal
+  currency          String        @default("GBP")
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  booking           Booking?      @relation(fields: [bookingId], references: [id])
+  user              User?         @relation(fields: [userId], references: [id])
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique
+  bookingId     String
+  userId        String?
+  status        InvoiceStatus @default(ISSUED)
+  subtotal      Decimal
+  vatAmount     Decimal
+  total         Decimal
+  dueDate       DateTime?
+  paidAt        DateTime?
+  pdfUrl        String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user          User?         @relation(fields: [userId], references: [id])
+}
+
+model POD {
+  id            String    @id @default(cuid())
+  bookingId     String    @unique
+  status        PODStatus @default(PENDING)
+  recipientName String?
+  signatureUrl  String?
+  photoUrl      String?
+  deliveredAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
 enum AccountType {
   BUSINESS
   TRADE
@@ -55,249 +239,4 @@ enum InvoiceStatus {
 enum PODStatus {
   PENDING
   COMPLETED
-}
-
-model User {
-  id          String      @id @default(cuid())
-  accountType AccountType @default(BUSINESS)
-
-  companyName String?
-  name        String
-  email       String      @unique
-  phone       String?
-
-  quotes   Quote[]
-  bookings Booking[]
-  payments Payment[]
-  invoices Invoice[]
-
-  tradeAccount TradeAccount?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model TradeAccount {
-  id String @id @default(cuid())
-
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  status TradeAccountStatus @default(PENDING)
-
-  companyName               String
-  companyRegistrationNumber String?
-  vatNumber                 String?
-  directorName              String?
-  businessAddress           String?
-  tradeReferences           String?
-
-  creditLimit      Decimal @default(2500)
-  currentBalance   Decimal @default(0)
-  paymentTermsDays Int     @default(30)
-
-  approvedAt DateTime?
-  rejectedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Vehicle {
-  id String @id @default(cuid())
-
-  name        String  @unique
-  vehicleType String
-  active      Boolean @default(true)
-
-  registration    String?
-  motExpiry       DateTime?
-  insuranceExpiry DateTime?
-  serviceDueDate  DateTime?
-  gpsDeviceId     String?
-
-  bookings     Booking[]
-  reservations VehicleReservation[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Quote {
-  id     String @id @default(cuid())
-  status String @default("submitted")
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  deliveryType    String
-  journeyType     String?
-  capacityPercent Int?
-
-  collectionDate   DateTime
-  collectionWindow String
-  vehicleSize      String
-
-  collectionAddress        String
-  collectionAddressDetails Json?
-
-  deliveryAddress        String
-  deliveryAddressDetails Json?
-
-  returnAddress String?
-  extraDrops    Json?
-
-  loadDescription   String?
-  palletCount       Int?
-  fragileGoods      Boolean @default(false)
-  contactPreference String?
-  accuracyConfirmed Boolean @default(false)
-
-  customerName  String
-  customerEmail String
-  customerPhone String
-
-  companyName  String?
-  legalEntity  String?
-  tradingName  String?
-
-  distanceMiles Decimal?
-  basePrice     Decimal?
-  fuelSurcharge Decimal?
-  adminPrice    Decimal?
-  vatAmount     Decimal?
-  totalPrice    Decimal?
-
-  expiresAt DateTime?
-
-  booking      Booking?
-  reservations VehicleReservation[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Booking {
-  id        String        @id @default(cuid())
-  reference String        @unique
-  status    BookingStatus @default(PENDING_PAYMENT)
-
-  quoteId String? @unique
-  quote   Quote?  @relation(fields: [quoteId], references: [id], onDelete: SetNull)
-
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  vehicleId String?
-  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-
-  collectionDate   DateTime
-  collectionWindow String
-
-  collectionAddress String
-  deliveryAddress   String
-  extraDrops        Json?
-
-  estimatedStartTime DateTime?
-  estimatedEndTime   DateTime?
-  vehicleAvailableAt DateTime?
-
-  totalPrice Decimal
-
-  payments    Payment[]
-  invoices    Invoice[]
-  pod         POD?
-  reservation VehicleReservation?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model VehicleReservation {
-  id String @id @default(cuid())
-
-  vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-
-  bookingId String?  @unique
-  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  quoteId String?
-  quote   Quote?  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-
-  status ReservationStatus @default(ACTIVE)
-
-  reservedFrom  DateTime
-  reservedUntil DateTime
-  expiresAt     DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Payment {
-  id String @id @default(cuid())
-
-  bookingId String?
-  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-
-  userId String?
-  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  provider          String
-  providerPaymentId String?
-
-  status PaymentStatus @default(PENDING)
-
-  amount   Decimal
-  currency String  @default("GBP")
-
-  paidAt     DateTime?
-  refundedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Invoice {
-  id String @id @default(cuid())
-
-  invoiceNumber String @unique
-
-  bookingId String
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  userId String?
-  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  status InvoiceStatus @default(ISSUED)
-
-  subtotal  Decimal
-  vatAmount Decimal
-  total     Decimal
-
-  dueDate DateTime?
-  paidAt  DateTime?
-
-  pdfUrl String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model POD {
-  id String @id @default(cuid())
-
-  bookingId String  @unique
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  status PODStatus @default(PENDING)
-
-  recipientName String?
-  signatureUrl  String?
-  photoUrl      String?
-  deliveredAt   DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

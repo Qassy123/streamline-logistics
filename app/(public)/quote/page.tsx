@@ -167,6 +167,23 @@ function isAddressComplete(address: AddressFields) {
   );
 }
 
+function isValidUkPostcode(postcode: string) {
+  return /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(postcode.trim());
+}
+
+function getResponseErrorMessage(data: unknown) {
+  if (
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    typeof (data as { error?: unknown }).error === "string"
+  ) {
+    return (data as { error: string }).error;
+  }
+
+  return "Unable to generate quote. Please try again.";
+}
+
 export default function QuotePage() {
   const router = useRouter();
 
@@ -325,8 +342,20 @@ export default function QuotePage() {
       return;
     }
 
+    if (!isValidUkPostcode(collectionAddress.postcode)) {
+      setError("Please enter a valid UK postcode for the collection address.");
+      setLoading(false);
+      return;
+    }
+
     if (!isAddressComplete(deliveryAddress)) {
       setError("Please complete the full delivery address.");
+      setLoading(false);
+      return;
+    }
+
+    if (!isValidUkPostcode(deliveryAddress.postcode)) {
+      setError("Please enter a valid UK postcode for the delivery address.");
       setLoading(false);
       return;
     }
@@ -374,6 +403,15 @@ export default function QuotePage() {
       return;
     }
 
+    if (
+      showExtraStops &&
+      extraStops.some((stop) => !isValidUkPostcode(stop.postcode))
+    ) {
+      setError("Please enter a valid UK postcode for every extra stop.");
+      setLoading(false);
+      return;
+    }
+
     const payload = {
       deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
@@ -415,16 +453,20 @@ export default function QuotePage() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        throw new Error("Quote request failed");
-      }
+      const data = await response.json().catch(() => null);
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(getResponseErrorMessage(data));
+      }
 
       router.push(`/quote/${data.id}`);
     } catch (error) {
       console.error("Quote submission error:", error);
-      setError("Unable to generate quote. Please try again.");
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate quote. Please try again."
+      );
     } finally {
       setLoading(false);
     }
