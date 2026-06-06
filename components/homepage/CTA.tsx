@@ -3,7 +3,7 @@ import { ArrowRight, Clock, MapPin, PackageCheck } from "lucide-react";
 
 export default function CTA() {
   return (
-    <section className="bg-[#F4F8FF] pb-24">
+    <section className="bg-[#F4F8FF] py-24">
       <div className="mx-auto max-w-6xl px-6">
         <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#071D49] via-[#0B2A63] to-[#006CFF] shadow-2xl">
           <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#2D8CFF]/30 blur-3xl" />
