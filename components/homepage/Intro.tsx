@@ -1,12 +1,12 @@
 export default function Intro() {
   return (
-    <section className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#031B4A] py-12">
-      <div className="mx-auto max-w-7xl px-6">
-        <div className="grid gap-10 lg:grid-cols-3 lg:items-center">
-          <div className="flex items-center gap-5 border-white/20 lg:border-r lg:pr-10">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[#006CFF]/40">
+    <section className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#031B4A] py-6 lg:py-8">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="grid gap-6 lg:grid-cols-3 lg:items-center">
+          <div className="flex items-center gap-4 border-white/20 lg:border-r lg:pr-8">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#006CFF]/50">
               <svg
-                className="h-10 w-10 text-[#006CFF]"
+                className="h-6 w-6 text-[#006CFF]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -21,11 +21,11 @@ export default function Intro() {
             </div>
 
             <div>
-              <h3 className="mb-2 text-lg font-bold uppercase text-[#006CFF]">
+              <h3 className="mb-1 text-sm font-bold uppercase text-[#006CFF]">
                 Same Day Delivery
               </h3>
 
-              <p className="text-white/90">
+              <p className="text-sm leading-6 text-white/85">
                 Fast collection and delivery across the UK when your business
                 needs it most.
               </p>
@@ -33,23 +33,21 @@ export default function Intro() {
           </div>
 
           <div className="text-center">
-            <h2 className="mb-4 text-3xl font-bold text-white lg:text-4xl">
+            <h2 className="mb-2 text-2xl font-bold text-white lg:text-3xl">
               Same Day Courier & Logistics Services
             </h2>
 
-            <p className="mx-auto max-w-2xl text-lg leading-8 text-white/85">
+            <p className="mx-auto max-w-2xl text-sm leading-6 text-white/80 lg:text-base lg:leading-7">
               Streamline Logistics Group provides dedicated business-to-business
               courier services, urgent same-day deliveries and complete
-              logistics support throughout the United Kingdom. Our experienced
-              transport network operates 24 hours a day, 7 days a week, helping
-              businesses move goods quickly, securely and efficiently.
+              logistics support throughout the United Kingdom.
             </p>
           </div>
 
-          <div className="flex items-center gap-5 border-white/20 lg:border-l lg:pl-10">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full border border-[#006CFF]/40">
+          <div className="flex items-center gap-4 border-white/20 lg:border-l lg:pl-8">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#006CFF]/50">
               <svg
-                className="h-10 w-10 text-[#006CFF]"
+                className="h-6 w-6 text-[#006CFF]"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -69,11 +67,11 @@ export default function Intro() {
             </div>
 
             <div>
-              <h3 className="mb-2 text-lg font-bold uppercase text-[#006CFF]">
+              <h3 className="mb-1 text-sm font-bold uppercase text-[#006CFF]">
                 Reliable & Secure
               </h3>
 
-              <p className="text-white/90">
+              <p className="text-sm leading-6 text-white/85">
                 Your goods are protected by trusted drivers and fully insured
                 transport services.
               </p>
