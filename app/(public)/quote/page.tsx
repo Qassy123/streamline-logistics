@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Headphones, MapPinned, ShieldCheck, Truck } from "lucide-react";
 
 type QuoteResponse = {
   id: string;
@@ -724,19 +725,51 @@ export default function QuotePage() {
           <div className="grid gap-8 lg:grid-cols-[0.72fr_1.56fr_0.72fr] lg:items-start">
             <aside className="hidden space-y-4 lg:block lg:sticky lg:top-32">
               {[
-                ["Dedicated vehicle", "Your delivery is handled by a suitable vehicle for the job."],
-                ["Business courier support", "Clear details help us manage urgent and scheduled deliveries properly."],
-                ["Proof of delivery", "Delivery information supports booking, dispatch and handover records."],
-                ["UK-wide coverage", "Built for business deliveries across the United Kingdom."],
-              ].map(([title, text]) => (
-                <div
-                  key={title}
-                  className="rounded-3xl border border-[#D7E6FF] bg-white p-5 shadow-lg shadow-black/5"
-                >
-                  <h3 className="text-sm font-bold text-[#071D49]">{title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
-                </div>
-              ))}
+                {
+                  title: "Dedicated vehicle",
+                  text: "Your delivery is handled by a suitable vehicle for the job.",
+                  icon: Truck,
+                },
+                {
+                  title: "Business courier support",
+                  text: "Clear details help us manage urgent and scheduled deliveries properly.",
+                  icon: Headphones,
+                },
+                {
+                  title: "Proof of delivery",
+                  text: "Delivery information supports booking, dispatch and handover records.",
+                  icon: ShieldCheck,
+                },
+                {
+                  title: "UK-wide coverage",
+                  text: "Built for business deliveries across the United Kingdom.",
+                  icon: MapPinned,
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <div
+                    key={item.title}
+                    className="rounded-3xl border border-[#D7E6FF] bg-white p-5 shadow-lg shadow-black/5"
+                  >
+                    <div className="flex items-start gap-4">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
+                        <Icon size={22} />
+                      </span>
+
+                      <div>
+                        <h3 className="text-sm font-bold text-[#071D49]">
+                          {item.title}
+                        </h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          {item.text}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </aside>
 
             <form
@@ -1344,11 +1377,23 @@ export default function QuotePage() {
                 />
                 <div className="p-5">
                   <h3 className="text-sm font-bold text-[#071D49]">
-                    Need help choosing a vehicle?
+                    Why businesses choose Streamline
                   </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Use the vehicle guide above before selecting your van size and capacity.
-                  </p>
+
+                  <ul className="mt-4 grid gap-3 text-sm font-semibold text-[#071D49]">
+                    {[
+                      "Dedicated vehicle",
+                      "Direct delivery",
+                      "Proof of delivery",
+                      "Fully insured",
+                      "UK-wide coverage",
+                    ].map((item) => (
+                      <li key={item} className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-[#006CFF]" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
 
