@@ -537,7 +537,7 @@ export default function QuotePage() {
             <img
               src="/images/quote/Quotes.png"
               alt="Streamline Logistics Group delivering what matters"
-              className="h-[180px] w-full object-cover md:h-[280px] lg:h-[320px]"
+              className="max-h-[420px] w-full object-contain bg-white"
             />
           </div>
 
