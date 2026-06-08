@@ -473,13 +473,13 @@ export default function QuotePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#070b12]">
-      <section className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(212,175,55,0.18),_transparent_34%),linear-gradient(135deg,_#070b12_0%,_#111827_50%,_#020617_100%)] px-6 py-20 text-white md:py-24">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,_rgba(255,255,255,0.04)_1px,_transparent_1px),linear-gradient(to_bottom,_rgba(255,255,255,0.04)_1px,_transparent_1px)] bg-[size:42px_42px] opacity-20" />
+    <main className="min-h-screen bg-[#F4F8FF]">
+      <section className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(0,108,255,0.28),_transparent_34%),linear-gradient(135deg,_#020B1F_0%,_#071D49_52%,_#006CFF_100%)] px-6 py-20 text-white md:py-24">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,_rgba(255,255,255,0.055)_1px,_transparent_1px),linear-gradient(to_bottom,_rgba(255,255,255,0.055)_1px,_transparent_1px)] bg-[size:42px_42px] opacity-20" />
 
         <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <div className="inline-flex items-center rounded-full border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-amber-200">
+            <div className="inline-flex items-center rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
               Premium UK Logistics
             </div>
 
@@ -487,7 +487,7 @@ export default function QuotePage() {
               Instant courier quotes built for serious business deliveries.
             </h1>
 
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/80">
               Select your service, vehicle, capacity and delivery route. Get a structured quote
               instantly with clear pricing and a reference number.
             </p>
@@ -496,18 +496,18 @@ export default function QuotePage() {
               {["Same day", "Multi-drop", "Full load"].map((item) => (
                 <div
                   key={item}
-                  className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 backdrop-blur"
+                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 backdrop-blur"
                 >
                   <p className="text-sm font-semibold text-white">{item}</p>
-                  <p className="mt-1 text-xs text-slate-400">Business-ready service</p>
+                  <p className="mt-1 text-xs text-white/60">Business-ready service</p>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 shadow-2xl shadow-black/40 backdrop-blur">
-            <div className="rounded-[1.5rem] bg-white p-6 text-slate-950">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-600">
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-6 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="rounded-[1.5rem] bg-white p-6 text-[#071D49]">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#006CFF]">
                 Quote system live
               </p>
               <h2 className="mt-3 text-3xl font-bold">Get priced in minutes</h2>
@@ -518,11 +518,11 @@ export default function QuotePage() {
                   ["3", "Select vehicle and capacity"],
                   ["4", "Enter load and contact details"],
                 ].map(([number, label]) => (
-                  <div key={number} className="flex items-center gap-4 rounded-2xl bg-slate-50 p-4">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
+                  <div key={number} className="flex items-center gap-4 rounded-2xl bg-[#F4F8FF] p-4">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-sm font-bold text-white">
                       {number}
                     </span>
-                    <span className="text-sm font-semibold text-slate-800">{label}</span>
+                    <span className="text-sm font-semibold text-[#071D49]">{label}</span>
                   </div>
                 ))}
               </div>
@@ -534,11 +534,11 @@ export default function QuotePage() {
       <section className="px-6 py-14">
         <div className="mx-auto max-w-7xl">
           {quote && (
-            <section className="mb-10 overflow-hidden rounded-[2rem] border border-amber-200/40 bg-white shadow-2xl shadow-black/10">
-              <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-8 text-white">
+            <section className="mb-10 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
+              <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
                 <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
                       Quote generated
                     </p>
 
@@ -546,55 +546,55 @@ export default function QuotePage() {
                       £{quote.totalPrice}
                     </h2>
 
-                    <p className="mt-3 text-sm text-slate-300">
+                    <p className="mt-3 text-sm text-white/70">
                       Reference: {quote.id}
                     </p>
                   </div>
 
-                  <div className="rounded-full border border-amber-300/30 bg-amber-300/10 px-5 py-2 text-sm font-semibold text-amber-200">
+                  <div className="rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-5 py-2 text-sm font-semibold text-white">
                     {quote.status}
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-4 p-6 text-sm md:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                   <p className="text-slate-500">Estimated Distance</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
                     {quote.distanceMiles} miles
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                   <p className="text-slate-500">Base Price</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
                     £{quote.basePrice}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                   <p className="text-slate-500">Fuel Surcharge</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
                     £{quote.fuelSurcharge}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                   <p className="text-slate-500">Subtotal Before VAT</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
                     £{quote.adminPrice}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                   <p className="text-slate-500">VAT</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
                     £{quote.vatAmount}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-slate-950 bg-slate-950 p-5 text-white">
-                  <p className="text-slate-300">Total</p>
+                <div className="rounded-2xl border border-[#071D49] bg-[#071D49] p-5 text-white">
+                  <p className="text-white/70">Total</p>
                   <p className="mt-2 text-3xl font-bold">£{quote.totalPrice}</p>
                 </div>
               </div>
@@ -609,32 +609,32 @@ export default function QuotePage() {
 
           <form
             onSubmit={handleSubmit}
-            className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl shadow-black/10"
+            className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10"
           >
-            <div className="border-b border-slate-200 bg-slate-950 p-8 text-white">
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+            <div className="border-b border-[#D7E6FF] bg-[#071D49] p-8 text-white">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
                 Quote details
               </p>
               <h2 className="mt-3 text-3xl font-bold">Build your delivery quote</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
                 Complete the sections below. Required details are checked before quote generation.
               </p>
             </div>
 
             <div className="grid gap-8 p-6 md:p-8">
-              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
                 <div className="mb-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                     Step 1
                   </p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">
+                  <h3 className="mt-2 text-xl font-bold text-[#071D49]">
                     Service requirements
                   </h3>
                 </div>
 
                 <div className="grid gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Delivery Type
                     </label>
                     <select
@@ -642,7 +642,7 @@ export default function QuotePage() {
                       required
                       value={selectedDeliveryType}
                       onChange={(event) => handleDeliveryTypeChange(event.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     >
                       <option value="">Select delivery type</option>
                       <option value="Same Day Delivery (One Way, Return, Multi Drop)">
@@ -661,7 +661,7 @@ export default function QuotePage() {
 
                   {!hideJourneyType && (
                     <div>
-                      <label className="block text-sm font-semibold text-slate-800">
+                      <label className="block text-sm font-semibold text-[#071D49]">
                         Journey Type
                       </label>
 
@@ -671,8 +671,8 @@ export default function QuotePage() {
                             key={option}
                             className={`cursor-pointer rounded-2xl border p-5 text-sm font-bold transition ${
                               selectedJourneyType === option
-                                ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                                ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                                : "border-[#D7E6FF] bg-white text-[#071D49] hover:border-[#2D8CFF]"
                             }`}
                           >
                             <input
@@ -692,19 +692,19 @@ export default function QuotePage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
                 <div className="mb-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                     Step 2
                   </p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">
+                  <h3 className="mt-2 text-xl font-bold text-[#071D49]">
                     Collection and delivery route
                   </h3>
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Collection Date
                     </label>
                     <input
@@ -717,12 +717,12 @@ export default function QuotePage() {
                         setCollectionDate(event.target.value);
                         setCollectionWindow("");
                       }}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Collection Window
                     </label>
                     <select
@@ -731,7 +731,7 @@ export default function QuotePage() {
                       value={collectionWindow}
                       onChange={(event) => setCollectionWindow(event.target.value)}
                       disabled={!collectionDate}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                     >
                       <option value="">Select collection window</option>
                       {availableCollectionWindows.map((window) => (
@@ -744,15 +744,15 @@ export default function QuotePage() {
                 </div>
 
                 {!showAddressFields && (
-                  <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-slate-800">
+                  <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
                     Select the collection date and collection window before entering collection and delivery addresses.
                   </div>
                 )}
 
                 {showAddressFields && (
                   <div className="mt-6 grid gap-6">
-                    <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                      <h4 className="text-base font-bold text-slate-950">
+                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                      <h4 className="text-base font-bold text-[#071D49]">
                         Collection Address
                       </h4>
 
@@ -764,7 +764,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateCollectionAddress("addressLine1", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -773,7 +773,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateCollectionAddress("addressLine2", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -783,7 +783,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateCollectionAddress("townCity", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -793,7 +793,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateCollectionAddress("county", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -803,13 +803,13 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateCollectionAddress("postcode", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
                         />
                       </div>
                     </div>
 
-                    <div className="rounded-3xl border border-slate-200 bg-white p-5">
-                      <h4 className="text-base font-bold text-slate-950">
+                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                      <h4 className="text-base font-bold text-[#071D49]">
                         {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
                       </h4>
 
@@ -821,7 +821,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateDeliveryAddress("addressLine1", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -830,7 +830,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateDeliveryAddress("addressLine2", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -840,7 +840,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateDeliveryAddress("townCity", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -850,7 +850,7 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateDeliveryAddress("county", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
 
                         <input
@@ -860,14 +860,14 @@ export default function QuotePage() {
                           onChange={(event) =>
                             updateDeliveryAddress("postcode", event.target.value)
                           }
-                          className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
                         />
                       </div>
                     </div>
 
                     {selectedJourneyType === "Return" && (
-                      <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
-                        <label className="block text-sm font-semibold text-slate-800">
+                      <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                        <label className="block text-sm font-semibold text-[#071D49]">
                           Return Address
                         </label>
 
@@ -875,10 +875,10 @@ export default function QuotePage() {
                           readOnly
                           rows={3}
                           value={returnAddress}
-                          className="mt-2 w-full resize-none rounded-2xl border border-amber-200 bg-white px-4 py-4 text-slate-700 outline-none"
+                          className="mt-2 w-full resize-none rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] px-4 py-4 text-[#071D49] outline-none"
                         />
 
-                        <p className="mt-3 text-sm font-semibold text-slate-700">
+                        <p className="mt-3 text-sm font-semibold text-[#071D49]">
                           Return address is automatically set to the collection address.
                           If the return address is different, select Multi Drop instead.
                         </p>
@@ -886,10 +886,10 @@ export default function QuotePage() {
                     )}
 
                     {showExtraStops && (
-                      <div className="rounded-3xl border border-slate-200 bg-white p-5">
+                      <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                           <div>
-                            <p className="text-sm font-bold text-slate-950">
+                            <p className="text-sm font-bold text-[#071D49]">
                               Extra Stops
                             </p>
                             <p className="mt-1 text-sm text-slate-500">
@@ -900,7 +900,7 @@ export default function QuotePage() {
                           <button
                             type="button"
                             onClick={addStop}
-                            className="rounded-full bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+                            className="rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
                           >
                             Add Stop
                           </button>
@@ -910,10 +910,10 @@ export default function QuotePage() {
                           {extraStops.map((stop, index) => (
                             <div
                               key={index}
-                              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                              className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4"
                             >
                               <div className="mb-3 flex items-center justify-between">
-                                <p className="text-sm font-bold text-slate-950">
+                                <p className="text-sm font-bold text-[#071D49]">
                                   Stop {stop.order}
                                 </p>
 
@@ -934,7 +934,7 @@ export default function QuotePage() {
                                     updateStopAddress(index, "addressLine1", event.target.value)
                                   }
                                   placeholder="Address line 1"
-                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                 />
 
                                 <input
@@ -943,7 +943,7 @@ export default function QuotePage() {
                                     updateStopAddress(index, "addressLine2", event.target.value)
                                   }
                                   placeholder="Address line 2"
-                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                 />
 
                                 <input
@@ -953,7 +953,7 @@ export default function QuotePage() {
                                     updateStopAddress(index, "townCity", event.target.value)
                                   }
                                   placeholder="Town / City"
-                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                 />
 
                                 <input
@@ -963,7 +963,7 @@ export default function QuotePage() {
                                     updateStopAddress(index, "county", event.target.value)
                                   }
                                   placeholder="County"
-                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                 />
 
                                 <input
@@ -973,12 +973,12 @@ export default function QuotePage() {
                                     updateStopAddress(index, "postcode", event.target.value)
                                   }
                                   placeholder="Postcode"
-                                  className="rounded-2xl border border-slate-300 bg-white px-4 py-4 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10 md:col-span-2"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
                                 />
                               </div>
 
                               <div className="mt-4">
-                                <label className="block text-sm font-semibold text-slate-800">
+                                <label className="block text-sm font-semibold text-[#071D49]">
                                   Capacity Required At Stop {stop.order}
                                 </label>
 
@@ -990,8 +990,8 @@ export default function QuotePage() {
                                       onClick={() => updateStopCapacity(index, option.percent)}
                                       className={`rounded-2xl border p-4 text-left text-sm font-bold transition ${
                                         stop.capacityPercent === option.percent
-                                          ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
-                                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                                          ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                                          : "border-[#D7E6FF] bg-white text-[#071D49] hover:border-[#2D8CFF]"
                                       }`}
                                     >
                                       <span className="block text-xl">{option.label}</span>
@@ -1011,19 +1011,19 @@ export default function QuotePage() {
                 )}
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-white p-6">
+              <section className="rounded-3xl border border-[#D7E6FF] bg-white p-6">
                 <div className="mb-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                     Step 3
                   </p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">
+                  <h3 className="mt-2 text-xl font-bold text-[#071D49]">
                     Vehicle and load capacity
                   </h3>
                 </div>
 
                 <div className="grid gap-6">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Vehicle Size
                     </label>
                     <select
@@ -1034,7 +1034,7 @@ export default function QuotePage() {
                         setSelectedVehicle(event.target.value);
                         setShowVehicleModal(Boolean(event.target.value));
                       }}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     >
                       <option value="">Select vehicle</option>
                       <option value="Small Van">Small Van</option>
@@ -1049,7 +1049,7 @@ export default function QuotePage() {
 
                   {showCapacity && selectedVehicle && (
                     <div>
-                      <label className="block text-sm font-semibold text-slate-800">
+                      <label className="block text-sm font-semibold text-[#071D49]">
                         Vehicle Capacity Required
                       </label>
 
@@ -1061,8 +1061,8 @@ export default function QuotePage() {
                             onClick={() => setCapacityPercent(option.percent)}
                             className={`rounded-2xl border p-5 text-left text-sm font-bold transition ${
                               capacityPercent === option.percent
-                                ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-950/20"
-                                : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400"
+                                ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                                : "border-[#D7E6FF] bg-[#F4F8FF] text-[#071D49] hover:border-[#2D8CFF]"
                             }`}
                           >
                             <span className="block text-2xl">{option.label}</span>
@@ -1077,19 +1077,19 @@ export default function QuotePage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-slate-200 bg-white p-6">
+              <section className="rounded-3xl border border-[#D7E6FF] bg-white p-6">
                 <div className="mb-6">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                     Step 4
                   </p>
-                  <h3 className="mt-2 text-xl font-bold text-slate-950">
+                  <h3 className="mt-2 text-xl font-bold text-[#071D49]">
                     Load and contact details
                   </h3>
                 </div>
 
                 <div className="grid gap-6 md:grid-cols-2">
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Load Description
                     </label>
                     <textarea
@@ -1097,18 +1097,18 @@ export default function QuotePage() {
                       required
                       rows={3}
                       placeholder="Example: palletised goods, machinery, boxed items"
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Contact Preference
                     </label>
                     <select
                       name="contactPreference"
                       required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     >
                       <option value="">Select contact preference</option>
                       <option value="Phone">Phone</option>
@@ -1117,7 +1117,7 @@ export default function QuotePage() {
                     </select>
                   </div>
 
-                  <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-700">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
                     <input
                       type="checkbox"
                       checked={fragileGoods}
@@ -1127,64 +1127,64 @@ export default function QuotePage() {
                   </label>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Your Name
                     </label>
                     <input
                       name="customerName"
                       required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Email
                     </label>
                     <input
                       type="email"
                       name="customerEmail"
                       required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Phone
                     </label>
                     <input
                       name="customerPhone"
                       required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Legal Entity
                     </label>
                     <input
                       name="legalEntity"
                       required
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-800">
+                    <label className="block text-sm font-semibold text-[#071D49]">
                       Trading Name If Different
                     </label>
                     <input
                       name="tradingName"
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-950/10"
+                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                     />
                   </div>
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
-                <label className="flex cursor-pointer items-start gap-4 text-sm font-bold text-slate-800">
+              <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
+                <label className="flex cursor-pointer items-start gap-4 text-sm font-bold text-[#071D49]">
                   <input
                     type="checkbox"
                     checked={accuracyConfirmed}
@@ -1199,7 +1199,7 @@ export default function QuotePage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 px-8 py-5 text-base font-bold text-white shadow-xl shadow-slate-950/20 transition hover:from-slate-800 hover:to-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-2xl bg-gradient-to-r from-[#071D49] via-[#0B2A63] to-[#006CFF] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:from-[#020B1F] hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? "Generating Quote..." : "Get Instant Quote"}
               </button>
@@ -1210,8 +1210,8 @@ export default function QuotePage() {
 
       <section className="px-6 pb-24">
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 text-white shadow-2xl shadow-black/20">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+          <section className="rounded-[2rem] border border-white/10 bg-[#071D49] p-8 text-white shadow-2xl shadow-black/20">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
               What happens next
             </p>
 
@@ -1244,15 +1244,15 @@ export default function QuotePage() {
               ].map(([number, title, text]) => (
                 <div
                   key={number}
-                  className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5"
+                  className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-5"
                 >
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-300 text-sm font-bold text-slate-950">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#006CFF] text-sm font-bold text-white">
                     {number}
                   </span>
 
                   <div>
                     <h3 className="font-bold text-white">{title}</h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-400">
+                    <p className="mt-1 text-sm leading-6 text-white/60">
                       {text}
                     </p>
                   </div>
@@ -1261,8 +1261,8 @@ export default function QuotePage() {
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/10 bg-white p-8 text-slate-950 shadow-2xl shadow-black/20">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-700">
+          <section className="rounded-[2rem] border border-[#D7E6FF] bg-white p-8 text-[#071D49] shadow-2xl shadow-black/10">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#006CFF]">
               Vehicle size guide
             </p>
 
@@ -1279,34 +1279,34 @@ export default function QuotePage() {
               {Object.entries(vehicleDetails).map(([vehicle, details]) => (
                 <div
                   key={vehicle}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
+                  className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h3 className="font-bold text-slate-950">{vehicle}</h3>
+                      <h3 className="font-bold text-[#071D49]">{vehicle}</h3>
                       <p className="mt-1 text-sm text-slate-500">
                         {details.pallets}
                       </p>
                     </div>
 
-                    <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
+                    <span className="rounded-full bg-[#006CFF] px-3 py-1 text-xs font-bold text-white">
                       {details.maxWeight}
                     </span>
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-slate-600">
                     <div className="rounded-xl bg-white p-3">
-                      <p className="font-bold text-slate-950">Length</p>
+                      <p className="font-bold text-[#071D49]">Length</p>
                       <p className="mt-1">{details.length}</p>
                     </div>
 
                     <div className="rounded-xl bg-white p-3">
-                      <p className="font-bold text-slate-950">Width</p>
+                      <p className="font-bold text-[#071D49]">Width</p>
                       <p className="mt-1">{details.width}</p>
                     </div>
 
                     <div className="rounded-xl bg-white p-3">
-                      <p className="font-bold text-slate-950">Height</p>
+                      <p className="font-bold text-[#071D49]">Height</p>
                       <p className="mt-1">{details.height}</p>
                     </div>
                   </div>
@@ -1316,10 +1316,10 @@ export default function QuotePage() {
           </section>
         </div>
 
-        <section className="mx-auto mt-8 max-w-7xl rounded-[2rem] border border-amber-300/20 bg-[linear-gradient(135deg,_rgba(251,191,36,0.14),_rgba(255,255,255,0.04))] p-8 text-white shadow-2xl shadow-black/20">
+        <section className="mx-auto mt-8 max-w-7xl rounded-[2rem] border border-[#2D8CFF]/20 bg-[linear-gradient(135deg,_#071D49_0%,_#0B2A63_50%,_#006CFF_100%)] p-8 text-white shadow-2xl shadow-black/20">
           <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
                 Quote promise
               </p>
 
@@ -1327,7 +1327,7 @@ export default function QuotePage() {
                 Clear delivery quotes for business customers.
               </h2>
 
-              <p className="mt-4 text-sm leading-6 text-slate-300">
+              <p className="mt-4 text-sm leading-6 text-white/70">
                 The quote form is built to collect the details needed for a reliable
                 business delivery price, without unnecessary questions or duplicated steps.
               </p>
@@ -1341,10 +1341,10 @@ export default function QuotePage() {
               ].map(([title, text]) => (
                 <div
                   key={title}
-                  className="rounded-2xl border border-white/10 bg-white/[0.05] p-5"
+                  className="rounded-2xl border border-white/10 bg-white/[0.06] p-5"
                 >
                   <h3 className="font-bold text-white">{title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                  <p className="mt-2 text-sm leading-6 text-white/60">
                     {text}
                   </p>
                 </div>
@@ -1357,9 +1357,9 @@ export default function QuotePage() {
       {showVehicleModal && selectedVehicle && vehicleDetails[selectedVehicle] && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
           <div className="w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-6 bg-slate-950 p-6 text-white">
+            <div className="flex items-start justify-between gap-6 bg-[#071D49] p-6 text-white">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
                   Vehicle Details
                 </p>
 
@@ -1381,23 +1381,23 @@ export default function QuotePage() {
               <img
                 src={vehicleDetails[selectedVehicle].image}
                 alt={selectedVehicle}
-                className="h-64 w-full rounded-3xl border border-slate-200 bg-slate-50 object-contain"
+                className="h-64 w-full rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] object-contain"
               />
 
-              <div className="mt-6 grid gap-4 text-sm text-slate-700 md:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mt-6 grid gap-4 text-sm text-[#071D49] md:grid-cols-2">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
                   Length: {vehicleDetails[selectedVehicle].length}
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
                   Width: {vehicleDetails[selectedVehicle].width}
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
                   Height: {vehicleDetails[selectedVehicle].height}
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
                   Pallets: {vehicleDetails[selectedVehicle].pallets}
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 md:col-span-2">
                   Max Weight: {vehicleDetails[selectedVehicle].maxWeight}
                 </div>
               </div>
