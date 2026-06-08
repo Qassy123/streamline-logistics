@@ -12,20 +12,20 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full overflow-hidden bg-[#071D49] shadow-sm">
-        <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 lg:h-[108px] lg:px-10">
+        <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 sm:h-[104px] lg:h-[108px] lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[250px] shrink-0 items-center sm:w-[320px] lg:w-[500px]"
+            className="flex h-full w-[310px] shrink-0 items-center sm:w-[360px] lg:w-[500px]"
             aria-label="Streamline Logistics Group home"
           >
-            <div className="relative h-[70px] w-[250px] sm:h-[80px] sm:w-[320px] lg:h-[96px] lg:w-[470px]">
+            <div className="relative h-[82px] w-[310px] sm:h-[90px] sm:w-[360px] lg:h-[96px] lg:w-[470px]">
               <Image
                 src="/images/logos/header-logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
-                sizes="(max-width: 640px) 250px, (max-width: 1024px) 320px, 470px"
-                className="object-contain object-left lg:origin-left lg:scale-[2.15]"
+                sizes="(max-width: 640px) 310px, (max-width: 1024px) 360px, 470px"
+                className="origin-left scale-[1.55] object-contain object-left sm:scale-[1.35] lg:scale-[2.15]"
               />
             </div>
           </Link>
