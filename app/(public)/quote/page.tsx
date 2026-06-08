@@ -533,11 +533,11 @@ export default function QuotePage() {
 
       <section className="px-6 py-14">
         <div className="mx-auto max-w-7xl">
-          <div className="mb-10 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
+          <div className="mb-10 flex justify-center">
             <img
               src="/images/quote/Quotes.png"
               alt="Streamline Logistics Group delivering what matters"
-              className="max-h-[420px] w-full object-contain bg-white"
+              className="w-full max-w-[700px] rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10"
             />
           </div>
 
