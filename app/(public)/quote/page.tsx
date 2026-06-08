@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Headphones, MapPinned, ShieldCheck, Truck } from "lucide-react";
+import { Headphones, MapPinned, Truck } from "lucide-react";
 
 type QuoteResponse = {
   id: string;
@@ -736,11 +736,6 @@ export default function QuotePage() {
                   icon: Headphones,
                 },
                 {
-                  title: "Proof of delivery",
-                  text: "Delivery information supports booking, dispatch and handover records.",
-                  icon: ShieldCheck,
-                },
-                {
                   title: "UK-wide coverage",
                   text: "Built for business deliveries across the United Kingdom.",
                   icon: MapPinned,
@@ -1369,32 +1364,32 @@ export default function QuotePage() {
             </form>
 
             <aside className="hidden space-y-4 lg:block lg:sticky lg:top-32">
-              <div className="overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-lg shadow-black/5">
-                <img
-                  src="/images/quote/Quotes.png"
-                  alt="Streamline Logistics Group van"
-                  className="h-44 w-full object-cover"
-                />
-                <div className="p-5">
-                  <h3 className="text-sm font-bold text-[#071D49]">
-                    Why businesses choose Streamline
-                  </h3>
+              <div className="rounded-3xl border border-[#D7E6FF] bg-white p-6 shadow-lg shadow-black/5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Business courier service
+                </p>
 
-                  <ul className="mt-4 grid gap-3 text-sm font-semibold text-[#071D49]">
-                    {[
-                      "Dedicated vehicle",
-                      "Direct delivery",
-                      "Proof of delivery",
-                      "Fully insured",
-                      "UK-wide coverage",
-                    ].map((item) => (
-                      <li key={item} className="flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-[#006CFF]" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <h3 className="mt-3 text-xl font-bold text-[#071D49]">
+                  Why businesses choose Streamline
+                </h3>
+
+                <ul className="mt-5 grid gap-3 text-sm font-semibold text-[#071D49]">
+                  {[
+                    "Dedicated vehicle",
+                    "Direct delivery",
+                    "Fully insured transport",
+                    "UK-wide coverage",
+                    "Business-to-business specialists",
+                    "Professional driver network",
+                  ].map((item) => (
+                    <li key={item} className="flex items-center gap-3">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#006CFF] text-[10px] font-bold text-white">
+                        ✓
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
               </div>
 
               <div className="rounded-3xl border border-[#D7E6FF] bg-[#071D49] p-6 text-white shadow-lg shadow-black/10">
@@ -1403,7 +1398,7 @@ export default function QuotePage() {
                 </p>
                 <h3 className="mt-2 text-2xl font-bold">0333 344 0703</h3>
                 <p className="mt-3 text-sm leading-6 text-white/70">
-                  Contact Streamline Logistics Group if the shipment needs specialist handling.
+                  Need help choosing the correct vehicle? Our team can assist with vehicle selection, pallet capacity and collection requirements before you submit your quote.
                 </p>
               </div>
             </aside>
