@@ -12,27 +12,26 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full bg-[#071D49] shadow-sm">
-        <div className="mx-auto flex h-[92px] max-w-[1500px] items-center justify-between px-5 lg:h-[100px] lg:px-10">
+        <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 lg:h-[112px] lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[300px] items-center lg:w-[420px]"
+            className="flex h-full w-[260px] items-center sm:w-[340px] lg:w-[470px]"
+            aria-label="Streamline Logistics Group home"
           >
-            <div className="relative h-[70px] w-[260px] lg:h-[80px] lg:w-[380px]">
+            <div className="relative h-[64px] w-[240px] sm:h-[76px] sm:w-[320px] lg:h-[92px] lg:w-[450px]">
               <Image
                 src="/images/logos/header-logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
+                sizes="(max-width: 640px) 240px, (max-width: 1024px) 320px, 450px"
                 className="object-contain object-left"
               />
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-10 lg:flex">
-            <Link
-              href="/"
-              className="font-medium text-[#006CFF]"
-            >
+          <nav className="hidden items-center gap-9 lg:flex">
+            <Link href="/" className="font-medium text-[#006CFF]">
               Home
             </Link>
 
@@ -74,10 +73,7 @@ export default function Header() {
               Make Payment
             </Link>
 
-            <Search
-              size={22}
-              className="cursor-pointer text-white"
-            />
+            <Search size={22} className="cursor-pointer text-white" />
           </div>
 
           <button
@@ -91,10 +87,7 @@ export default function Header() {
         </div>
       </header>
 
-      <MobileMenu
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-      />
+      <MobileMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
     </>
   );
 }
