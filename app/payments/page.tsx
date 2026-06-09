@@ -1,608 +1,474 @@
-"use client";
-
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import {
   Building2,
   CheckCircle,
+  CreditCard,
   FileText,
-  Lock,
-  MapPin,
+  Mail,
   ShieldCheck,
-  Truck,
   User,
 } from "lucide-react";
 
-const API_URL =
-  "https://streamline-logistics-production.up.railway.app/api/accounts/business";
+type QuoteDetails = {
+  id: string;
+  status: string;
+  userId?: string | null;
+  deliveryType: string | null;
+  journeyType: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  legalEntity?: string | null;
+  companyName?: string | null;
+  totalPrice: string | number | null;
+  vatAmount: string | number | null;
+  adminPrice: string | number | null;
+};
 
-const businessTypes = [
-  "Sole Trader",
-  "Limited Company",
-  "Partnership",
-  "LLP",
-  "Charity",
-  "Public Sector",
-  "Other",
-];
+const BACKEND_API_URL = "https://streamline-logistics-production.up.railway.app/api";
 
-const industries = [
-  "Automotive",
-  "Construction",
-  "E-commerce",
-  "Engineering",
-  "Events",
-  "Food & Beverage",
-  "Healthcare",
-  "Manufacturing",
-  "Print & Packaging",
-  "Professional Services",
-  "Retail",
-  "Wholesale",
-  "Other",
-];
+async function getQuote(id: string): Promise<QuoteDetails | null> {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/quotes/${id}`, {
+      cache: "no-store",
+    });
 
-const shipmentVolumes = ["1-10", "11-50", "51-100", "101-500", "500+"];
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("Failed to fetch quote");
 
-const shipmentTypes = ["Documents", "Parcels", "Pallets", "Freight", "Mixed"];
+    return response.json();
+  } catch (error) {
+    console.error("Payment quote fetch error:", error);
+    return null;
+  }
+}
 
-function getResponseErrorMessage(data: unknown) {
-  if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    typeof (data as { error?: unknown }).error === "string"
-  ) {
-    return (data as { error: string }).error;
+async function createCheckoutSession(formData: FormData) {
+  "use server";
+
+  const quoteId = String(formData.get("quoteId") || "");
+
+  if (!quoteId) {
+    throw new Error("Missing quote ID");
   }
 
-  return "Unable to create business account. Please try again.";
-}
+  const response = await fetch(`${BACKEND_API_URL}/payments/create-checkout-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ quoteId }),
+    cache: "no-store",
+  });
 
-export default function RegisterBusinessPage() {
-  return (
-    <Suspense fallback={<RegisterBusinessLoading />}>
-      <RegisterBusinessForm />
-    </Suspense>
-  );
-}
-
-function RegisterBusinessLoading() {
-  return (
-    <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
-      <div className="mx-auto max-w-7xl">
-        <section className="rounded-[2rem] border border-[#D7E6FF] bg-white p-8 shadow-2xl shadow-black/10">
-          <p className="text-sm font-bold text-[#006CFF]">
-            Loading business account form...
-          </p>
-        </section>
-      </div>
-    </main>
-  );
-}
-
-function RegisterBusinessForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const quoteId = searchParams.get("quoteId") || "";
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [tradingAddressDifferent, setTradingAddressDifferent] = useState(false);
-  const [authorisedToCreateAccount, setAuthorisedToCreateAccount] =
-    useState(false);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-
-    const formData = new FormData(event.currentTarget);
-
-    const password = String(formData.get("password") || "");
-    const confirmPassword = String(formData.get("confirmPassword") || "");
-
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      setLoading(false);
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      setLoading(false);
-      return;
-    }
-
-    if (!authorisedToCreateAccount || !acceptedTerms || !acceptedPrivacy) {
-      setError("Please complete the required compliance confirmations.");
-      setLoading(false);
-      return;
-    }
-
-    const payload = {
-      quoteId,
-
-      legalEntity: formData.get("legalEntity"),
-      tradingName: formData.get("tradingName"),
-      companyRegistrationNumber: formData.get("companyRegistrationNumber"),
-      vatNumber: formData.get("vatNumber"),
-      businessType: formData.get("businessType"),
-      industry: formData.get("industry"),
-      companyWebsite: formData.get("companyWebsite"),
-
-      firstName: formData.get("firstName"),
-      lastName: formData.get("lastName"),
-      jobTitle: formData.get("jobTitle"),
-      email: formData.get("email"),
-      mobileNumber: formData.get("mobileNumber"),
-      alternativeContactNumber: formData.get("alternativeContactNumber"),
-      accountsEmail: formData.get("accountsEmail"),
-
-      registeredAddressLine1: formData.get("registeredAddressLine1"),
-      registeredAddressLine2: formData.get("registeredAddressLine2"),
-      registeredTownCity: formData.get("registeredTownCity"),
-      registeredCounty: formData.get("registeredCounty"),
-      registeredPostcode: formData.get("registeredPostcode"),
-      registeredCountry: formData.get("registeredCountry"),
-
-      tradingAddressDifferent,
-      tradingAddressLine1: formData.get("tradingAddressLine1"),
-      tradingAddressLine2: formData.get("tradingAddressLine2"),
-      tradingTownCity: formData.get("tradingTownCity"),
-      tradingCounty: formData.get("tradingCounty"),
-      tradingPostcode: formData.get("tradingPostcode"),
-      tradingCountry: formData.get("tradingCountry"),
-
-      estimatedShipmentsPerMonth: formData.get("estimatedShipmentsPerMonth"),
-      typicalShipmentType: formData.get("typicalShipmentType"),
-
-      password,
-      confirmPassword,
-
-      howDidYouHear: formData.get("howDidYouHear"),
-
-      authorisedToCreateAccount,
-      acceptedTerms,
-      acceptedPrivacy,
-    };
-
-    try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(getResponseErrorMessage(data));
-      }
-
-      router.push(data?.redirectUrl || `/payments?quoteId=${quoteId}`);
-    } catch (error) {
-      console.error("Business account registration error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Unable to create business account. Please try again."
-      );
-    } finally {
-      setLoading(false);
-    }
+  if (!response.ok) {
+    throw new Error("Failed to create Stripe checkout session");
   }
 
+  const data = await response.json();
+
+  if (!data.checkoutUrl) {
+    throw new Error("Stripe checkout URL missing");
+  }
+
+  redirect(data.checkoutUrl);
+}
+
+function formatMoney(value: string | number | null) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number(value || 0));
+}
+
+function formatValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === "") return "Not provided";
+  return String(value);
+}
+
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ quoteId?: string }>;
+}) {
+  const { quoteId } = await searchParams;
+
+  if (!quoteId) {
+    notFound();
+  }
+
+  const quote = await getQuote(quoteId);
+
+  if (!quote) {
+    notFound();
+  }
+
+  const businessName = quote.legalEntity || quote.companyName || "Not provided";
+  const hasLinkedAccount = Boolean(quote.userId);
+
   return (
-    <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
+    <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
       <div className="mx-auto max-w-7xl">
-        <section className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
-          <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white sm:p-10">
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
-              Business account
+        <section className="overflow-hidden rounded-[1.5rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10 sm:rounded-[2rem]">
+          <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white sm:p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#2D8CFF] sm:text-sm sm:tracking-[0.24em]">
+              Secure payment
             </p>
 
-            <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_0.75fr] lg:items-end">
+            <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h1 className="text-4xl font-bold tracking-tight md:text-6xl">
-                  Create your Streamline business account.
+                <h1 className="text-4xl font-bold md:text-6xl">
+                  {formatMoney(quote.totalPrice)}
                 </h1>
 
-                <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
-                  Create an account to manage business bookings, invoices and company details.
-                  Payment for this booking is still required immediately.
+                <p className="mt-3 break-words text-xs text-white/70 sm:text-sm">
+                  Quote reference: {quote.id}
                 </p>
               </div>
 
-              <div className="rounded-3xl border border-[#2D8CFF]/30 bg-white/[0.08] p-5">
-                <p className="text-sm font-bold text-white">What happens next</p>
-
-                <div className="mt-4 grid gap-3 text-sm text-white/75">
-                  {[
-                    "Account created instantly",
-                    "Quote retained against your details",
-                    "Redirect back to secure payment",
-                    "Invoice emailed after successful payment",
-                  ].map((item) => (
-                    <div key={item} className="flex items-center gap-3">
-                      <CheckCircle size={17} className="text-[#2D8CFF]" />
-                      {item}
-                    </div>
-                  ))}
-                </div>
+              <div className="w-fit rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-bold text-white sm:px-5 sm:text-sm">
+                Quote ready for secure payment
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="grid gap-8 p-5 sm:p-8">
-            {quoteId && (
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-semibold text-[#071D49]">
-                Quote reference retained: {quoteId}
-              </div>
-            )}
+          <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
+            <section className="grid gap-5 lg:gap-6">
+              {hasLinkedAccount ? (
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
+                      <Building2 size={22} />
+                    </span>
 
-            {error && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
-                {error}
-              </div>
-            )}
+                    <div>
+                      <h2 className="text-lg font-bold sm:text-xl">
+                        Business account linked
+                      </h2>
 
-            <FormSection
-              icon={Building2}
-              step="Step 1"
-              title="Company information"
-              text="Enter the legal business details for the account."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  name="legalEntity"
-                  label="Legal Entity Name"
-                  required
-                />
-                <TextField name="tradingName" label="Trading Name If Different" />
-                <TextField
-                  name="companyRegistrationNumber"
-                  label="Company Registration Number"
-                />
-                <TextField name="vatNumber" label="VAT Number" />
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        This quote is attached to your business account. Continue to secure payment to complete the booking.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
+                  <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
+                    <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
+                    <h2 className="text-lg font-bold sm:text-xl">
+                      Choose payment method
+                    </h2>
+                  </div>
 
-                <SelectField name="businessType" label="Business Type" required>
-                  <option value="">Select business type</option>
-                  {businessTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </SelectField>
+                  <div className="grid gap-4 xl:grid-cols-3 xl:gap-3">
+                    <PaymentMethodCard
+                      icon="guest"
+                      title="Guest Checkout"
+                      subtitle="Pay now"
+                      description="Pay securely by card and receive instant confirmation of your booking."
+                      features={[
+                        "Secure card payment",
+                        "Instant booking confirmation",
+                        "Automatic invoice email",
+                        "No account required",
+                        "Fast checkout flow",
+                      ]}
+                      quoteId={quote.id}
+                    />
 
-                <SelectField name="industry" label="Industry">
-                  <option value="">Select industry</option>
-                  {industries.map((industry) => (
-                    <option key={industry} value={industry}>
-                      {industry}
-                    </option>
-                  ))}
-                </SelectField>
+                    <PaymentMethodCard
+                      icon="business"
+                      title="Business Account"
+                      subtitle="Create account + pay now"
+                      description="Pay now and use a business account to manage bookings, invoices and delivery history."
+                      features={[
+                        "Secure card payment",
+                        "Dashboard access",
+                        "Booking history",
+                        "Invoice history",
+                        "Saved company details",
+                        "Faster future bookings",
+                      ]}
+                      quoteId={quote.id}
+                    />
 
-                <TextField
-                  name="companyWebsite"
-                  label="Company Website"
-                  type="url"
-                  placeholder="https://"
-                />
-              </div>
-            </FormSection>
-
-            <FormSection
-              icon={User}
-              step="Step 2"
-              title="Primary contact"
-              text="Enter the person responsible for this business account."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField name="firstName" label="First Name" required />
-                <TextField name="lastName" label="Last Name" required />
-                <TextField name="jobTitle" label="Job Title" />
-                <TextField
-                  name="email"
-                  label="Email Address"
-                  type="email"
-                  required
-                />
-                <TextField name="mobileNumber" label="Mobile Number" required />
-                <TextField
-                  name="alternativeContactNumber"
-                  label="Alternative Contact Number"
-                />
-                <TextField
-                  name="accountsEmail"
-                  label="Accounts Email Address"
-                  type="email"
-                />
-              </div>
-            </FormSection>
-
-            <FormSection
-              icon={MapPin}
-              step="Step 3"
-              title="Business address"
-              text="Enter the registered business address and trading address if different."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  name="registeredAddressLine1"
-                  label="Registered Address Line 1"
-                  required
-                />
-                <TextField
-                  name="registeredAddressLine2"
-                  label="Registered Address Line 2"
-                />
-                <TextField name="registeredTownCity" label="Town / City" required />
-                <TextField name="registeredCounty" label="County" />
-                <TextField name="registeredPostcode" label="Postcode" required />
-                <TextField
-                  name="registeredCountry"
-                  label="Country"
-                  defaultValue="United Kingdom"
-                  required
-                />
-              </div>
-
-              <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-bold text-[#071D49]">
-                <input
-                  type="checkbox"
-                  checked={tradingAddressDifferent}
-                  onChange={(event) =>
-                    setTradingAddressDifferent(event.target.checked)
-                  }
-                  className="mt-1"
-                />
-                Trading address is different from registered business address
-              </label>
-
-              {tradingAddressDifferent && (
-                <div className="mt-5 grid gap-4 rounded-3xl border border-[#D7E6FF] bg-white p-5 md:grid-cols-2">
-                  <TextField name="tradingAddressLine1" label="Trading Address Line 1" required />
-                  <TextField name="tradingAddressLine2" label="Trading Address Line 2" />
-                  <TextField name="tradingTownCity" label="Town / City" required />
-                  <TextField name="tradingCounty" label="County" />
-                  <TextField name="tradingPostcode" label="Postcode" required />
-                  <TextField
-                    name="tradingCountry"
-                    label="Country"
-                    defaultValue="United Kingdom"
-                    required
-                  />
+                    <PaymentMethodCard
+                      icon="trade"
+                      title="Trade Account"
+                      subtitle="Pay now + apply for trade account"
+                      description="Pay for this booking now and apply for a trade account for future deliveries."
+                      features={[
+                        "Monthly invoicing after approval",
+                        "Agreed credit limit",
+                        "Dedicated account manager",
+                        "Priority support",
+                        "Volume discounts",
+                        "Dashboard access",
+                        "Invoice management",
+                        "Business verification process",
+                        "Credit check process",
+                      ]}
+                      quoteId={quote.id}
+                    />
+                  </div>
                 </div>
               )}
-            </FormSection>
 
-            <FormSection
-              icon={Truck}
-              step="Step 4"
-              title="Shipping profile"
-              text="This helps tailor the account for your expected delivery usage."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <SelectField
-                  name="estimatedShipmentsPerMonth"
-                  label="Estimated Shipments Per Month"
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
+                <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
+                  <ShieldCheck className="shrink-0 text-[#006CFF]" size={22} />
+                  <h2 className="text-lg font-bold sm:text-xl">
+                    Trust & reassurance
+                  </h2>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {[
+                    ["Fully insured deliveries", "Goods are handled through insured business courier transport."],
+                    ["Secure online payments", "Payments are processed through secure checkout infrastructure."],
+                    ["VAT invoices provided", "A VAT invoice is available for business records."],
+                    ["Business courier specialists", "Built around urgent and scheduled B2B deliveries."],
+                    ["UK-wide coverage", "Designed for business deliveries throughout the United Kingdom."],
+                    ["Dedicated customer support", "Support is available for vehicle, route and booking questions."],
+                  ].map(([title, text]) => (
+                    <InfoCard key={title} title={title} text={text} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
+                <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
+                  <Building2 className="shrink-0 text-[#006CFF]" size={22} />
+                  <h2 className="text-lg font-bold sm:text-xl">
+                    Account comparison
+                  </h2>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <ComparisonCard
+                    title="Guest Checkout"
+                    items={[
+                      "Pay now",
+                      "Email confirmation",
+                      "Email invoice",
+                      "No account features",
+                    ]}
+                  />
+
+                  <ComparisonCard
+                    title="Business Account"
+                    items={[
+                      "Dashboard access",
+                      "Booking history",
+                      "Invoice history",
+                      "Saved business details",
+                    ]}
+                  />
+
+                  <ComparisonCard
+                    title="Trade Account"
+                    items={[
+                      "Apply for trade account",
+                      "Monthly invoicing",
+                      "Agreed credit facility",
+                      "Dedicated account manager",
+                      "Volume discounts",
+                      "Priority support",
+                    ]}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-2xl shadow-black/10 sm:p-6 lg:sticky lg:top-28">
+              <h2 className="text-lg font-bold sm:text-xl">
+                Payment summary
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Review the booking details before continuing to secure payment.
+              </p>
+
+              <div className="mt-5 grid gap-3">
+                <SummaryRow label="Customer" value={quote.customerName} />
+                <SummaryRow label="Business" value={businessName} />
+                <SummaryRow label="Email" value={quote.customerEmail} />
+                <SummaryRow label="Delivery type" value={quote.deliveryType} />
+                <SummaryRow label="Journey type" value={quote.journeyType} />
+                <SummaryRow label="Subtotal" value={formatMoney(quote.adminPrice)} />
+                <SummaryRow label="VAT" value={formatMoney(quote.vatAmount)} />
+
+                <div className="mt-3 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white shadow-xl shadow-[#071D49]/20">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2D8CFF]">
+                    Total due
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <p className="font-bold text-white/80">Payable now</p>
+                    <p className="text-2xl font-bold sm:text-3xl">
+                      {formatMoney(quote.totalPrice)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <form action={createCheckoutSession}>
+                <input type="hidden" name="quoteId" value={quote.id} />
+
+                <button
+                  type="submit"
+                  className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-6 py-4 text-sm font-bold text-white shadow-xl shadow-[#006CFF]/20 transition hover:bg-[#2D8CFF]"
                 >
-                  <option value="">Select shipment volume</option>
-                  {shipmentVolumes.map((volume) => (
-                    <option key={volume} value={volume}>
-                      {volume}
-                    </option>
-                  ))}
-                </SelectField>
+                  <ShieldCheck size={20} />
+                  Pay Securely Now
+                </button>
+              </form>
 
-                <SelectField name="typicalShipmentType" label="Typical Shipment Type">
-                  <option value="">Select shipment type</option>
-                  {shipmentTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </SelectField>
+              <Link
+                href={`/quote/${quote.id}`}
+                className="mt-4 flex w-full items-center justify-center rounded-full border border-[#D7E6FF] bg-white px-6 py-4 text-sm font-bold text-[#071D49] transition hover:border-[#006CFF] hover:text-[#006CFF]"
+              >
+                Back to quote breakdown
+              </Link>
+
+              <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-4 text-sm leading-6 text-slate-600 sm:p-5">
+                <div className="mb-2 flex items-center gap-2 font-bold text-[#071D49]">
+                  <FileText size={18} className="text-[#006CFF]" />
+                  Invoice note
+                </div>
+                Invoice and booking confirmation are sent after successful payment.
               </div>
-            </FormSection>
-
-            <FormSection
-              icon={Lock}
-              step="Step 5"
-              title="Account security"
-              text="Create a password for future access to your business account."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <TextField
-                  name="password"
-                  label="Create Password"
-                  type="password"
-                  required
-                />
-                <TextField
-                  name="confirmPassword"
-                  label="Confirm Password"
-                  type="password"
-                  required
-                />
-              </div>
-            </FormSection>
-
-            <FormSection
-              icon={FileText}
-              step="Step 6"
-              title="Marketing & preferences"
-              text="Tell us how you found Streamline Logistics Group."
-            >
-              <SelectField name="howDidYouHear" label="How Did You Hear About Us?">
-                <option value="">Select option</option>
-                <option value="Google">Google</option>
-                <option value="Social Media">Social Media</option>
-                <option value="Referral">Referral</option>
-                <option value="Existing Customer">Existing Customer</option>
-                <option value="Vehicle Branding">Vehicle Branding</option>
-                <option value="Other">Other</option>
-              </SelectField>
-            </FormSection>
-
-            <FormSection
-              icon={ShieldCheck}
-              step="Step 7"
-              title="Compliance"
-              text="Confirm authority and acceptance before creating the account."
-            >
-              <div className="grid gap-4">
-                <CheckboxField
-                  checked={authorisedToCreateAccount}
-                  onChange={setAuthorisedToCreateAccount}
-                  label="I confirm I am authorised to create this business account"
-                />
-
-                <CheckboxField
-                  checked={acceptedTerms}
-                  onChange={setAcceptedTerms}
-                  label="I agree to the Terms & Conditions"
-                />
-
-                <CheckboxField
-                  checked={acceptedPrivacy}
-                  onChange={setAcceptedPrivacy}
-                  label="I agree to the Privacy Policy"
-                />
-              </div>
-            </FormSection>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-2xl bg-[linear-gradient(135deg,_#071D49_0%,_#0B2A63_50%,_#006CFF_100%)] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading
-                ? "Creating Business Account..."
-                : "Create Business Account & Continue To Payment"}
-            </button>
-          </form>
+            </aside>
+          </div>
         </section>
       </div>
     </main>
   );
 }
 
-function FormSection({
-  icon: Icon,
-  step,
+function PaymentMethodCard({
+  icon,
   title,
-  text,
-  children,
+  subtitle,
+  description,
+  features,
+  quoteId,
 }: {
-  icon: React.ElementType;
-  step: string;
+  icon: "guest" | "business" | "trade";
   title: string;
-  text: string;
-  children: React.ReactNode;
+  subtitle: string;
+  description: string;
+  features: string[];
+  quoteId: string;
 }) {
+  const Icon =
+    icon === "guest"
+      ? CreditCard
+      : icon === "business"
+      ? Building2
+      : FileText;
+
+  const businessUrl = `/register-business?quoteId=${quoteId}`;
+
   return (
-    <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
-      <div className="mb-6 flex items-start gap-4">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
-          <Icon size={24} />
+    <div className="flex h-full flex-col rounded-2xl border border-[#D7E6FF] bg-white p-4 shadow-md shadow-black/5 transition hover:-translate-y-0.5 hover:shadow-xl sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#006CFF]/10 text-[#006CFF]">
+          <Icon size={20} />
         </span>
 
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-            {step}
+          <h3 className="text-base font-bold text-[#071D49]">{title}</h3>
+          <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]">
+            {subtitle}
           </p>
-          <h2 className="mt-2 text-xl font-bold text-[#071D49]">{title}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
         </div>
       </div>
 
-      {children}
-    </section>
+      <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+
+      <ul className="mt-4 grid gap-2 text-sm font-semibold text-[#071D49]">
+        {features.map((feature) => (
+          <li key={feature} className="flex items-start gap-2">
+            <CheckCircle
+              size={15}
+              className="mt-0.5 shrink-0 text-[#006CFF]"
+            />
+            <span>{feature}</span>
+          </li>
+        ))}
+      </ul>
+
+      {icon === "business" ? (
+        <Link
+          href={businessUrl}
+          className="mt-auto flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+        >
+          <Building2 size={16} />
+          Create Account & Continue
+        </Link>
+      ) : (
+        <form action={createCheckoutSession} className="mt-auto pt-5">
+          <input type="hidden" name="quoteId" value={quoteId} />
+
+          <button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+          >
+            <ShieldCheck size={16} />
+            Pay Securely Now
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 
-function TextField({
-  name,
-  label,
-  type = "text",
-  required = false,
-  placeholder,
-  defaultValue,
-}: {
-  name: string;
-  label: string;
-  type?: string;
-  required?: boolean;
-  placeholder?: string;
-  defaultValue?: string;
-}) {
+function InfoCard({ title, text }: { title: string; text: string }) {
   return (
-    <label className="block text-sm font-semibold text-[#071D49]">
-      {label}
-      {required && <span className="text-[#006CFF]"> *</span>}
-      <input
-        name={name}
-        type={type}
-        required={required}
-        placeholder={placeholder}
-        defaultValue={defaultValue}
-        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-      />
-    </label>
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4 sm:p-5">
+      <div className="mb-3 flex items-start gap-2 sm:items-center">
+        <CheckCircle className="mt-0.5 shrink-0 text-[#006CFF] sm:mt-0" size={18} />
+        <h3 className="text-sm font-bold text-[#071D49] sm:text-base">
+          {title}
+        </h3>
+      </div>
+      <p className="text-sm leading-7 text-slate-600">{text}</p>
+    </div>
   );
 }
 
-function SelectField({
-  name,
-  label,
-  required = false,
-  children,
-}: {
-  name: string;
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
+function ComparisonCard({ title, items }: { title: string; items: string[] }) {
   return (
-    <label className="block text-sm font-semibold text-[#071D49]">
-      {label}
-      {required && <span className="text-[#006CFF]"> *</span>}
-      <select
-        name={name}
-        required={required}
-        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-      >
-        {children}
-      </select>
-    </label>
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
+      <h3 className="font-bold text-[#071D49]">{title}</h3>
+
+      <ul className="mt-4 grid gap-3 text-sm font-semibold text-slate-700">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-2">
+            <CheckCircle size={16} className="mt-0.5 shrink-0 text-[#006CFF]" />
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function CheckboxField({
-  checked,
-  onChange,
+function SummaryRow({
   label,
+  value,
 }: {
-  checked: boolean;
-  onChange: (value: boolean) => void;
   label: string;
+  value: string | number | null | undefined;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-bold text-[#071D49]">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1"
-      />
-      {label}
-    </label>
+    <div className="grid gap-2 rounded-2xl border border-[#D7E6FF] bg-white p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <p className="text-sm font-semibold text-slate-600">{label}</p>
+      <p className="break-words text-left text-sm font-bold text-[#071D49] sm:text-right">
+        {formatValue(value)}
+      </p>
+    </div>
   );
 }
