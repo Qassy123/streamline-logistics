@@ -340,7 +340,14 @@ function PaymentMethodCard({
   features: string[];
   quoteId: string;
 }) {
-  const Icon = icon === "guest" ? CreditCard : icon === "business" ? Building2 : FileText;
+  const Icon =
+    icon === "guest"
+      ? CreditCard
+      : icon === "business"
+      ? Building2
+      : FileText;
+
+  const businessUrl = `/register-business?quoteId=${quoteId}`;
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-[#D7E6FF] bg-white p-4 shadow-md shadow-black/5 transition hover:-translate-y-0.5 hover:shadow-xl sm:p-5">
@@ -362,23 +369,36 @@ function PaymentMethodCard({
       <ul className="mt-4 grid gap-2 text-sm font-semibold text-[#071D49]">
         {features.map((feature) => (
           <li key={feature} className="flex items-start gap-2">
-            <CheckCircle size={15} className="mt-0.5 shrink-0 text-[#006CFF]" />
+            <CheckCircle
+              size={15}
+              className="mt-0.5 shrink-0 text-[#006CFF]"
+            />
             <span>{feature}</span>
           </li>
         ))}
       </ul>
 
-      <form action={createCheckoutSession} className="mt-auto pt-5">
-        <input type="hidden" name="quoteId" value={quoteId} />
-
-        <button
-          type="submit"
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+      {icon === "business" ? (
+        <Link
+          href={businessUrl}
+          className="mt-auto flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
         >
-          <ShieldCheck size={16} />
-          Pay Securely Now
-        </button>
-      </form>
+          <Building2 size={16} />
+          Create Account & Continue
+        </Link>
+      ) : (
+        <form action={createCheckoutSession} className="mt-auto pt-5">
+          <input type="hidden" name="quoteId" value={quoteId} />
+
+          <button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+          >
+            <ShieldCheck size={16} />
+            Pay Securely Now
+          </button>
+        </form>
+      )}
     </div>
   );
 }
