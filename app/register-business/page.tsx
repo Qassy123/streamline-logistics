@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
@@ -11,7 +12,6 @@ import {
   Truck,
   User,
 } from "lucide-react";
-import { useState } from "react";
 
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/business";
@@ -60,6 +60,28 @@ function getResponseErrorMessage(data: unknown) {
 }
 
 export default function RegisterBusinessPage() {
+  return (
+    <Suspense fallback={<RegisterBusinessLoading />}>
+      <RegisterBusinessForm />
+    </Suspense>
+  );
+}
+
+function RegisterBusinessLoading() {
+  return (
+    <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
+      <div className="mx-auto max-w-7xl">
+        <section className="rounded-[2rem] border border-[#D7E6FF] bg-white p-8 shadow-2xl shadow-black/10">
+          <p className="text-sm font-bold text-[#006CFF]">
+            Loading business account form...
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function RegisterBusinessForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const quoteId = searchParams.get("quoteId") || "";
