@@ -249,7 +249,7 @@ export default function QuotePage() {
     selectedDeliveryType === "Full Day Booking" ||
     selectedDeliveryType === "Half Day Booking";
 
-  const showCapacity = selectedDeliveryType !== "Full Load (One Way, Return, Multi Drop)";
+  const showCapacity = selectedJourneyType === "One Way" || selectedJourneyType === "Return";
   const showExtraStops = selectedJourneyType === "Multi Drop";
   const showAddressFields = Boolean(collectionDate && collectionWindow);
   const returnAddress = formatAddress(collectionAddress);
@@ -339,6 +339,7 @@ export default function QuotePage() {
 
     if (value === "Full Day Booking" || value === "Half Day Booking") {
       setSelectedJourneyType("");
+      setCapacityPercent(null);
       setExtraStops([]);
     }
   }
@@ -885,7 +886,13 @@ export default function QuotePage() {
                                 name="journeyType"
                                 value={option}
                                 checked={selectedJourneyType === option}
-                                onChange={() => setSelectedJourneyType(option)}
+                                onChange={() => {
+                                  setSelectedJourneyType(option);
+
+                                  if (option === "Multi Drop") {
+                                    setCapacityPercent(null);
+                                  }
+                                }}
                                 className="sr-only"
                               />
                               {option}
