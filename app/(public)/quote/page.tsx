@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Headphones, MapPinned, Truck } from "lucide-react";
+import { Headphones, HelpCircle, MapPinned, Truck } from "lucide-react";
 
 type QuoteResponse = {
   id: string;
@@ -103,6 +103,25 @@ const vehicleDetails: Record<
   },
 };
 
+const vehicleAvailability: Record<string, { available: boolean; reason?: string }> = {
+  "Small Van": { available: true },
+  "SWB Van": { available: true },
+  "LWB High Roof Van": { available: true },
+  "XLWB High Roof": { available: true },
+  "Luton Tail Lift Curtainsider": { available: true },
+};
+
+const vehicleOptions = Object.keys(vehicleDetails).sort((firstVehicle, secondVehicle) => {
+  const firstAvailable = vehicleAvailability[firstVehicle]?.available ?? true;
+  const secondAvailable = vehicleAvailability[secondVehicle]?.available ?? true;
+
+  if (firstAvailable === secondAvailable) {
+    return firstVehicle.localeCompare(secondVehicle);
+  }
+
+  return firstAvailable ? -1 : 1;
+});
+
 const capacityOptions = [
   {
     percent: 25,
@@ -143,8 +162,25 @@ function getTodayDateString() {
   return `${year}-${month}-${day}`;
 }
 
-function getWindowStartHour(window: string) {
-  return Number(window.split(":")[0]);
+function getWindowStartMinutes(window: string) {
+  const [hours, minutes] = window.split("-")[0].split(":").map(Number);
+
+  return hours * 60 + minutes;
+}
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <HelpCircle
+        size={18}
+        className="cursor-help text-[#006CFF]"
+        aria-hidden="true"
+      />
+      <span className="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-72 -translate-x-1/2 rounded-2xl border border-[#D7E6FF] bg-white p-4 text-xs font-semibold leading-5 text-[#071D49] shadow-2xl shadow-black/10 group-hover:block">
+        {text}
+      </span>
+    </span>
+  );
 }
 
 function formatAddress(address: AddressFields) {
@@ -219,21 +255,18 @@ export default function QuotePage() {
   const returnAddress = formatAddress(collectionAddress);
 
   const availableCollectionWindows = useMemo(() => {
-    if (
-      selectedDeliveryType !== "Same Day Delivery (One Way, Return, Multi Drop)" ||
-      collectionDate !== getTodayDateString()
-    ) {
+    if (collectionDate !== getTodayDateString()) {
       return twoHourWindows;
     }
 
     const now = new Date();
-    const earliestHour = now.getHours() + 2;
+    const earliestMinutes = now.getHours() * 60 + now.getMinutes() + 120;
 
     return twoHourWindows.filter((window) => {
-      const startHour = getWindowStartHour(window);
-      return startHour >= earliestHour;
+      const startMinutes = getWindowStartMinutes(window);
+      return startMinutes >= earliestMinutes;
     });
-  }, [selectedDeliveryType, collectionDate]);
+  }, [collectionDate]);
 
   function updateCollectionAddress(field: keyof AddressFields, value: string) {
     setCollectionAddress((current) => ({
@@ -357,6 +390,16 @@ export default function QuotePage() {
 
     if (!isValidUkPostcode(deliveryAddress.postcode)) {
       setError("Please enter a valid UK postcode for the delivery address.");
+      setLoading(false);
+      return;
+    }
+
+    if (
+      selectedVehicle &&
+      vehicleAvailability[selectedVehicle] &&
+      !vehicleAvailability[selectedVehicle].available
+    ) {
+      setError("The selected vehicle is currently unavailable. Please choose another vehicle.");
       setLoading(false);
       return;
     }
@@ -787,9 +830,12 @@ export default function QuotePage() {
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                       Step 1
                     </p>
-                    <h3 className="mt-2 text-xl font-bold text-[#071D49]">
-                      Service requirements
-                    </h3>
+                    <div className="mt-2 flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-[#071D49]">
+                        Service requirements
+                      </h3>
+                      <InfoTooltip text="Choose the type of delivery you need. One Way is a single collection and delivery, Return brings the vehicle back, and Multi Drop allows multiple delivery stops." />
+                    </div>
                   </div>
 
                   <div className="grid gap-6">
@@ -856,9 +902,12 @@ export default function QuotePage() {
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                       Step 2
                     </p>
-                    <h3 className="mt-2 text-xl font-bold text-[#071D49]">
-                      Collection and delivery route
-                    </h3>
+                    <div className="mt-2 flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-[#071D49]">
+                        Collection and delivery route
+                      </h3>
+                      <InfoTooltip text="Select the date and collection window first. Same-day bookings only show windows at least 2 hours ahead. Future dates show all valid windows." />
+                    </div>
                   </div>
 
                   <div className="grid gap-6 md:grid-cols-2">
@@ -902,6 +951,13 @@ export default function QuotePage() {
                     </div>
                   </div>
 
+                  {collectionDate && (
+                    <div className="mt-5 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm leading-6 text-[#071D49]">
+                      <span className="font-bold">Availability rule:</span>{" "}
+                      same-day bookings only show future collection windows at least 2 hours ahead. Vehicle availability support is built into the selector below and can be connected to live bookings when the dispatch system is ready.
+                    </div>
+                  )}
+
                   {!showAddressFields && (
                     <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
                       Select the collection date and collection window before entering collection and delivery addresses.
@@ -911,9 +967,12 @@ export default function QuotePage() {
                   {showAddressFields && (
                     <div className="mt-6 grid gap-6">
                       <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
-                        <h4 className="text-base font-bold text-[#071D49]">
-                          Collection Address
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-bold text-[#071D49]">
+                            Collection Address
+                          </h4>
+                          <InfoTooltip text="Enter the full collection address. Postcode lookup fields are structured here so the address finder can be connected next." />
+                        </div>
 
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <input
@@ -955,22 +1014,33 @@ export default function QuotePage() {
                             className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                           />
 
-                          <input
-                            required
-                            placeholder="Postcode"
-                            value={collectionAddress.postcode}
-                            onChange={(event) =>
-                              updateCollectionAddress("postcode", event.target.value)
-                            }
-                            className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                          />
+                          <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                            <input
+                              required
+                              placeholder="Postcode"
+                              value={collectionAddress.postcode}
+                              onChange={(event) =>
+                                updateCollectionAddress("postcode", event.target.value)
+                              }
+                              className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                            />
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                            >
+                              Find Address
+                            </button>
+                          </div>
                         </div>
                       </div>
 
                       <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
-                        <h4 className="text-base font-bold text-[#071D49]">
-                          {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
-                        </h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-bold text-[#071D49]">
+                            {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
+                          </h4>
+                          <InfoTooltip text="Enter the full delivery address. For Multi Drop, this is treated as Stop 1 and extra stops can be added below." />
+                        </div>
 
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <input
@@ -1012,15 +1082,23 @@ export default function QuotePage() {
                             className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                           />
 
-                          <input
-                            required
-                            placeholder="Postcode"
-                            value={deliveryAddress.postcode}
-                            onChange={(event) =>
-                              updateDeliveryAddress("postcode", event.target.value)
-                            }
-                            className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                          />
+                          <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                            <input
+                              required
+                              placeholder="Postcode"
+                              value={deliveryAddress.postcode}
+                              onChange={(event) =>
+                                updateDeliveryAddress("postcode", event.target.value)
+                              }
+                              className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                            />
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                            >
+                              Find Address
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -1125,15 +1203,23 @@ export default function QuotePage() {
                                     className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                   />
 
-                                  <input
-                                    required
-                                    value={stop.postcode}
-                                    onChange={(event) =>
-                                      updateStopAddress(index, "postcode", event.target.value)
-                                    }
-                                    placeholder="Postcode"
-                                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                                  />
+                                  <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                                    <input
+                                      required
+                                      value={stop.postcode}
+                                      onChange={(event) =>
+                                        updateStopAddress(index, "postcode", event.target.value)
+                                      }
+                                      placeholder="Postcode"
+                                      className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                                    >
+                                      Find Address
+                                    </button>
+                                  </div>
                                 </div>
 
                                 <div className="mt-4">
@@ -1174,9 +1260,12 @@ export default function QuotePage() {
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                       Step 3
                     </p>
-                    <h3 className="mt-2 text-xl font-bold text-[#071D49]">
-                      Vehicle and load capacity
-                    </h3>
+                    <div className="mt-2 flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-[#071D49]">
+                        Vehicle and load capacity
+                      </h3>
+                      <InfoTooltip text="Choose the vehicle size needed for the load. Available vehicles are shown first and unavailable vehicles are disabled for future booking control." />
+                    </div>
                   </div>
 
                   <div className="grid gap-6">
@@ -1195,35 +1284,49 @@ export default function QuotePage() {
                         className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       >
                         <option value="">Select vehicle</option>
-                        <option value="Small Van">Small Van</option>
-                        <option value="SWB Van">SWB Van</option>
-                        <option value="LWB High Roof Van">LWB High Roof Van</option>
-                        <option value="XLWB High Roof">XLWB High Roof</option>
-                        <option value="Luton Tail Lift Curtainsider">
-                          Luton Tail Lift Curtainsider
-                        </option>
+                        {vehicleOptions.map((vehicle) => {
+                          const availability = vehicleAvailability[vehicle];
+                          const isAvailable = availability?.available ?? true;
+
+                          return (
+                            <option
+                              key={vehicle}
+                              value={vehicle}
+                              disabled={!isAvailable}
+                            >
+                              {vehicle} {isAvailable ? "(Available)" : "(Unavailable)"}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
                     {showCapacity && selectedVehicle && (
-                      <div>
-                        <label className="block text-sm font-semibold text-[#071D49]">
-                          Vehicle Capacity Required
-                        </label>
+                      <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                        <div className="flex items-center gap-2">
+                          <label className="block text-sm font-semibold text-[#071D49]">
+                            Vehicle Capacity Required
+                          </label>
+                          <InfoTooltip text="Select the estimated amount of vehicle space your goods require. Choose Full Load when you need the entire vehicle reserved." />
+                        </div>
 
-                        <div className="mt-3 grid gap-3 md:grid-cols-4">
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          Select the space your goods need inside the selected vehicle.
+                        </p>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
                           {capacityOptions.map((option) => (
                             <button
                               key={option.percent}
                               type="button"
                               onClick={() => setCapacityPercent(option.percent)}
-                              className={`rounded-2xl border p-5 text-left text-sm font-bold transition ${capacityPercent === option.percent
+                              className={`rounded-2xl border p-4 text-left transition ${capacityPercent === option.percent
                                   ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
-                                  : "border-[#D7E6FF] bg-[#F4F8FF] text-[#071D49] hover:border-[#2D8CFF]"
+                                  : "border-[#D7E6FF] bg-white text-[#071D49] hover:border-[#2D8CFF]"
                                 }`}
                             >
-                              <span className="block text-2xl">{option.label}</span>
-                              <span className="mt-1 block text-xs opacity-80">
+                              <span className="block text-lg font-bold">{option.label}</span>
+                              <span className="mt-1 block text-sm font-semibold opacity-80">
                                 {option.pallets}
                               </span>
                             </button>
@@ -1239,9 +1342,16 @@ export default function QuotePage() {
                     <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                       Step 4
                     </p>
-                    <h3 className="mt-2 text-xl font-bold text-[#071D49]">
-                      Load and contact details
-                    </h3>
+                    <div className="mt-2 flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-[#071D49]">
+                        Load and contact details
+                      </h3>
+                      <InfoTooltip text="Provide load information and the best contact details for booking updates. Additional handover contact details can be collected at the delivery stage if needed." />
+                    </div>
+                  </div>
+
+                  <div className="mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm leading-6 text-[#071D49]">
+                    We may collect additional contact information for the person receiving the delivery at the drop point so the driver knows who to hand the goods over to on arrival.
                   </div>
 
                   <div className="grid gap-6 md:grid-cols-2">
