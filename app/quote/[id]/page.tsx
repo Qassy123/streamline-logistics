@@ -128,23 +128,24 @@ export default async function QuoteDetailsPage({
 
   const extraDrops = formatExtraDrops(quote.extraDrops);
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
+  const showCapacity = quote.journeyType === "One Way";
 
   return (
-    <main className="min-h-screen bg-[#070b12] px-6 py-12 text-white">
+    <main className="min-h-screen bg-[#F4F8FF] px-6 py-12 text-[#071D49]">
       <div className="mx-auto max-w-7xl">
         <Link
           href="/quote"
-          className="inline-flex items-center gap-2 text-sm font-bold text-amber-300 transition hover:text-amber-200"
+          className="inline-flex items-center gap-2 text-sm font-bold text-[#006CFF] transition hover:text-[#2D8CFF]"
         >
           <ArrowLeft size={18} />
           Back to quote form
         </Link>
 
-        <section className="mt-8 overflow-hidden rounded-[2rem] border border-white/10 bg-white shadow-2xl shadow-black/30">
-          <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-8 text-white">
+        <section className="mt-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
+          <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_52%,_#006CFF_100%)] p-8 text-white">
             <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-300">
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
                   Quote breakdown
                 </p>
 
@@ -152,7 +153,7 @@ export default async function QuoteDetailsPage({
                   {formatMoney(quote.totalPrice)}
                 </h1>
 
-                <p className="mt-4 text-sm text-slate-300">
+                <p className="mt-4 text-sm text-white/70">
                   Reference: {quote.id}
                 </p>
 
@@ -162,28 +163,34 @@ export default async function QuoteDetailsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-6">
-                <p className="text-sm text-slate-300">Amount due</p>
+              <div className="rounded-3xl border border-[#2D8CFF]/30 bg-white/[0.08] p-6 shadow-xl shadow-black/20">
+                <p className="text-sm text-white/70">Amount due</p>
                 <p className="mt-2 text-4xl font-bold">
                   {formatMoney(quote.totalPrice)}
                 </p>
 
                 <Link
                   href={`/payments?quoteId=${quote.id}`}
-                  className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#ff6a00]"
+                  className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
                 >
                   <CreditCard size={20} />
                   Proceed To Payment
                 </Link>
+
+                <div className="mt-4 grid gap-2 text-xs font-semibold text-white/75">
+                  <span>Secure online payment</span>
+                  <span>VAT invoice provided</span>
+                  <span>Business booking reference included</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-6 bg-white p-6 text-slate-950 lg:grid-cols-[1.2fr_0.8fr] lg:p-8">
+          <div className="grid gap-6 bg-white p-6 text-[#071D49] lg:grid-cols-[1.2fr_0.8fr] lg:p-8">
             <section className="grid gap-6">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
                 <div className="mb-5 flex items-center gap-3">
-                  <Truck className="text-[#ef1c24]" size={24} />
+                  <Truck className="text-[#006CFF]" size={24} />
                   <h2 className="text-xl font-bold">Service Details</h2>
                 </div>
 
@@ -191,14 +198,16 @@ export default async function QuoteDetailsPage({
                   <Detail label="Delivery Type" value={quote.deliveryType} />
                   <Detail label="Journey Type" value={quote.journeyType} />
                   <Detail label="Vehicle Size" value={quote.vehicleSize} />
-                  <Detail
-                    label="Capacity Required"
-                    value={
-                      quote.capacityPercent
-                        ? `${quote.capacityPercent}%`
-                        : "Not required"
-                    }
-                  />
+                  {showCapacity && (
+                    <Detail
+                      label="Capacity Required"
+                      value={
+                        quote.capacityPercent
+                          ? `${quote.capacityPercent}%`
+                          : "Not required"
+                      }
+                    />
+                  )}
                   <Detail
                     label="Collection Date"
                     value={formatDate(quote.collectionDate)}
@@ -210,9 +219,9 @@ export default async function QuoteDetailsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
                 <div className="mb-5 flex items-center gap-3">
-                  <MapPin className="text-[#ef1c24]" size={24} />
+                  <MapPin className="text-[#006CFF]" size={24} />
                   <h2 className="text-xl font-bold">Route Details</h2>
                 </div>
 
@@ -228,7 +237,7 @@ export default async function QuoteDetailsPage({
                   />
 
                   {extraDrops.length > 0 && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
                       <p className="text-sm font-bold text-slate-500">
                         Extra Stops
                       </p>
@@ -244,16 +253,16 @@ export default async function QuoteDetailsPage({
                           return (
                             <div
                               key={index}
-                              className="rounded-2xl bg-slate-50 p-4 text-sm"
+                              className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm"
                             >
-                              <p className="font-bold text-slate-950">
+                              <p className="font-bold text-[#071D49]">
                                 Stop {stop.order || index + 2}
                               </p>
                               <p className="mt-1 text-slate-600">
                                 {stop.address || "Address not provided"}
                               </p>
                               {stop.capacityPercent && (
-                                <p className="mt-2 font-semibold text-slate-800">
+                                <p className="mt-2 font-semibold text-[#071D49]">
                                   Capacity: {stop.capacityPercent}%
                                 </p>
                               )}
@@ -266,9 +275,9 @@ export default async function QuoteDetailsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
                 <div className="mb-5 flex items-center gap-3">
-                  <Package className="text-[#ef1c24]" size={24} />
+                  <Package className="text-[#006CFF]" size={24} />
                   <h2 className="text-xl font-bold">Load Details</h2>
                 </div>
 
@@ -284,9 +293,9 @@ export default async function QuoteDetailsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
                 <div className="mb-5 flex items-center gap-3">
-                  <User className="text-[#ef1c24]" size={24} />
+                  <User className="text-[#006CFF]" size={24} />
                   <h2 className="text-xl font-bold">Customer Details</h2>
                 </div>
 
@@ -304,9 +313,9 @@ export default async function QuoteDetailsPage({
               </div>
             </section>
 
-            <aside className="h-fit rounded-3xl border border-slate-200 bg-slate-50 p-6">
+            <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-2xl shadow-black/10">
               <div className="mb-5 flex items-center gap-3">
-                <ReceiptText className="text-[#ef1c24]" size={24} />
+                <ReceiptText className="text-[#006CFF]" size={24} />
                 <h2 className="text-xl font-bold">Price Breakdown</h2>
               </div>
 
@@ -317,19 +326,18 @@ export default async function QuoteDetailsPage({
                 />
                 <PriceRow label="Base Price" value={formatMoney(quote.basePrice)} />
                 <PriceRow
-                  label="Fuel Surcharge"
-                  value={formatMoney(quote.fuelSurcharge)}
-                />
-                <PriceRow
                   label="Subtotal Before VAT"
                   value={formatMoney(quote.adminPrice)}
                 />
                 <PriceRow label="VAT" value={formatMoney(quote.vatAmount)} />
 
-                <div className="mt-3 rounded-2xl bg-slate-950 p-5 text-white">
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="font-bold">Total</p>
-                    <p className="text-2xl font-bold">
+                <div className="mt-4 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-xl shadow-[#071D49]/20">
+                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2D8CFF]">
+                    Total payable
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <p className="font-bold text-white/80">Amount due today</p>
+                    <p className="text-3xl font-bold">
                       {formatMoney(quote.totalPrice)}
                     </p>
                   </div>
@@ -338,11 +346,27 @@ export default async function QuoteDetailsPage({
 
               <Link
                 href={`/payments?quoteId=${quote.id}`}
-                className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#ff6a00]"
+                className="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
               >
                 <CreditCard size={20} />
                 Proceed To Payment
               </Link>
+
+              <div className="mt-5 grid gap-3 rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                {[
+                  "Secure online payment",
+                  "VAT invoice provided",
+                  "Business booking reference included",
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-3 text-sm font-bold text-[#071D49]"
+                  >
+                    <CheckCircle size={18} className="text-[#006CFF]" />
+                    {item}
+                  </div>
+                ))}
+              </div>
             </aside>
           </div>
         </section>
@@ -359,9 +383,9 @@ function Detail({
   value: string | number | boolean | null | undefined;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
       <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-base font-semibold text-slate-950">
+      <p className="mt-2 break-words text-base font-semibold text-[#071D49]">
         {formatValue(value)}
       </p>
     </div>
@@ -376,9 +400,9 @@ function AddressBlock({
   value: string | null;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
       <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-2 whitespace-pre-line break-words text-base font-semibold leading-7 text-slate-950">
+      <p className="mt-2 whitespace-pre-line break-words text-base font-semibold leading-7 text-[#071D49]">
         {formatValue(value)}
       </p>
     </div>
@@ -387,9 +411,9 @@ function AddressBlock({
 
 function PriceRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#D7E6FF] bg-white p-4">
       <p className="text-sm font-semibold text-slate-600">{label}</p>
-      <p className="text-sm font-bold text-slate-950">{value}</p>
+      <p className="text-sm font-bold text-[#071D49]">{value}</p>
     </div>
   );
 }
