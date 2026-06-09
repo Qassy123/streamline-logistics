@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
-  Apple,
   Building2,
   CheckCircle,
   CreditCard,
   FileText,
   Mail,
   ShieldCheck,
+  User,
 } from "lucide-react";
 
 type QuoteDetails = {
@@ -106,11 +106,11 @@ export default async function PaymentsPage({
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
 
   return (
-    <main className="min-h-screen bg-[#070b12] px-3 py-6 text-white sm:px-6 sm:py-12">
-      <div className="mx-auto max-w-6xl">
-        <section className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-white shadow-2xl shadow-black/30 sm:rounded-[2rem]">
-          <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 p-5 sm:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300 sm:text-sm sm:tracking-[0.24em]">
+    <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
+      <div className="mx-auto max-w-7xl">
+        <section className="overflow-hidden rounded-[1.5rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10 sm:rounded-[2rem]">
+          <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white sm:p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#2D8CFF] sm:text-sm sm:tracking-[0.24em]">
               Secure payment
             </p>
 
@@ -120,135 +120,154 @@ export default async function PaymentsPage({
                   {formatMoney(quote.totalPrice)}
                 </h1>
 
-                <p className="mt-3 break-words text-xs text-slate-300 sm:text-sm">
+                <p className="mt-3 break-words text-xs text-white/70 sm:text-sm">
                   Quote reference: {quote.id}
                 </p>
               </div>
 
-              <div className="w-fit rounded-full border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-bold text-emerald-200 sm:px-5 sm:text-sm">
-                Quote ready for payment
+              <div className="w-fit rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-bold text-white sm:px-5 sm:text-sm">
+                Quote ready for secure payment
               </div>
             </div>
           </div>
 
-          <div className="grid gap-5 bg-white p-4 text-slate-950 lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
+          <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
             <section className="grid gap-5 lg:gap-6">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
                 <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
-                  <CreditCard className="shrink-0 text-[#ef1c24]" size={22} />
+                  <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
                   <h2 className="text-lg font-bold sm:text-xl">
                     Choose payment method
                   </h2>
                 </div>
 
-                <div className="grid gap-4">
-                  <form action={createCheckoutSession}>
-                    <input type="hidden" name="quoteId" value={quote.id} />
-
-                    <button
-                      type="submit"
-                      className="flex w-full flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-950 hover:shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-5"
-                    >
-                      <span className="flex items-start gap-3 sm:items-center">
-                        <Apple className="shrink-0" size={24} />
-                        <span>
-                          <span className="block text-sm font-bold sm:text-base">
-                            Apple Pay / Card
-                          </span>
-                          <span className="mt-1 block text-sm leading-6 text-slate-500">
-                            Pay securely by card. Apple Pay appears automatically on supported devices.
-                          </span>
-                        </span>
-                      </span>
-
-                      <span className="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-                        Available
-                      </span>
-                    </button>
-                  </form>
-
-                  <button
-                    type="button"
-                    disabled
-                    className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left opacity-70 sm:flex-row sm:items-center sm:justify-between sm:p-5"
-                  >
-                    <span>
-                      <span className="block text-sm font-bold sm:text-base">
-                        PayPal
-                      </span>
-                      <span className="mt-1 block text-sm leading-6 text-slate-500">
-                        PayPal checkout connection coming after card payments.
-                      </span>
-                    </span>
-
-                    <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                      Pending
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
-                <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
-                  <Mail className="shrink-0 text-[#ef1c24]" size={22} />
-                  <h2 className="text-lg font-bold sm:text-xl">
-                    Notifications
-                  </h2>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <InfoCard
-                    title="Payment confirmation"
-                    text="After payment, the customer receives a confirmation email and receipt."
+                <div className="grid gap-4 xl:grid-cols-3">
+                  <PaymentMethodCard
+                    icon="guest"
+                    title="Guest Checkout"
+                    subtitle="Pay now"
+                    description="Pay securely by card and receive instant confirmation of your booking."
+                    features={[
+                      "Secure card payment",
+                      "Instant booking confirmation",
+                      "Automatic invoice email",
+                      "No account required",
+                      "Fast checkout flow",
+                    ]}
+                    quoteId={quote.id}
                   />
-                  <InfoCard
-                    title="Invoice generation"
-                    text="A VAT invoice will be generated and linked to the booking."
+
+                  <PaymentMethodCard
+                    icon="business"
+                    title="Business Account"
+                    subtitle="Create account + pay now"
+                    description="Pay now and use a business account to manage bookings, invoices and delivery history."
+                    features={[
+                      "Secure card payment",
+                      "Dashboard access",
+                      "Booking history",
+                      "Invoice history",
+                      "Saved company details",
+                      "Faster future bookings",
+                    ]}
+                    quoteId={quote.id}
                   />
-                  <InfoCard
-                    title="Checkout reminder"
-                    text="If payment is not completed, a professional reminder email can be sent."
-                  />
-                  <InfoCard
-                    title="Booking creation"
-                    text="Once paid, the quote can be converted into a confirmed booking."
+
+                  <PaymentMethodCard
+                    icon="trade"
+                    title="Trade Account"
+                    subtitle="Pay now + apply for trade account"
+                    description="Pay for this booking now and apply for a trade account for future deliveries."
+                    features={[
+                      "Monthly invoicing after approval",
+                      "Agreed credit limit",
+                      "Dedicated account manager",
+                      "Priority support",
+                      "Volume discounts",
+                      "Dashboard access",
+                      "Invoice management",
+                      "Business verification process",
+                      "Credit check process",
+                    ]}
+                    quoteId={quote.id}
                   />
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
                 <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
-                  <Building2 className="shrink-0 text-[#ef1c24]" size={22} />
+                  <ShieldCheck className="shrink-0 text-[#006CFF]" size={22} />
                   <h2 className="text-lg font-bold sm:text-xl">
-                    After payment
+                    Trust & reassurance
                   </h2>
                 </div>
 
-                <p className="text-sm leading-7 text-slate-600">
-                  After payment, customers will be redirected to an account choice page where they can continue as a guest, create a business account, or apply for a trade account.
-                </p>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {[
+                    ["Fully insured deliveries", "Goods are handled through insured business courier transport."],
+                    ["Secure online payments", "Payments are processed through secure checkout infrastructure."],
+                    ["VAT invoices provided", "A VAT invoice is available for business records."],
+                    ["Business courier specialists", "Built around urgent and scheduled B2B deliveries."],
+                    ["UK-wide coverage", "Designed for business deliveries throughout the United Kingdom."],
+                    ["Dedicated customer support", "Support is available for vehicle, route and booking questions."],
+                  ].map(([title, text]) => (
+                    <InfoCard key={title} title={title} text={text} />
+                  ))}
+                </div>
+              </div>
 
-                <div className="mt-5 grid gap-4 md:grid-cols-3">
-                  <InfoCard
-                    title="Continue as guest"
-                    text="Fast checkout for one-off deliveries without creating an account."
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
+                <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
+                  <Building2 className="shrink-0 text-[#006CFF]" size={22} />
+                  <h2 className="text-lg font-bold sm:text-xl">
+                    Account comparison
+                  </h2>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <ComparisonCard
+                    title="Guest Checkout"
+                    items={[
+                      "Pay now",
+                      "Email confirmation",
+                      "Email invoice",
+                      "No account features",
+                    ]}
                   />
-                  <InfoCard
-                    title="Business account"
-                    text="Save details, view bookings, manage invoices and reuse delivery information."
+
+                  <ComparisonCard
+                    title="Business Account"
+                    items={[
+                      "Dashboard access",
+                      "Booking history",
+                      "Invoice history",
+                      "Saved business details",
+                    ]}
                   />
-                  <InfoCard
-                    title="Trade account"
-                    text="Apply for account terms, credit limits, recurring bookings and monthly invoicing."
+
+                  <ComparisonCard
+                    title="Trade Account"
+                    items={[
+                      "Apply for trade account",
+                      "Monthly invoicing",
+                      "Agreed credit facility",
+                      "Dedicated account manager",
+                      "Volume discounts",
+                      "Priority support",
+                    ]}
                   />
                 </div>
               </div>
             </section>
 
-            <aside className="h-fit rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:p-6">
+            <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-2xl shadow-black/10 sm:p-6 lg:sticky lg:top-28">
               <h2 className="text-lg font-bold sm:text-xl">
                 Payment summary
               </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Review the booking details before continuing to secure payment.
+              </p>
 
               <div className="mt-5 grid gap-3">
                 <SummaryRow label="Customer" value={quote.customerName} />
@@ -259,10 +278,13 @@ export default async function PaymentsPage({
                 <SummaryRow label="Subtotal" value={formatMoney(quote.adminPrice)} />
                 <SummaryRow label="VAT" value={formatMoney(quote.vatAmount)} />
 
-                <div className="mt-3 rounded-2xl bg-slate-950 p-4 text-white sm:p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="font-bold">Total due</p>
-                    <p className="text-xl font-bold sm:text-2xl">
+                <div className="mt-3 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white shadow-xl shadow-[#071D49]/20">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2D8CFF]">
+                    Total due
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-4">
+                    <p className="font-bold text-white/80">Payable now</p>
+                    <p className="text-2xl font-bold sm:text-3xl">
                       {formatMoney(quote.totalPrice)}
                     </p>
                   </div>
@@ -274,7 +296,7 @@ export default async function PaymentsPage({
 
                 <button
                   type="submit"
-                  className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-[#ef1c24] px-6 py-4 text-sm font-bold text-white transition hover:bg-[#ff6a00]"
+                  className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-6 py-4 text-sm font-bold text-white shadow-xl shadow-[#006CFF]/20 transition hover:bg-[#2D8CFF]"
                 >
                   <ShieldCheck size={20} />
                   Pay Securely Now
@@ -283,17 +305,17 @@ export default async function PaymentsPage({
 
               <Link
                 href={`/quote/${quote.id}`}
-                className="mt-4 flex w-full items-center justify-center rounded-full border border-slate-300 px-6 py-4 text-sm font-bold text-slate-700 transition hover:border-slate-950 hover:text-slate-950"
+                className="mt-4 flex w-full items-center justify-center rounded-full border border-[#D7E6FF] bg-white px-6 py-4 text-sm font-bold text-[#071D49] transition hover:border-[#006CFF] hover:text-[#006CFF]"
               >
                 Back to quote breakdown
               </Link>
 
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-slate-700 sm:p-5">
-                <div className="mb-2 flex items-center gap-2 font-bold text-slate-950">
-                  <FileText size={18} />
+              <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-4 text-sm leading-6 text-slate-600 sm:p-5">
+                <div className="mb-2 flex items-center gap-2 font-bold text-[#071D49]">
+                  <FileText size={18} className="text-[#006CFF]" />
                   Invoice note
                 </div>
-                Invoice generation will be connected after the payment provider is wired in.
+                Invoice and booking confirmation are sent after successful payment.
               </div>
             </aside>
           </div>
@@ -303,16 +325,91 @@ export default async function PaymentsPage({
   );
 }
 
+function PaymentMethodCard({
+  icon,
+  title,
+  subtitle,
+  description,
+  features,
+  quoteId,
+}: {
+  icon: "guest" | "business" | "trade";
+  title: string;
+  subtitle: string;
+  description: string;
+  features: string[];
+  quoteId: string;
+}) {
+  const Icon = icon === "guest" ? CreditCard : icon === "business" ? Building2 : FileText;
+
+  return (
+    <div className="flex h-full flex-col rounded-3xl border border-[#D7E6FF] bg-white p-5 shadow-lg shadow-black/5">
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
+          <Icon size={22} />
+        </span>
+
+        <div>
+          <h3 className="text-base font-bold text-[#071D49]">{title}</h3>
+          <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]">
+            {subtitle}
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-4 text-sm leading-6 text-slate-600">{description}</p>
+
+      <ul className="mt-5 grid gap-3 text-sm font-semibold text-[#071D49]">
+        {features.map((feature) => (
+          <li key={feature} className="flex items-start gap-2">
+            <CheckCircle size={17} className="mt-0.5 shrink-0 text-[#006CFF]" />
+            <span>{feature}</span>
+          </li>
+        ))}
+      </ul>
+
+      <form action={createCheckoutSession} className="mt-auto pt-6">
+        <input type="hidden" name="quoteId" value={quoteId} />
+
+        <button
+          type="submit"
+          className="flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+        >
+          <ShieldCheck size={18} />
+          Pay Securely Now
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function InfoCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4 sm:p-5">
       <div className="mb-3 flex items-start gap-2 sm:items-center">
-        <CheckCircle className="mt-0.5 shrink-0 text-[#ef1c24] sm:mt-0" size={18} />
-        <h3 className="text-sm font-bold text-slate-950 sm:text-base">
+        <CheckCircle className="mt-0.5 shrink-0 text-[#006CFF] sm:mt-0" size={18} />
+        <h3 className="text-sm font-bold text-[#071D49] sm:text-base">
           {title}
         </h3>
       </div>
       <p className="text-sm leading-7 text-slate-600">{text}</p>
+    </div>
+  );
+}
+
+function ComparisonCard({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
+      <h3 className="font-bold text-[#071D49]">{title}</h3>
+
+      <ul className="mt-4 grid gap-3 text-sm font-semibold text-slate-700">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-2">
+            <CheckCircle size={16} className="mt-0.5 shrink-0 text-[#006CFF]" />
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -325,9 +422,9 @@ function SummaryRow({
   value: string | number | null | undefined;
 }) {
   return (
-    <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
+    <div className="grid gap-2 rounded-2xl border border-[#D7E6FF] bg-white p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
       <p className="text-sm font-semibold text-slate-600">{label}</p>
-      <p className="break-words text-left text-sm font-bold text-slate-950 sm:text-right">
+      <p className="break-words text-left text-sm font-bold text-[#071D49] sm:text-right">
         {formatValue(value)}
       </p>
     </div>
