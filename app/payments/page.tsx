@@ -133,7 +133,7 @@ export default async function PaymentsPage({
 
           <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
             <section className="grid gap-5 lg:gap-6">
-              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
                   <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
                   <h2 className="text-lg font-bold sm:text-xl">
@@ -141,7 +141,7 @@ export default async function PaymentsPage({
                   </h2>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-3">
+                <div className="grid gap-4 xl:grid-cols-3 xl:gap-3">
                   <PaymentMethodCard
                     icon="guest"
                     title="Guest Checkout"
@@ -194,7 +194,7 @@ export default async function PaymentsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
                   <ShieldCheck className="shrink-0 text-[#006CFF]" size={22} />
                   <h2 className="text-lg font-bold sm:text-xl">
@@ -216,7 +216,7 @@ export default async function PaymentsPage({
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-6">
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <div className="mb-4 flex items-center gap-2 sm:mb-5 sm:gap-3">
                   <Building2 className="shrink-0 text-[#006CFF]" size={22} />
                   <h2 className="text-lg font-bold sm:text-xl">
@@ -343,10 +343,10 @@ function PaymentMethodCard({
   const Icon = icon === "guest" ? CreditCard : icon === "business" ? Building2 : FileText;
 
   return (
-    <div className="flex h-full flex-col rounded-3xl border border-[#D7E6FF] bg-white p-5 shadow-lg shadow-black/5">
+    <div className="flex h-full flex-col rounded-2xl border border-[#D7E6FF] bg-white p-4 shadow-md shadow-black/5 transition hover:-translate-y-0.5 hover:shadow-xl sm:p-5">
       <div className="flex items-start gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
-          <Icon size={22} />
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#006CFF]/10 text-[#006CFF]">
+          <Icon size={20} />
         </span>
 
         <div>
@@ -357,25 +357,25 @@ function PaymentMethodCard({
         </div>
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-slate-600">{description}</p>
+      <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
 
-      <ul className="mt-5 grid gap-3 text-sm font-semibold text-[#071D49]">
+      <ul className="mt-4 grid gap-2 text-sm font-semibold text-[#071D49]">
         {features.map((feature) => (
           <li key={feature} className="flex items-start gap-2">
-            <CheckCircle size={17} className="mt-0.5 shrink-0 text-[#006CFF]" />
+            <CheckCircle size={15} className="mt-0.5 shrink-0 text-[#006CFF]" />
             <span>{feature}</span>
           </li>
         ))}
       </ul>
 
-      <form action={createCheckoutSession} className="mt-auto pt-6">
+      <form action={createCheckoutSession} className="mt-auto pt-5">
         <input type="hidden" name="quoteId" value={quoteId} />
 
         <button
           type="submit"
-          className="flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
         >
-          <ShieldCheck size={18} />
+          <ShieldCheck size={16} />
           Pay Securely Now
         </button>
       </form>
