@@ -8,14 +8,57 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  accountType  AccountType   @default(BUSINESS)
-  companyName  String?
-  name         String
-  email        String        @unique
-  phone        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          String      @id @default(cuid())
+  accountType AccountType @default(BUSINESS)
+
+  companyName String?
+  name        String
+  email       String  @unique
+  phone       String?
+
+  passwordHash String?
+
+  legalEntity               String?
+  tradingName               String?
+  companyRegistrationNumber String?
+  vatNumber                 String?
+  businessType              String?
+  industry                  String?
+  companyWebsite            String?
+
+  firstName                String?
+  lastName                 String?
+  jobTitle                 String?
+  accountsEmail            String?
+  alternativeContactNumber String?
+
+  registeredAddressLine1 String?
+  registeredAddressLine2 String?
+  registeredTownCity     String?
+  registeredCounty       String?
+  registeredPostcode     String?
+  registeredCountry      String?
+
+  tradingAddressDifferent Boolean @default(false)
+
+  tradingAddressLine1 String?
+  tradingAddressLine2 String?
+  tradingTownCity     String?
+  tradingCounty       String?
+  tradingPostcode     String?
+  tradingCountry      String?
+
+  estimatedShipmentsPerMonth String?
+  typicalShipmentType        String?
+  howDidYouHear              String?
+
+  authorisedToCreateAccount Boolean @default(false)
+  acceptedTerms             Boolean @default(false)
+  acceptedPrivacy           Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   bookings     Booking[]
   invoices     Invoice[]
   payments     Payment[]
