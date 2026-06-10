@@ -11,26 +11,24 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full bg-[#071D49] shadow-sm">
-        <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 sm:h-[104px] lg:h-[108px] lg:px-10">
+      <header className="sticky top-0 z-50 w-full bg-[#071D49] shadow-sm">
+        <div className="mx-auto flex h-[112px] max-w-[1600px] items-center justify-between gap-8 px-5 sm:px-8 lg:px-10">
           <Link
             href="/"
-            className="relative z-10 flex h-full w-[240px] shrink-0 items-center sm:w-[280px] lg:w-[320px]"
+            className="flex h-full w-[300px] shrink-0 items-center sm:w-[360px] lg:w-[430px]"
             aria-label="Streamline Logistics Group home"
           >
-            <div className="relative h-[82px] w-[240px] sm:h-[90px] sm:w-[280px] lg:h-[96px] lg:w-[320px]">
-              <Image
-                src="/images/logos/header-logo.png"
-                alt="Streamline Logistics Group"
-                fill
-                priority
-                sizes="(max-width: 640px) 240px, (max-width: 1024px) 280px, 320px"
-                className="object-contain object-left"
-              />
-            </div>
+            <Image
+              src="/images/logos/header-logo.png"
+              alt="Streamline Logistics Group"
+              width={430}
+              height={110}
+              priority
+              className="h-auto w-full object-contain"
+            />
           </Link>
 
-          <nav className="relative z-20 hidden items-center gap-9 lg:flex">
+          <nav className="hidden flex-1 items-center justify-center gap-10 lg:flex">
             <Link href="/" className="font-medium text-[#006CFF]">
               Home
             </Link>
@@ -57,10 +55,10 @@ export default function Header() {
             </Link>
           </nav>
 
-          <div className="relative z-20 hidden items-center gap-6 lg:flex">
+          <div className="hidden w-[360px] shrink-0 items-center justify-end gap-6 lg:flex">
             <a
               href="tel:03333440703"
-              className="flex items-center gap-2 font-medium text-white"
+              className="flex items-center gap-2 whitespace-nowrap font-medium text-white"
             >
               <Phone size={18} className="text-[#006CFF]" />
               0333 344 0703
@@ -68,18 +66,18 @@ export default function Header() {
 
             <Link
               href="/payments"
-              className="rounded-full bg-[#006CFF] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
+              className="whitespace-nowrap rounded-full bg-[#006CFF] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
             >
               Make Payment
             </Link>
 
-            <Search size={22} className="cursor-pointer text-white" />
+            <Search size={22} className="shrink-0 cursor-pointer text-white" />
           </div>
 
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="relative z-20 shrink-0 text-white lg:hidden"
+            className="shrink-0 text-white lg:hidden"
             aria-label="Open menu"
           >
             <Menu size={34} />
