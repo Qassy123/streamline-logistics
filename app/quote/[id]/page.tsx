@@ -9,6 +9,7 @@ import {
   ReceiptText,
   Truck,
   User,
+  Handshake,
 } from "lucide-react";
 
 type QuoteDetails = {
@@ -32,6 +33,12 @@ type QuoteDetails = {
   companyName?: string | null;
   legalEntity?: string | null;
   tradingName?: string | null;
+  handoverContactName?: string | null;
+  handoverContactPhone?: string | null;
+  handoverNotes?: string | null;
+  collectionHandoverName?: string | null;
+  collectionHandoverPhone?: string | null;
+  collectionHandoverNotes?: string | null;
   distanceMiles: string | number | null;
   basePrice: string | number | null;
   fuelSurcharge: string | number | null;
@@ -130,6 +137,13 @@ export default async function QuoteDetailsPage({
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
   const showCapacity = quote.journeyType === "One Way";
 
+  const handoverName =
+    quote.handoverContactName || quote.collectionHandoverName || null;
+  const handoverPhone =
+    quote.handoverContactPhone || quote.collectionHandoverPhone || null;
+  const handoverNotes =
+    quote.handoverNotes || quote.collectionHandoverNotes || null;
+
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-6 py-12 text-[#071D49]">
       <div className="mx-auto max-w-7xl">
@@ -196,8 +210,12 @@ export default async function QuoteDetailsPage({
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <Detail label="Delivery Type" value={quote.deliveryType} />
-                  <Detail label="Journey Type" value={quote.journeyType} />
                   <Detail label="Vehicle Size" value={quote.vehicleSize} />
+                  <Detail
+                    label="Collection Date"
+                    value={formatDate(quote.collectionDate)}
+                  />
+                  <Detail label="Journey Type" value={quote.journeyType} />
                   {showCapacity && (
                     <Detail
                       label="Capacity Required"
@@ -208,10 +226,6 @@ export default async function QuoteDetailsPage({
                       }
                     />
                   )}
-                  <Detail
-                    label="Collection Date"
-                    value={formatDate(quote.collectionDate)}
-                  />
                   <Detail
                     label="Collection Window"
                     value={quote.collectionWindow}
@@ -295,6 +309,21 @@ export default async function QuoteDetailsPage({
 
               <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
                 <div className="mb-5 flex items-center gap-3">
+                  <Handshake className="text-[#006CFF]" size={24} />
+                  <h2 className="text-xl font-bold">Handover Details</h2>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Detail label="Handover Contact Name" value={handoverName} />
+                  <Detail label="Handover Contact Phone" value={handoverPhone} />
+                  <div className="md:col-span-2">
+                    <Detail label="Handover Notes" value={handoverNotes} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-lg shadow-black/5">
+                <div className="mb-5 flex items-center gap-3">
                   <User className="text-[#006CFF]" size={24} />
                   <h2 className="text-xl font-bold">Customer Details</h2>
                 </div>
@@ -324,12 +353,16 @@ export default async function QuoteDetailsPage({
                   label="Estimated Distance"
                   value={`${formatValue(quote.distanceMiles)} miles`}
                 />
-                <PriceRow label="Base Price" value={formatMoney(quote.basePrice)} />
+                <PriceRow
+                  label="Base Price"
+                  value={formatMoney(quote.basePrice)}
+                />
                 <PriceRow
                   label="Subtotal Before VAT"
                   value={formatMoney(quote.adminPrice)}
                 />
                 <PriceRow label="VAT" value={formatMoney(quote.vatAmount)} />
+                <PriceRow label="Total" value={formatMoney(quote.totalPrice)} />
 
                 <div className="mt-4 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-xl shadow-[#071D49]/20">
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2D8CFF]">
