@@ -12,23 +12,23 @@ export default function Header() {
   return (
     <>
       <header className="sticky top-0 z-50 w-full bg-[#071D49] shadow-sm">
-        <div className="mx-auto flex h-[112px] max-w-[1600px] items-center justify-between gap-8 px-5 sm:px-8 lg:px-10">
+        <div className="mx-auto flex h-[86px] max-w-[1700px] items-center justify-between gap-4 px-4 sm:h-[96px] sm:px-6 lg:h-[120px] lg:gap-8 lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[300px] shrink-0 items-center sm:w-[360px] lg:w-[430px]"
+            className="flex h-full w-[230px] shrink-0 items-center sm:w-[300px] md:w-[360px] lg:w-[480px]"
             aria-label="Streamline Logistics Group home"
           >
             <Image
               src="/images/logos/header-logo.png"
               alt="Streamline Logistics Group"
-              width={430}
-              height={110}
+              width={480}
+              height={120}
               priority
               className="h-auto w-full object-contain"
             />
           </Link>
 
-          <nav className="hidden flex-1 items-center justify-center gap-10 lg:flex">
+          <nav className="hidden flex-1 items-center justify-center gap-12 lg:flex">
             <Link href="/" className="font-medium text-[#006CFF]">
               Home
             </Link>
@@ -55,7 +55,7 @@ export default function Header() {
             </Link>
           </nav>
 
-          <div className="hidden w-[360px] shrink-0 items-center justify-end gap-6 lg:flex">
+          <div className="hidden w-[380px] shrink-0 items-center justify-end gap-6 lg:flex">
             <a
               href="tel:03333440703"
               className="flex items-center gap-2 whitespace-nowrap font-medium text-white"
@@ -77,10 +77,10 @@ export default function Header() {
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="shrink-0 text-white lg:hidden"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white transition hover:bg-white/10 lg:hidden"
             aria-label="Open menu"
           >
-            <Menu size={34} />
+            <Menu size={30} />
           </button>
         </div>
       </header>

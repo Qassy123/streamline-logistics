@@ -1,69 +1,119 @@
 @import "tailwindcss";
 
 :root {
-  --streamline-navy-dark: #071d49;
-  --streamline-navy: #0b2a63;
-  --streamline-blue: #006cff;
-  --streamline-blue-light: #2d8cff;
-  --streamline-blue-soft: #7fb6ff;
+--streamline-navy-dark: #071d49;
+--streamline-navy: #0b2a63;
+--streamline-blue: #006cff;
+--streamline-blue-light: #2d8cff;
+--streamline-blue-soft: #7fb6ff;
 
-  --streamline-background: #f4f8ff;
-  --streamline-surface: #ffffff;
+--streamline-background: #f4f8ff;
+--streamline-surface: #ffffff;
 
-  --streamline-text: #071d49;
-  --streamline-text-light: #4b5d7a;
+--streamline-text: #071d49;
+--streamline-text-light: #4b5d7a;
 
-  --streamline-border: #d7e6ff;
+--streamline-border: #d7e6ff;
 
-  --streamline-success: #16a34a;
-  --streamline-warning: #006cff;
+--streamline-success: #16a34a;
+--streamline-warning: #006cff;
 
-  --streamline-accent: #006cff;
-  --streamline-accent-light: #eaf2ff;
+--streamline-accent: #006cff;
+--streamline-accent-light: #eaf2ff;
 }
 
-* {
-  box-sizing: border-box;
+*,
+*::before,
+*::after {
+box-sizing: border-box;
 }
 
 html {
-  scroll-behavior: smooth;
+scroll-behavior: smooth;
+width: 100%;
+overflow-x: hidden;
 }
 
 body {
-  margin: 0;
-  background: var(--streamline-background);
-  color: var(--streamline-text);
-  font-family: Arial, Helvetica, sans-serif;
+margin: 0;
+width: 100%;
+max-width: 100%;
+overflow-x: hidden;
+background: var(--streamline-background);
+color: var(--streamline-text);
+font-family: Arial, Helvetica, sans-serif;
+}
+
+#__next,
+main {
+width: 100%;
+max-width: 100%;
+overflow-x: hidden;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+display: block;
+max-width: 100%;
+}
+
+input,
+textarea,
+select {
+max-width: 100%;
 }
 
 button,
 a {
-  cursor: pointer;
+cursor: pointer;
 }
 
 a {
-  text-decoration: none;
+text-decoration: none;
 }
 
 ::selection {
-  background: var(--streamline-blue);
-  color: #ffffff;
+background: var(--streamline-blue);
+color: #ffffff;
+}
+
+@media (max-width: 1024px) {
+html,
+body {
+overflow-x: hidden;
+}
 }
 
 @media (max-width: 768px) {
-  h1 {
-    font-size: 3rem;
-    line-height: 1.05;
-  }
+h1 {
+font-size: 3rem;
+line-height: 1.05;
+}
 
-  h2 {
-    font-size: 2.5rem;
-    line-height: 1.15;
-  }
+h2 {
+font-size: 2.25rem;
+line-height: 1.15;
+}
 
-  p {
-    font-size: 1.125rem;
-    line-height: 1.75;
-  }
+p {
+font-size: 1rem;
+line-height: 1.7;
+}
+}
+
+@media (max-width: 480px) {
+h1 {
+font-size: 2.4rem;
+}
+
+h2 {
+font-size: 1.9rem;
+}
+
+p {
+font-size: 0.95rem;
+}
 }
