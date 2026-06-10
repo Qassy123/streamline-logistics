@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Headphones, HelpCircle, MapPinned, Truck } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 
 type QuoteResponse = {
   id: string;
@@ -22,7 +22,6 @@ type ExtraStop = {
   townCity: string;
   county: string;
   postcode: string;
-  capacityPercent: number | null;
 };
 
 type AddressFields = {
@@ -53,6 +52,7 @@ const twoHourWindows = [
 const vehicleDetails: Record<
   string,
   {
+    label: string;
     length: string;
     width: string;
     height: string;
@@ -62,6 +62,7 @@ const vehicleDetails: Record<
   }
 > = {
   "Small Van": {
+    label: "Small Van",
     length: "1.5m",
     width: "1.2m",
     height: "1.1m",
@@ -70,6 +71,7 @@ const vehicleDetails: Record<
     image: "/Vehicles/smallvan.jpg",
   },
   "SWB Van": {
+    label: "SWB Van",
     length: "2.4m",
     width: "1.6m",
     height: "1.4m",
@@ -78,6 +80,7 @@ const vehicleDetails: Record<
     image: "/Vehicles/swb.jpeg",
   },
   "LWB High Roof Van": {
+    label: "LWB High Roof Van",
     length: "3.4m",
     width: "1.7m",
     height: "1.7m",
@@ -86,6 +89,7 @@ const vehicleDetails: Record<
     image: "/Vehicles/lwb.jpg",
   },
   "XLWB High Roof": {
+    label: "XLWB High Roof Van",
     length: "4.2m",
     width: "1.7m",
     height: "1.9m",
@@ -94,6 +98,7 @@ const vehicleDetails: Record<
     image: "/Vehicles/XLWB High Roof.jpg",
   },
   "Luton Tail Lift Curtainsider": {
+    label: "Luton Tail Lift Curtainsider Van",
     length: "4.0m",
     width: "2.0m",
     height: "2.0m",
@@ -116,23 +121,11 @@ const vehicleOptions = Object.keys(vehicleDetails).sort((firstVehicle, secondVeh
   const secondAvailable = vehicleAvailability[secondVehicle]?.available ?? true;
 
   if (firstAvailable === secondAvailable) {
-    return firstVehicle.localeCompare(secondVehicle);
+    return vehicleDetails[firstVehicle].label.localeCompare(vehicleDetails[secondVehicle].label);
   }
 
   return firstAvailable ? -1 : 1;
 });
-
-function getVehicleDisplayName(vehicle: string) {
-  if (vehicle === "Luton Tail Lift Curtainsider") {
-    return "Luton Tail Lift Curtainsider Van";
-  }
-
-  if (vehicle === "XLWB High Roof") {
-    return "XLWB High Roof Van";
-  }
-
-  return vehicle;
-}
 
 const emptyAddress: AddressFields = {
   addressLine1: "",
@@ -217,11 +210,11 @@ export default function QuotePage() {
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
 
-  const [selectedDeliveryType] = useState("Same Day Delivery (One Way, Return, Multi Drop)");
-  const [selectedJourneyType] = useState("One Way");
+  const [selectedDeliveryType, setSelectedDeliveryType] = useState("");
+  const [selectedJourneyType, setSelectedJourneyType] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
-  const [extraStops] = useState<ExtraStop[]>([]);
+  const [extraStops, setExtraStops] = useState<ExtraStop[]>([]);
 
   const [collectionDate, setCollectionDate] = useState("");
   const [collectionWindow, setCollectionWindow] = useState("");
@@ -239,6 +232,7 @@ export default function QuotePage() {
 
   const showExtraStops = selectedJourneyType === "Multi Drop";
   const showAddressFields = Boolean(collectionDate && collectionWindow);
+  const returnAddress = formatAddress(collectionAddress);
 
   const availableCollectionWindows = useMemo(() => {
     if (collectionDate !== getTodayDateString()) {
@@ -268,6 +262,54 @@ export default function QuotePage() {
     }));
   }
 
+  function addStop() {
+    setExtraStops((currentStops) => [
+      ...currentStops,
+      {
+        order: currentStops.length + 2,
+        addressLine1: "",
+        addressLine2: "",
+        townCity: "",
+        county: "",
+        postcode: "",
+      },
+    ]);
+  }
+
+  function removeStop(index: number) {
+    setExtraStops((currentStops) =>
+      currentStops
+        .filter((_, stopIndex) => stopIndex !== index)
+        .map((stop, stopIndex) => ({
+          ...stop,
+          order: stopIndex + 2,
+        }))
+    );
+  }
+
+  function updateStopAddress(
+    index: number,
+    field: keyof Omit<ExtraStop, "order">,
+    value: string
+  ) {
+    setExtraStops((currentStops) =>
+      currentStops.map((stop, stopIndex) =>
+        stopIndex === index ? { ...stop, [field]: value } : stop
+      )
+    );
+  }
+
+  function handleDeliveryTypeChange(value: string) {
+    setSelectedDeliveryType(value);
+    setError("");
+    setCollectionWindow("");
+
+    if (value === "Full Day Booking" || value === "Half Day Booking") {
+      setSelectedJourneyType("");
+      setExtraStops([]);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -277,6 +319,12 @@ export default function QuotePage() {
     const form = event.currentTarget;
     const formData = new FormData(form);
 
+    if (!hideJourneyType && !selectedJourneyType) {
+      setError("Please select One Way, Return, or Multi Drop.");
+      setLoading(false);
+      return;
+    }
+
     if (!collectionDate || !collectionWindow) {
       setError("Please select collection date and collection window.");
       setLoading(false);
@@ -285,6 +333,22 @@ export default function QuotePage() {
 
     if (!showAddressFields) {
       setError("Please select collection date and time before entering route details.");
+      setLoading(false);
+      return;
+    }
+
+    if (!selectedVehicle) {
+      setError("Please select a vehicle size.");
+      setLoading(false);
+      return;
+    }
+
+    if (
+      selectedVehicle &&
+      vehicleAvailability[selectedVehicle] &&
+      !vehicleAvailability[selectedVehicle].available
+    ) {
+      setError("The selected vehicle is currently unavailable. Please choose another vehicle.");
       setLoading(false);
       return;
     }
@@ -313,22 +377,6 @@ export default function QuotePage() {
       return;
     }
 
-    if (
-      selectedVehicle &&
-      vehicleAvailability[selectedVehicle] &&
-      !vehicleAvailability[selectedVehicle].available
-    ) {
-      setError("The selected vehicle is currently unavailable. Please choose another vehicle.");
-      setLoading(false);
-      return;
-    }
-
-    if (!accuracyConfirmed) {
-      setError("Please confirm that the quote details are accurate.");
-      setLoading(false);
-      return;
-    }
-
     const cleanedStops = extraStops
       .filter((stop) => formatAddress(stop).trim() !== "")
       .map((stop) => ({
@@ -339,7 +387,6 @@ export default function QuotePage() {
         townCity: stop.townCity,
         county: stop.county,
         postcode: stop.postcode,
-        capacityPercent: stop.capacityPercent,
       }))
       .sort((a, b) => a.order - b.order);
 
@@ -349,13 +396,8 @@ export default function QuotePage() {
       return;
     }
 
-    if (
-      showExtraStops &&
-      extraStops.some(
-        (stop) => !isAddressComplete(stop) || stop.capacityPercent === null
-      )
-    ) {
-      setError("Please complete the address and capacity for every extra stop.");
+    if (showExtraStops && extraStops.some((stop) => !isAddressComplete(stop))) {
+      setError("Please complete the address for every extra stop.");
       setLoading(false);
       return;
     }
@@ -369,8 +411,36 @@ export default function QuotePage() {
       return;
     }
 
+    if (!accuracyConfirmed) {
+      setError("Please confirm that the quote details are accurate.");
+      setLoading(false);
+      return;
+    }
+
+    const loadDescription = String(formData.get("loadDescription") || "").trim();
+    const handoverName = String(formData.get("handoverContactName") || "").trim();
+    const handoverPhone = String(formData.get("handoverContactPhone") || "").trim();
+    const handoverNotes = String(formData.get("handoverNotes") || "").trim();
+
+    const fullLoadDescription = [
+      loadDescription,
+      handoverName || handoverPhone || handoverNotes
+        ? [
+            "",
+            "Delivery handover contact at collection:",
+            handoverName ? `Name: ${handoverName}` : "",
+            handoverPhone ? `Phone: ${handoverPhone}` : "",
+            handoverNotes ? `Notes: ${handoverNotes}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const payload = {
-      deliveryType: selectedDeliveryType,
+      deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
       capacityPercent: null,
 
@@ -389,7 +459,7 @@ export default function QuotePage() {
 
       extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
 
-      loadDescription: formData.get("loadDescription"),
+      loadDescription: fullLoadDescription,
       fragileGoods,
       contactPreference: formData.get("contactPreference"),
       accuracyConfirmed,
@@ -399,11 +469,6 @@ export default function QuotePage() {
       customerPhone: formData.get("customerPhone"),
       legalEntity: formData.get("legalEntity"),
       tradingName: formData.get("tradingName"),
-
-      handoverContactName: formData.get("handoverContactName"),
-      handoverContactPhone: formData.get("handoverContactPhone"),
-      handoverContactEmail: formData.get("handoverContactEmail"),
-      handoverNotes: formData.get("handoverNotes"),
     };
 
     try {
@@ -435,779 +500,790 @@ export default function QuotePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F4F8FF]">
-      <section className="relative overflow-hidden border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(0,108,255,0.28),_transparent_34%),linear-gradient(135deg,_#020B1F_0%,_#071D49_52%,_#006CFF_100%)] px-6 py-20 text-white md:py-24">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,_rgba(255,255,255,0.055)_1px,_transparent_1px),linear-gradient(to_bottom,_rgba(255,255,255,0.055)_1px,_transparent_1px)] bg-[size:42px_42px] opacity-20" />
+    <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 lg:py-12">
+      <div className="mx-auto max-w-5xl">
+        {quote && (
+          <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
+            <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
+              <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                    Quote generated
+                  </p>
 
-        <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <div>
-            <div className="inline-flex items-center rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
-              Premium UK Logistics
+                  <h2 className="mt-3 text-5xl font-bold">
+                    £{quote.totalPrice}
+                  </h2>
+
+                  <p className="mt-3 text-sm text-white/70">
+                    Reference: {quote.id}
+                  </p>
+                </div>
+
+                <div className="rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-5 py-2 text-sm font-semibold text-white">
+                  {quote.status}
+                </div>
+              </div>
             </div>
 
-            <h1 className="mt-6 max-w-4xl text-5xl font-bold tracking-tight md:text-7xl">
-              Instant courier quotes built for serious business deliveries.
-            </h1>
+            <div className="grid gap-4 p-6 text-sm md:grid-cols-3">
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <p className="text-slate-500">Estimated Distance</p>
+                <p className="mt-2 text-xl font-bold text-[#071D49]">
+                  {quote.distanceMiles} miles
+                </p>
+              </div>
 
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-white/80">
-              Select your service, vehicle, capacity and delivery route. Get a structured quote
-              instantly with clear pricing and a reference number.
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <p className="text-slate-500">Base Price</p>
+                <p className="mt-2 text-xl font-bold text-[#071D49]">
+                  £{quote.basePrice}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <p className="text-slate-500">Fuel Surcharge</p>
+                <p className="mt-2 text-xl font-bold text-[#071D49]">
+                  £{quote.fuelSurcharge}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <p className="text-slate-500">Subtotal Before VAT</p>
+                <p className="mt-2 text-xl font-bold text-[#071D49]">
+                  £{quote.adminPrice}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <p className="text-slate-500">VAT</p>
+                <p className="mt-2 text-xl font-bold text-[#071D49]">
+                  £{quote.vatAmount}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[#071D49] bg-[#071D49] p-5 text-white">
+                <p className="text-white/70">Total</p>
+                <p className="mt-2 text-3xl font-bold">£{quote.totalPrice}</p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {error && (
+          <div className="mb-8 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700 shadow-sm">
+            {error}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit}
+          className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10"
+        >
+          <div className="border-b border-[#D7E6FF] bg-[#071D49] p-6 text-white sm:p-8">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
+              Quote details
             </p>
+            <h1 className="mt-3 text-3xl font-bold sm:text-4xl">
+              Build your delivery quote
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
+              Complete the sections below. Required details are checked before quote generation.
+            </p>
+          </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {["Same day", "Multi-drop", "Full load"].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 backdrop-blur"
-                >
-                  <p className="text-sm font-semibold text-white">{item}</p>
-                  <p className="mt-1 text-xs text-white/60">Business-ready service</p>
+          <div className="grid gap-8 p-5 sm:p-8">
+            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Step 1
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#071D49]">
+                    Service requirements
+                  </h2>
+                  <InfoTooltip text="Choose the delivery type and journey type. One Way is a single collection and delivery, Return brings the vehicle back, and Multi Drop allows multiple delivery stops." />
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/10 bg-white/[0.07] p-6 shadow-2xl shadow-black/40 backdrop-blur">
-            <div className="rounded-[1.5rem] bg-white p-6 text-[#071D49]">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#006CFF]">
-                Quote system live
-              </p>
-              <h2 className="mt-3 text-3xl font-bold">Get priced in minutes</h2>
-              <div className="mt-6 grid gap-4">
-                {[
-                  ["2", "Choose collection date and time"],
-                  ["3", "Select vehicle size"],
-                  ["4", "Enter route information"],
-                  ["5", "Enter load and contact details"],
-                ].map(([number, label]) => (
-                  <div key={number} className="flex items-center gap-4 rounded-2xl bg-[#F4F8FF] p-4">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-sm font-bold text-white">
-                      {number}
-                    </span>
-                    <span className="text-sm font-semibold text-[#071D49]">{label}</span>
-                  </div>
-                ))}
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <section className="px-6 py-14">
-        <div className="mx-auto max-w-7xl">
-          {quote && (
-            <section className="mb-10 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
-              <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
-                <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+              <div className="grid gap-6">
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Delivery Type
+                  </label>
+                  <select
+                    name="deliveryType"
+                    required
+                    value={selectedDeliveryType}
+                    onChange={(event) => handleDeliveryTypeChange(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  >
+                    <option value="">Select delivery type</option>
+                    <option value="Same Day Delivery (One Way, Return, Multi Drop)">
+                      Same Day Delivery (One Way, Return, Multi Drop)
+                    </option>
+                    <option value="Next Day Delivery (One Way, Return, Multi Drop)">
+                      Next Day Delivery (One Way, Return, Multi Drop)
+                    </option>
+                    <option value="Full Day Booking">Full Day Booking</option>
+                    <option value="Half Day Booking">Half Day Booking</option>
+                    <option value="Full Load (One Way, Return, Multi Drop)">
+                      Full Load (One Way, Return, Multi Drop)
+                    </option>
+                  </select>
+                </div>
+
+                {!hideJourneyType && (
                   <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
-                      Quote generated
-                    </p>
+                    <label className="block text-sm font-semibold text-[#071D49]">
+                      Journey Type
+                    </label>
 
-                    <h2 className="mt-3 text-5xl font-bold">
-                      £{quote.totalPrice}
-                    </h2>
-
-                    <p className="mt-3 text-sm text-white/70">
-                      Reference: {quote.id}
-                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      {["One Way", "Return", "Multi Drop"].map((option) => (
+                        <label
+                          key={option}
+                          className={`cursor-pointer rounded-2xl border p-5 text-center text-sm font-bold transition ${
+                            selectedJourneyType === option
+                              ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                              : "border-[#D7E6FF] bg-white text-[#071D49] hover:border-[#2D8CFF]"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="journeyType"
+                            value={option}
+                            checked={selectedJourneyType === option}
+                            onChange={() => setSelectedJourneyType(option)}
+                            className="sr-only"
+                          />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
                   </div>
+                )}
+              </div>
+            </section>
 
-                  <div className="rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-5 py-2 text-sm font-semibold text-white">
-                    {quote.status}
-                  </div>
+            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Step 2
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#071D49]">
+                    Collection date + Time
+                  </h2>
+                  <InfoTooltip text="Select the collection date and collection window. Same-day bookings only show windows at least 2 hours ahead. Future dates show all valid windows." />
                 </div>
               </div>
 
-              <div className="grid gap-4 p-6 text-sm md:grid-cols-3">
-                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                  <p className="text-slate-500">Estimated Distance</p>
-                  <p className="mt-2 text-xl font-bold text-[#071D49]">
-                    {quote.distanceMiles} miles
-                  </p>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Collection Date
+                  </label>
+                  <input
+                    type="date"
+                    name="collectionDate"
+                    required
+                    min={getTodayDateString()}
+                    value={collectionDate}
+                    onChange={(event) => {
+                      setCollectionDate(event.target.value);
+                      setCollectionWindow("");
+                    }}
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
                 </div>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                  <p className="text-slate-500">Base Price</p>
-                  <p className="mt-2 text-xl font-bold text-[#071D49]">
-                    £{quote.basePrice}
-                  </p>
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Collection Window
+                  </label>
+                  <select
+                    name="collectionWindow"
+                    required
+                    value={collectionWindow}
+                    onChange={(event) => setCollectionWindow(event.target.value)}
+                    disabled={!collectionDate}
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">Select collection window</option>
+                    {availableCollectionWindows.map((window) => (
+                      <option key={window} value={window}>
+                        {window}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {!showAddressFields && (
+                <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
+                  Select the collection date and collection window before entering collection and delivery addresses.
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-[#D7E6FF] bg-white p-5 sm:p-6">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Step 3
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#071D49]">
+                    Vehicle size
+                  </h2>
+                  <InfoTooltip text="Choose the vehicle size needed for the load. Available vehicles are shown first and unavailable vehicles are disabled for future booking control." />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[#071D49]">
+                  Vehicle Size
+                </label>
+                <select
+                  name="vehicleSize"
+                  required
+                  value={selectedVehicle}
+                  onChange={(event) => {
+                    setSelectedVehicle(event.target.value);
+                    setShowVehicleModal(Boolean(event.target.value));
+                  }}
+                  className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                >
+                  <option value="">Select vehicle</option>
+                  {vehicleOptions.map((vehicle) => {
+                    const availability = vehicleAvailability[vehicle];
+                    const isAvailable = availability?.available ?? true;
+
+                    return (
+                      <option
+                        key={vehicle}
+                        value={vehicle}
+                        disabled={!isAvailable}
+                      >
+                        {vehicleDetails[vehicle].label} {isAvailable ? "(Available)" : "(Unavailable)"}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Step 4
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#071D49]">
+                    Route information
+                  </h2>
+                  <InfoTooltip text="Enter collection and delivery addresses. For Multi Drop, add extra delivery stops after the first delivery address." />
+                </div>
+              </div>
+
+              {!showAddressFields && (
+                <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
+                  Select the collection date and collection window before entering route information.
+                </div>
+              )}
+
+              {showAddressFields && (
+                <div className="grid gap-6">
+                  <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-[#071D49]">
+                        Collection Address
+                      </h3>
+                      <InfoTooltip text="Enter the full collection address. Postcode lookup fields are structured here so the address finder can be connected next." />
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <input
+                        required
+                        placeholder="Address line 1"
+                        value={collectionAddress.addressLine1}
+                        onChange={(event) =>
+                          updateCollectionAddress("addressLine1", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        placeholder="Address line 2"
+                        value={collectionAddress.addressLine2}
+                        onChange={(event) =>
+                          updateCollectionAddress("addressLine2", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        required
+                        placeholder="Town / City"
+                        value={collectionAddress.townCity}
+                        onChange={(event) =>
+                          updateCollectionAddress("townCity", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        required
+                        placeholder="County"
+                        value={collectionAddress.county}
+                        onChange={(event) =>
+                          updateCollectionAddress("county", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                        <input
+                          required
+                          placeholder="Postcode"
+                          value={collectionAddress.postcode}
+                          onChange={(event) =>
+                            updateCollectionAddress("postcode", event.target.value)
+                          }
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                        />
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                        >
+                          Find Address
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-[#071D49]">
+                        {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
+                      </h3>
+                      <InfoTooltip text="Enter the full delivery address. For Multi Drop, this is treated as Stop 1 and extra stops can be added below." />
+                    </div>
+
+                    <div className="mt-4 grid gap-4 md:grid-cols-2">
+                      <input
+                        required
+                        placeholder="Address line 1"
+                        value={deliveryAddress.addressLine1}
+                        onChange={(event) =>
+                          updateDeliveryAddress("addressLine1", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        placeholder="Address line 2"
+                        value={deliveryAddress.addressLine2}
+                        onChange={(event) =>
+                          updateDeliveryAddress("addressLine2", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        required
+                        placeholder="Town / City"
+                        value={deliveryAddress.townCity}
+                        onChange={(event) =>
+                          updateDeliveryAddress("townCity", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <input
+                        required
+                        placeholder="County"
+                        value={deliveryAddress.county}
+                        onChange={(event) =>
+                          updateDeliveryAddress("county", event.target.value)
+                        }
+                        className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                      />
+
+                      <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                        <input
+                          required
+                          placeholder="Postcode"
+                          value={deliveryAddress.postcode}
+                          onChange={(event) =>
+                            updateDeliveryAddress("postcode", event.target.value)
+                          }
+                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                        />
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                        >
+                          Find Address
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedJourneyType === "Return" && (
+                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                      <label className="block text-sm font-semibold text-[#071D49]">
+                        Return Address
+                      </label>
+
+                      <textarea
+                        readOnly
+                        rows={3}
+                        value={returnAddress}
+                        className="mt-2 w-full resize-none rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] px-4 py-4 text-[#071D49] outline-none"
+                      />
+
+                      <p className="mt-3 text-sm font-semibold text-[#071D49]">
+                        Return address is automatically set to the collection address.
+                        If the return address is different, select Multi Drop instead.
+                      </p>
+                    </div>
+                  )}
+
+                  {showExtraStops && (
+                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-[#071D49]">
+                            Extra Stops
+                          </p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Delivery Address is Stop 1. Added stops begin from Stop 2.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={addStop}
+                          className="rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+                        >
+                          Add Stop
+                        </button>
+                      </div>
+
+                      <div className="mt-5 grid gap-4">
+                        {extraStops.map((stop, index) => (
+                          <div
+                            key={index}
+                            className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4"
+                          >
+                            <div className="mb-3 flex items-center justify-between">
+                              <p className="text-sm font-bold text-[#071D49]">
+                                Stop {stop.order}
+                              </p>
+
+                              <button
+                                type="button"
+                                onClick={() => removeStop(index)}
+                                className="text-sm font-bold text-red-600"
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <input
+                                required
+                                value={stop.addressLine1}
+                                onChange={(event) =>
+                                  updateStopAddress(index, "addressLine1", event.target.value)
+                                }
+                                placeholder="Address line 1"
+                                className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                              />
+
+                              <input
+                                value={stop.addressLine2}
+                                onChange={(event) =>
+                                  updateStopAddress(index, "addressLine2", event.target.value)
+                                }
+                                placeholder="Address line 2"
+                                className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                              />
+
+                              <input
+                                required
+                                value={stop.townCity}
+                                onChange={(event) =>
+                                  updateStopAddress(index, "townCity", event.target.value)
+                                }
+                                placeholder="Town / City"
+                                className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                              />
+
+                              <input
+                                required
+                                value={stop.county}
+                                onChange={(event) =>
+                                  updateStopAddress(index, "county", event.target.value)
+                                }
+                                placeholder="County"
+                                className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                              />
+
+                              <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
+                                <input
+                                  required
+                                  value={stop.postcode}
+                                  onChange={(event) =>
+                                    updateStopAddress(index, "postcode", event.target.value)
+                                  }
+                                  placeholder="Postcode"
+                                  className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                                />
+                                <button
+                                  type="button"
+                                  className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                                >
+                                  Find Address
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-[#D7E6FF] bg-white p-5 sm:p-6">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+                  Step 5
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[#071D49]">
+                    Load + Contact details
+                  </h2>
+                  <InfoTooltip text="Provide load information and the best contact details for booking updates. Add handover contact details for the delivery handover at collection." />
+                </div>
+              </div>
+
+              <div className="mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm leading-6 text-[#071D49]">
+                Please provide the contact information for the delivery handover at collection so the driver knows who to hand the goods over to.
+              </div>
+
+              <div className="mb-6 rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                <h3 className="text-base font-bold text-[#071D49]">
+                  Delivery handover contact at collection
+                </h3>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <input
+                    name="handoverContactName"
+                    placeholder="Handover contact name"
+                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
+
+                  <input
+                    name="handoverContactPhone"
+                    placeholder="Handover contact phone"
+                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
+
+                  <textarea
+                    name="handoverNotes"
+                    rows={3}
+                    placeholder="Additional handover notes"
+                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Load Description
+                  </label>
+                  <textarea
+                    name="loadDescription"
+                    required
+                    rows={3}
+                    placeholder="Example: palletised goods, machinery, boxed items"
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
                 </div>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                  <p className="text-slate-500">Fuel Surcharge</p>
-                  <p className="mt-2 text-xl font-bold text-[#071D49]">
-                    £{quote.fuelSurcharge}
-                  </p>
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Contact Preference
+                  </label>
+                  <select
+                    name="contactPreference"
+                    required
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  >
+                    <option value="">Select contact preference</option>
+                    <option value="Phone">Phone</option>
+                    <option value="Email">Email</option>
+                    <option value="WhatsApp">WhatsApp</option>
+                  </select>
                 </div>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                  <p className="text-slate-500">Subtotal Before VAT</p>
-                  <p className="mt-2 text-xl font-bold text-[#071D49]">
-                    £{quote.adminPrice}
-                  </p>
+                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
+                  <input
+                    type="checkbox"
+                    checked={fragileGoods}
+                    onChange={(event) => setFragileGoods(event.target.checked)}
+                  />
+                  Fragile goods
+                </label>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Your Name
+                  </label>
+                  <input
+                    name="customerName"
+                    required
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
                 </div>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                  <p className="text-slate-500">VAT</p>
-                  <p className="mt-2 text-xl font-bold text-[#071D49]">
-                    £{quote.vatAmount}
-                  </p>
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Phone
+                  </label>
+                  <input
+                    name="customerPhone"
+                    required
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
                 </div>
 
-                <div className="rounded-2xl border border-[#071D49] bg-[#071D49] p-5 text-white">
-                  <p className="text-white/70">Total</p>
-                  <p className="mt-2 text-3xl font-bold">£{quote.totalPrice}</p>
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Trading Name If Different
+                  </label>
+                  <input
+                    name="tradingName"
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
+                  <input
+                    type="checkbox"
+                    checked={fragileGoods}
+                    onChange={(event) => setFragileGoods(event.target.checked)}
+                  />
+                  Fragile goods
+                </label>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    name="customerEmail"
+                    required
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Legal Entity
+                  </label>
+                  <input
+                    name="legalEntity"
+                    required
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
                 </div>
               </div>
             </section>
-          )}
 
-          {error && (
-            <div className="mb-8 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700 shadow-sm">
-              {error}
-            </div>
-          )}
+            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
+              <label className="flex cursor-pointer items-start gap-4 text-sm font-bold text-[#071D49]">
+                <input
+                  type="checkbox"
+                  checked={accuracyConfirmed}
+                  onChange={(event) => setAccuracyConfirmed(event.target.checked)}
+                  className="mt-1"
+                />
+                I confirm that the collection, delivery, load and contact details provided
+                are accurate.
+              </label>
+            </section>
 
-          <div className="grid gap-8 lg:grid-cols-[0.72fr_1.56fr_0.72fr] lg:items-start">
-            <aside className="hidden space-y-4 lg:block lg:sticky lg:top-32">
-              {[
-                {
-                  title: "Dedicated vehicle",
-                  text: "Your delivery is handled by a suitable vehicle for the job.",
-                  icon: Truck,
-                },
-                {
-                  title: "Business courier support",
-                  text: "Clear details help us manage urgent and scheduled deliveries properly.",
-                  icon: Headphones,
-                },
-                {
-                  title: "UK-wide coverage",
-                  text: "Built for business deliveries across the United Kingdom.",
-                  icon: MapPinned,
-                },
-              ].map((item) => {
-                const Icon = item.icon;
-
-                return (
-                  <div
-                    key={item.title}
-                    className="rounded-3xl border border-[#D7E6FF] bg-white p-5 shadow-lg shadow-black/5"
-                  >
-                    <div className="flex items-start gap-4">
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
-                        <Icon size={22} />
-                      </span>
-
-                      <div>
-                        <h3 className="text-sm font-bold text-[#071D49]">
-                          {item.title}
-                        </h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                          {item.text}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </aside>
-
-            <form
-              onSubmit={handleSubmit}
-              className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10"
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-2xl bg-gradient-to-r from-[#071D49] via-[#0B2A63] to-[#006CFF] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:from-[#020B1F] hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <div className="border-b border-[#D7E6FF] bg-[#071D49] p-8 text-white">
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
-                  Quote details
-                </p>
-                <h2 className="mt-3 text-3xl font-bold">Build your delivery quote</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
-                  Complete the sections below. Required details are checked before quote generation.
-                </p>
-              </div>
-
-              <div className="grid gap-8 p-6 md:p-8">
-                <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
-                  <div className="mb-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-                      Step 2
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-[#071D49]">
-                        Collection date + Time
-                      </h3>
-                      <InfoTooltip text="Select the collection date and collection window first. Same-day bookings only show windows at least 2 hours ahead. Future dates show all valid windows." />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Collection Date
-                      </label>
-                      <input
-                        type="date"
-                        name="collectionDate"
-                        required
-                        min={getTodayDateString()}
-                        value={collectionDate}
-                        onChange={(event) => {
-                          setCollectionDate(event.target.value);
-                          setCollectionWindow("");
-                        }}
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Collection Window
-                      </label>
-                      <select
-                        name="collectionWindow"
-                        required
-                        value={collectionWindow}
-                        onChange={(event) => setCollectionWindow(event.target.value)}
-                        disabled={!collectionDate}
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                      >
-                        <option value="">Select collection window</option>
-                        {availableCollectionWindows.map((window) => (
-                          <option key={window} value={window}>
-                            {window}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {!showAddressFields && (
-                    <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
-                      Select the collection date and collection window before entering collection and delivery addresses.
-                    </div>
-                  )}
-                </section>
-
-                <section className="rounded-3xl border border-[#D7E6FF] bg-white p-6">
-                  <div className="mb-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-                      Step 3
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-[#071D49]">
-                        Vehicle size
-                      </h3>
-                      <InfoTooltip text="Choose the vehicle size needed for the load. Available vehicles are shown first and unavailable vehicles are disabled for future booking control." />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-[#071D49]">
-                      Vehicle Size
-                    </label>
-                    <select
-                      name="vehicleSize"
-                      required
-                      value={selectedVehicle}
-                      onChange={(event) => {
-                        setSelectedVehicle(event.target.value);
-                        setShowVehicleModal(Boolean(event.target.value));
-                      }}
-                      className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                    >
-                      <option value="">Select vehicle</option>
-                      {vehicleOptions.map((vehicle) => {
-                        const availability = vehicleAvailability[vehicle];
-                        const isAvailable = availability?.available ?? true;
-
-                        return (
-                          <option
-                            key={vehicle}
-                            value={vehicle}
-                            disabled={!isAvailable}
-                          >
-                            {getVehicleDisplayName(vehicle)} {isAvailable ? "(Available)" : "(Unavailable)"}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
-                  <div className="mb-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-                      Step 4
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-[#071D49]">
-                        Route information
-                      </h3>
-                      <InfoTooltip text="Enter the full collection and delivery address." />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-6">
-                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-bold text-[#071D49]">
-                          Collection Address
-                        </h4>
-                        <InfoTooltip text="Enter the full collection address. Postcode lookup fields are structured here so the address finder can be connected next." />
-                      </div>
-
-                      <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <input
-                          required
-                          placeholder="Address line 1"
-                          value={collectionAddress.addressLine1}
-                          onChange={(event) =>
-                            updateCollectionAddress("addressLine1", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          placeholder="Address line 2"
-                          value={collectionAddress.addressLine2}
-                          onChange={(event) =>
-                            updateCollectionAddress("addressLine2", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          required
-                          placeholder="Town / City"
-                          value={collectionAddress.townCity}
-                          onChange={(event) =>
-                            updateCollectionAddress("townCity", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          required
-                          placeholder="County"
-                          value={collectionAddress.county}
-                          onChange={(event) =>
-                            updateCollectionAddress("county", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
-                          <input
-                            required
-                            placeholder="Postcode"
-                            value={collectionAddress.postcode}
-                            onChange={(event) =>
-                              updateCollectionAddress("postcode", event.target.value)
-                            }
-                            disabled={!showAddressFields}
-                            className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                          />
-                          <button
-                            type="button"
-                            disabled={!showAddressFields}
-                            className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 disabled:hover:bg-white"
-                          >
-                            Find Address
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-bold text-[#071D49]">
-                          Delivery Address
-                        </h4>
-                        <InfoTooltip text="Enter the full delivery address." />
-                      </div>
-
-                      <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <input
-                          required
-                          placeholder="Address line 1"
-                          value={deliveryAddress.addressLine1}
-                          onChange={(event) =>
-                            updateDeliveryAddress("addressLine1", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          placeholder="Address line 2"
-                          value={deliveryAddress.addressLine2}
-                          onChange={(event) =>
-                            updateDeliveryAddress("addressLine2", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          required
-                          placeholder="Town / City"
-                          value={deliveryAddress.townCity}
-                          onChange={(event) =>
-                            updateDeliveryAddress("townCity", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <input
-                          required
-                          placeholder="County"
-                          value={deliveryAddress.county}
-                          onChange={(event) =>
-                            updateDeliveryAddress("county", event.target.value)
-                          }
-                          disabled={!showAddressFields}
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-
-                        <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
-                          <input
-                            required
-                            placeholder="Postcode"
-                            value={deliveryAddress.postcode}
-                            onChange={(event) =>
-                              updateDeliveryAddress("postcode", event.target.value)
-                            }
-                            disabled={!showAddressFields}
-                            className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                          />
-                          <button
-                            type="button"
-                            disabled={!showAddressFields}
-                            className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 disabled:hover:bg-white"
-                          >
-                            Find Address
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-[#D7E6FF] bg-white p-6">
-                  <div className="mb-6">
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-                      Step 5
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-[#071D49]">
-                        Load + Contact details
-                      </h3>
-                      <InfoTooltip text="Provide load information, booking contact details and delivery handover contact details." />
-                    </div>
-                  </div>
-
-                  <div className="mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm leading-6 text-[#071D49]">
-                    Please provide the contact information for the delivery hand over at collection.
-                  </div>
-
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Load Description
-                      </label>
-                      <textarea
-                        name="loadDescription"
-                        required
-                        rows={3}
-                        placeholder="Example: palletised goods, machinery, boxed items"
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Contact Preference
-                      </label>
-                      <select
-                        name="contactPreference"
-                        required
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      >
-                        <option value="">Select contact preference</option>
-                        <option value="Phone">Phone</option>
-                        <option value="Email">Email</option>
-                        <option value="WhatsApp">WhatsApp</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Your Name
-                      </label>
-                      <input
-                        name="customerName"
-                        required
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Phone
-                      </label>
-                      <input
-                        name="customerPhone"
-                        required
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Trading Name If Different
-                      </label>
-                      <input
-                        name="tradingName"
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
-                      <input
-                        type="checkbox"
-                        checked={fragileGoods}
-                        onChange={(event) => setFragileGoods(event.target.checked)}
-                      />
-                      Fragile goods
-                    </label>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Email
-                      </label>
-                      <input
-                        type="email"
-                        name="customerEmail"
-                        required
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-[#071D49]">
-                        Legal Entity Name
-                      </label>
-                      <input
-                        name="legalEntity"
-                        required
-                        className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2 rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                      <h4 className="text-base font-bold text-[#071D49]">
-                        Delivery handover contact
-                      </h4>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Add the person the driver should contact at collection for hand over details.
-                      </p>
-
-                      <div className="mt-4 grid gap-4 md:grid-cols-2">
-                        <input
-                          name="handoverContactName"
-                          placeholder="Handover contact name"
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                        />
-
-                        <input
-                          name="handoverContactPhone"
-                          placeholder="Handover contact phone"
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                        />
-
-                        <input
-                          type="email"
-                          name="handoverContactEmail"
-                          placeholder="Handover contact email"
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                        />
-
-                        <textarea
-                          name="handoverNotes"
-                          rows={3}
-                          placeholder="Handover notes"
-                          className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
-                  <label className="flex cursor-pointer items-start gap-4 text-sm font-bold text-[#071D49]">
-                    <input
-                      type="checkbox"
-                      checked={accuracyConfirmed}
-                      onChange={(event) => setAccuracyConfirmed(event.target.checked)}
-                      className="mt-1"
-                    />
-                    I confirm that the collection, delivery, load and contact details provided
-                    are accurate.
-                  </label>
-                </section>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="rounded-2xl bg-gradient-to-r from-[#071D49] via-[#0B2A63] to-[#006CFF] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:from-[#020B1F] hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? "Generating Quote..." : "Get Instant Quote"}
-                </button>
-              </div>
-            </form>
-
-            <aside className="hidden space-y-4 lg:block lg:sticky lg:top-32">
-              <div className="rounded-3xl border border-[#D7E6FF] bg-white p-6 shadow-lg shadow-black/5">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-                  Business courier service
-                </p>
-
-                <h3 className="mt-3 text-xl font-bold text-[#071D49]">
-                  Why businesses choose Streamline
-                </h3>
-
-                <ul className="mt-5 grid gap-3 text-sm font-semibold text-[#071D49]">
-                  {[
-                    "Dedicated vehicle",
-                    "Direct delivery",
-                    "Fully insured transport",
-                    "UK-wide coverage",
-                    "Business-to-business specialists",
-                    "Professional driver network",
-                  ].map((item) => (
-                    <li key={item} className="flex items-center gap-3">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#006CFF] text-[10px] font-bold text-white">
-                        ✓
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="rounded-3xl border border-[#D7E6FF] bg-[#071D49] p-6 text-white shadow-lg shadow-black/10">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2D8CFF]">
-                  Support
-                </p>
-                <h3 className="mt-2 text-2xl font-bold">0333 344 0703</h3>
-                <p className="mt-3 text-sm leading-6 text-white/70">
-                  Need help choosing the correct vehicle? Our team can assist with vehicle selection, pallet capacity and collection requirements before you submit your quote.
-                </p>
-              </div>
-            </aside>
+              {loading ? "Generating Quote..." : "Get Instant Quote"}
+            </button>
           </div>
-        </div>
-      </section>
-
-      <section className="px-6 pb-24">
-        <section className="mx-auto mt-8 max-w-7xl rounded-[2rem] border border-[#2D8CFF]/20 bg-[linear-gradient(135deg,_#071D49_0%,_#0B2A63_50%,_#006CFF_100%)] p-8 text-white shadow-2xl shadow-black/20">
-          <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
-                Quote promise
-              </p>
-
-              <h2 className="mt-3 text-3xl font-bold">
-                Clear delivery quotes for business customers.
-              </h2>
-
-              <p className="mt-4 text-sm leading-6 text-white/70">
-                The quote form is built to collect the details needed for a reliable
-                business delivery price, without unnecessary questions or duplicated steps.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              {[
-                ["No unnecessary fields", "Only the information needed to price and record the delivery."],
-                ["Business-ready records", "Quotes are saved for booking, payment, invoice and admin workflows."],
-                ["Vehicle clarity", "Vehicle dimensions and capacities are visible before submitting."],
-              ].map(([title, text]) => (
-                <div
-                  key={title}
-                  className="rounded-2xl border border-white/10 bg-white/[0.06] p-5"
-                >
-                  <h3 className="font-bold text-white">{title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-white/60">
-                    {text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      </section>
+        </form>
+      </div>
 
       {showVehicleModal &&
         selectedVehicle &&
         vehicleDetails[selectedVehicle] && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
-        <div className="w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-          <div className="flex items-start justify-between gap-6 bg-[#071D49] p-6 text-white">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
-                Vehicle Details
-              </p>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
+            <div className="w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+              <div className="flex items-start justify-between gap-6 bg-[#071D49] p-6 text-white">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                    Vehicle Details
+                  </p>
 
-              <h2 className="mt-2 text-3xl font-bold">
-                {getVehicleDisplayName(selectedVehicle)}
-              </h2>
+                  <h2 className="mt-2 text-3xl font-bold">
+                    {vehicleDetails[selectedVehicle].label}
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowVehicleModal(false)}
+                  className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-6">
+                <img
+                  src={vehicleDetails[selectedVehicle].image}
+                  alt={vehicleDetails[selectedVehicle].label}
+                  className="h-64 w-full rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] object-contain"
+                />
+
+                <div className="mt-6 grid gap-4 text-sm text-[#071D49] md:grid-cols-2">
+                  <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
+                    Length: {vehicleDetails[selectedVehicle].length}
+                  </div>
+                  <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
+                    Width: {vehicleDetails[selectedVehicle].width}
+                  </div>
+                  <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
+                    Height: {vehicleDetails[selectedVehicle].height}
+                  </div>
+                  <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
+                    Pallets: {vehicleDetails[selectedVehicle].pallets}
+                  </div>
+                  <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 md:col-span-2">
+                    Max Weight: {vehicleDetails[selectedVehicle].maxWeight}
+                  </div>
+                </div>
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowVehicleModal(false)}
-              className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10"
-            >
-              Close
-            </button>
           </div>
-
-          <div className="p-6">
-            <img
-              src={vehicleDetails[selectedVehicle].image}
-              alt={getVehicleDisplayName(selectedVehicle)}
-              className="h-64 w-full rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] object-contain"
-            />
-
-            <div className="mt-6 grid gap-4 text-sm text-[#071D49] md:grid-cols-2">
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
-                Length: {vehicleDetails[selectedVehicle].length}
-              </div>
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
-                Width: {vehicleDetails[selectedVehicle].width}
-              </div>
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
-                Height: {vehicleDetails[selectedVehicle].height}
-              </div>
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
-                Pallets: {vehicleDetails[selectedVehicle].pallets}
-              </div>
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 md:col-span-2">
-                Max Weight: {vehicleDetails[selectedVehicle].maxWeight}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
+        )}
     </main>
   );
 }
