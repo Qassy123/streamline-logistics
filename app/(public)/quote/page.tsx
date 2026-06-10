@@ -603,23 +603,6 @@ export default function QuotePage() {
     ).trim();
     const handoverNotes = String(formData.get("handoverNotes") || "").trim();
 
-    const fullLoadDescription = [
-      loadDescription,
-      handoverName || handoverPhone || handoverNotes
-        ? [
-            "",
-            "Delivery handover contact at collection:",
-            handoverName ? `Name: ${handoverName}` : "",
-            handoverPhone ? `Phone: ${handoverPhone}` : "",
-            handoverNotes ? `Notes: ${handoverNotes}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
     const payload = {
       deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
@@ -642,7 +625,10 @@ export default function QuotePage() {
 
       extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
 
-      loadDescription: fullLoadDescription,
+      loadDescription,
+      handoverContactName: handoverName,
+      handoverContactPhone: handoverPhone,
+      handoverNotes,
       fragileGoods,
       contactPreference: formData.get("contactPreference"),
       accuracyConfirmed,
