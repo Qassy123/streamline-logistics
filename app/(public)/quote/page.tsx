@@ -191,20 +191,32 @@ function buildSameDayCollectionWindows() {
 }
 
 function InfoTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <span className="group relative inline-flex">
-      <HelpCircle
-        size={18}
-        className="cursor-help text-[#006CFF]"
-        aria-hidden="true"
-      />
-      <span className="pointer-events-none absolute left-1/2 top-7 z-20 hidden w-72 -translate-x-1/2 rounded-2xl border border-[#D7E6FF] bg-white p-4 text-xs font-semibold leading-5 text-[#071D49] shadow-2xl shadow-black/10 group-hover:block">
-        {text}
-      </span>
+    <span
+      className="relative inline-flex"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        onBlur={() => setOpen(false)}
+        className="inline-flex text-[#006CFF]"
+        aria-label="Show information"
+      >
+        <HelpCircle size={18} aria-hidden="true" />
+      </button>
+
+      {open && (
+        <span className="absolute left-1/2 top-7 z-20 w-72 -translate-x-1/2 rounded-2xl border border-[#D7E6FF] bg-white p-4 text-xs font-semibold leading-5 text-[#071D49] shadow-2xl shadow-black/10">
+          {text}
+        </span>
+      )}
     </span>
   );
 }
-
 function formatAddress(address: AddressFields) {
   return [
     address.addressLine1,
@@ -1480,14 +1492,6 @@ export default function QuotePage() {
                   />
                 </div>
 
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
-                  <input
-                    type="checkbox"
-                    checked={fragileGoods}
-                    onChange={(event) => setFragileGoods(event.target.checked)}
-                  />
-                  Fragile goods
-                </label>
 
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
