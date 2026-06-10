@@ -150,6 +150,28 @@ function getWindowStartMinutes(window: string) {
   return hours * 60 + minutes;
 }
 
+function formatTimeFromMinutes(totalMinutes: number) {
+  const minutesInDay = 24 * 60;
+  const wrappedMinutes = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(wrappedMinutes / 60);
+  const minutes = wrappedMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function buildSameDayCollectionWindows() {
+  const now = new Date();
+  const earliestMinutes = now.getHours() * 60 + now.getMinutes() + 120;
+  const firstSlotStart = Math.ceil(earliestMinutes / 60) * 60;
+
+  return Array.from({ length: 12 }, (_, index) => {
+    const startMinutes = firstSlotStart + index * 120;
+    const endMinutes = startMinutes + 120;
+
+    return `${formatTimeFromMinutes(startMinutes)}-${formatTimeFromMinutes(endMinutes)}`;
+  });
+}
+
 function InfoTooltip({ text }: { text: string }) {
   return (
     <span className="group relative inline-flex">
@@ -239,13 +261,7 @@ export default function QuotePage() {
       return twoHourWindows;
     }
 
-    const now = new Date();
-    const earliestMinutes = now.getHours() * 60 + now.getMinutes() + 120;
-
-    return twoHourWindows.filter((window) => {
-      const startMinutes = getWindowStartMinutes(window);
-      return startMinutes >= earliestMinutes;
-    });
+    return buildSameDayCollectionWindows();
   }, [collectionDate]);
 
   function updateCollectionAddress(field: keyof AddressFields, value: string) {
@@ -502,6 +518,46 @@ export default function QuotePage() {
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 lg:py-12">
       <div className="mx-auto max-w-5xl">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#D7E6FF] bg-white px-5 py-3 text-sm font-bold text-[#071D49] shadow-sm transition hover:border-[#006CFF] hover:text-[#006CFF]"
+        >
+          ← Back
+        </button>
+
+        <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-2xl shadow-black/10 sm:p-8">
+          <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-center">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                Premium UK Logistics
+              </p>
+
+              <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
+                Instant courier quotes built for serious business deliveries.
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">
+                Select your service, collection time, vehicle, route and load details.
+                Get a structured quote instantly with clear pricing and a reference number.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              {["Same day", "Multi-drop", "Full load"].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4"
+                >
+                  <p className="text-sm font-bold text-white">{item}</p>
+                  <p className="mt-1 text-xs text-white/60">
+                    Business-ready service
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
         {quote && (
           <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
             <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
