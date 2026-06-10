@@ -71,11 +71,11 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
 
           <div className="mt-8 grid gap-4">
             <Link
-              href="/payments"
+              href="/quote"
               onClick={onClose}
               className="rounded-full bg-[#006CFF] px-6 py-5 text-center text-lg font-bold text-white shadow-xl shadow-[#006CFF]/20 transition hover:bg-[#2D8CFF]"
             >
-              Make Payment
+              Get Instant Quote
             </Link>
 
             <a
