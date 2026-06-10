@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HelpCircle } from "lucide-react";
 
@@ -32,7 +32,9 @@ type AddressFields = {
   postcode: string;
 };
 
-const API_URL = "https://streamline-logistics-production.up.railway.app/api/quotes";
+const API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/quotes";
+const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
 
 const twoHourWindows = [
   "00:00-02:00",
@@ -108,7 +110,10 @@ const vehicleDetails: Record<
   },
 };
 
-const vehicleAvailability: Record<string, { available: boolean; reason?: string }> = {
+const vehicleAvailability: Record<
+  string,
+  { available: boolean; reason?: string }
+> = {
   "Small Van": { available: true },
   "SWB Van": { available: true },
   "LWB High Roof Van": { available: true },
@@ -116,16 +121,21 @@ const vehicleAvailability: Record<string, { available: boolean; reason?: string 
   "Luton Tail Lift Curtainsider": { available: true },
 };
 
-const vehicleOptions = Object.keys(vehicleDetails).sort((firstVehicle, secondVehicle) => {
-  const firstAvailable = vehicleAvailability[firstVehicle]?.available ?? true;
-  const secondAvailable = vehicleAvailability[secondVehicle]?.available ?? true;
+const vehicleOptions = Object.keys(vehicleDetails).sort(
+  (firstVehicle, secondVehicle) => {
+    const firstAvailable = vehicleAvailability[firstVehicle]?.available ?? true;
+    const secondAvailable =
+      vehicleAvailability[secondVehicle]?.available ?? true;
 
-  if (firstAvailable === secondAvailable) {
-    return vehicleDetails[firstVehicle].label.localeCompare(vehicleDetails[secondVehicle].label);
-  }
+    if (firstAvailable === secondAvailable) {
+      return vehicleDetails[firstVehicle].label.localeCompare(
+        vehicleDetails[secondVehicle].label,
+      );
+    }
 
-  return firstAvailable ? -1 : 1;
-});
+    return firstAvailable ? -1 : 1;
+  },
+);
 
 const capacityOptions = [
   { percent: 25, label: "25%", text: "Quarter load" },
@@ -159,7 +169,8 @@ function getWindowStartMinutes(window: string) {
 
 function formatTimeFromMinutes(totalMinutes: number) {
   const minutesInDay = 24 * 60;
-  const wrappedMinutes = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const wrappedMinutes =
+    ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
   const hours = Math.floor(wrappedMinutes / 60);
   const minutes = wrappedMinutes % 60;
 
@@ -234,7 +245,9 @@ function getResponseErrorMessage(data: unknown) {
 
 export default function QuotePage() {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement | null>(null);
 
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
@@ -256,11 +269,123 @@ export default function QuotePage() {
   const [fragileGoods, setFragileGoods] = useState(false);
   const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
 
+  useEffect(() => {
+    try {
+      const savedDraft = window.localStorage.getItem(QUOTE_FORM_STORAGE_KEY);
+
+      if (!savedDraft) {
+        setDraftLoaded(true);
+        return;
+      }
+
+      const draft = JSON.parse(savedDraft) as {
+        selectedDeliveryType?: string;
+        selectedJourneyType?: string;
+        selectedVehicle?: string;
+        capacityPercent?: number | null;
+        extraStops?: ExtraStop[];
+        collectionDate?: string;
+        collectionWindow?: string;
+        collectionAddress?: AddressFields;
+        deliveryAddress?: AddressFields;
+        fragileGoods?: boolean;
+        accuracyConfirmed?: boolean;
+        formValues?: Record<string, string>;
+      };
+
+      setSelectedDeliveryType(draft.selectedDeliveryType || "");
+      setSelectedJourneyType(draft.selectedJourneyType || "");
+      setSelectedVehicle(draft.selectedVehicle || "");
+      setCapacityPercent(draft.capacityPercent ?? null);
+      setExtraStops(Array.isArray(draft.extraStops) ? draft.extraStops : []);
+      setCollectionDate(draft.collectionDate || "");
+      setCollectionWindow(draft.collectionWindow || "");
+      setCollectionAddress(draft.collectionAddress || emptyAddress);
+      setDeliveryAddress(draft.deliveryAddress || emptyAddress);
+      setFragileGoods(Boolean(draft.fragileGoods));
+      setAccuracyConfirmed(Boolean(draft.accuracyConfirmed));
+
+      window.requestAnimationFrame(() => {
+        const form = formRef.current;
+
+        if (!form || !draft.formValues) return;
+
+        Object.entries(draft.formValues).forEach(([name, value]) => {
+          const field = form.elements.namedItem(name);
+
+          if (
+            field instanceof HTMLInputElement ||
+            field instanceof HTMLSelectElement ||
+            field instanceof HTMLTextAreaElement
+          ) {
+            if (field.type !== "checkbox" && field.type !== "radio") {
+              field.value = value;
+            }
+          }
+        });
+      });
+    } catch {
+      window.localStorage.removeItem(QUOTE_FORM_STORAGE_KEY);
+    } finally {
+      setDraftLoaded(true);
+    }
+  }, []);
+
+  function saveQuoteDraft() {
+    if (!draftLoaded) return;
+
+    const formValues: Record<string, string> = {};
+
+    if (formRef.current) {
+      const formData = new FormData(formRef.current);
+
+      formData.forEach((value, key) => {
+        formValues[key] = String(value);
+      });
+    }
+
+    window.localStorage.setItem(
+      QUOTE_FORM_STORAGE_KEY,
+      JSON.stringify({
+        selectedDeliveryType,
+        selectedJourneyType,
+        selectedVehicle,
+        capacityPercent,
+        extraStops,
+        collectionDate,
+        collectionWindow,
+        collectionAddress,
+        deliveryAddress,
+        fragileGoods,
+        accuracyConfirmed,
+        formValues,
+      }),
+    );
+  }
+
+  useEffect(() => {
+    saveQuoteDraft();
+  }, [
+    draftLoaded,
+    selectedDeliveryType,
+    selectedJourneyType,
+    selectedVehicle,
+    capacityPercent,
+    extraStops,
+    collectionDate,
+    collectionWindow,
+    collectionAddress,
+    deliveryAddress,
+    fragileGoods,
+    accuracyConfirmed,
+  ]);
+
   const hideJourneyType =
     selectedDeliveryType === "Full Day Booking" ||
     selectedDeliveryType === "Half Day Booking";
 
-  const showCapacity = selectedJourneyType === "One Way" || selectedJourneyType === "Return";
+  const showCapacity =
+    selectedJourneyType === "One Way" || selectedJourneyType === "Return";
   const showExtraStops = selectedJourneyType === "Multi Drop";
   const showAddressFields = Boolean(collectionDate && collectionWindow);
   const returnAddress = formatAddress(collectionAddress);
@@ -308,19 +433,19 @@ export default function QuotePage() {
         .map((stop, stopIndex) => ({
           ...stop,
           order: stopIndex + 2,
-        }))
+        })),
     );
   }
 
   function updateStopAddress(
     index: number,
     field: keyof Omit<ExtraStop, "order">,
-    value: string
+    value: string,
   ) {
     setExtraStops((currentStops) =>
       currentStops.map((stop, stopIndex) =>
-        stopIndex === index ? { ...stop, [field]: value } : stop
-      )
+        stopIndex === index ? { ...stop, [field]: value } : stop,
+      ),
     );
   }
 
@@ -358,7 +483,9 @@ export default function QuotePage() {
     }
 
     if (!showAddressFields) {
-      setError("Please select collection date and time before entering route details.");
+      setError(
+        "Please select collection date and time before entering route details.",
+      );
       setLoading(false);
       return;
     }
@@ -374,7 +501,9 @@ export default function QuotePage() {
       vehicleAvailability[selectedVehicle] &&
       !vehicleAvailability[selectedVehicle].available
     ) {
-      setError("The selected vehicle is currently unavailable. Please choose another vehicle.");
+      setError(
+        "The selected vehicle is currently unavailable. Please choose another vehicle.",
+      );
       setLoading(false);
       return;
     }
@@ -423,7 +552,9 @@ export default function QuotePage() {
       .sort((a, b) => a.order - b.order);
 
     if (showExtraStops && cleanedStops.length === 0) {
-      setError("Please add at least one extra stop for this multi-drop journey.");
+      setError(
+        "Please add at least one extra stop for this multi-drop journey.",
+      );
       setLoading(false);
       return;
     }
@@ -449,9 +580,15 @@ export default function QuotePage() {
       return;
     }
 
-    const loadDescription = String(formData.get("loadDescription") || "").trim();
-    const handoverName = String(formData.get("handoverContactName") || "").trim();
-    const handoverPhone = String(formData.get("handoverContactPhone") || "").trim();
+    const loadDescription = String(
+      formData.get("loadDescription") || "",
+    ).trim();
+    const handoverName = String(
+      formData.get("handoverContactName") || "",
+    ).trim();
+    const handoverPhone = String(
+      formData.get("handoverContactPhone") || "",
+    ).trim();
     const handoverNotes = String(formData.get("handoverNotes") || "").trim();
 
     const fullLoadDescription = [
@@ -487,7 +624,9 @@ export default function QuotePage() {
       deliveryAddressDetails: deliveryAddress,
 
       returnAddress:
-        selectedJourneyType === "Return" ? formatAddress(collectionAddress) : null,
+        selectedJourneyType === "Return"
+          ? formatAddress(collectionAddress)
+          : null,
 
       extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
 
@@ -524,7 +663,7 @@ export default function QuotePage() {
       setError(
         error instanceof Error
           ? error.message
-          : "Unable to generate quote. Please try again."
+          : "Unable to generate quote. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -554,8 +693,9 @@ export default function QuotePage() {
               </h1>
 
               <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">
-                Select your service, collection time, vehicle, route and load details.
-                Get a structured quote instantly with clear pricing and a reference number.
+                Select your service, collection time, vehicle, route and load
+                details. Get a structured quote instantly with clear pricing and
+                a reference number.
               </p>
             </div>
 
@@ -649,7 +789,9 @@ export default function QuotePage() {
         )}
 
         <form
+          ref={formRef}
           onSubmit={handleSubmit}
+          onChange={saveQuoteDraft}
           className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10"
         >
           <div className="border-b border-[#D7E6FF] bg-[#071D49] p-6 text-white sm:p-8">
@@ -660,7 +802,8 @@ export default function QuotePage() {
               Build your delivery quote
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
-              Complete the sections below. Required details are checked before quote generation.
+              Complete the sections below. Required details are checked before
+              quote generation.
             </p>
           </div>
 
@@ -687,7 +830,9 @@ export default function QuotePage() {
                     name="deliveryType"
                     required
                     value={selectedDeliveryType}
-                    onChange={(event) => handleDeliveryTypeChange(event.target.value)}
+                    onChange={(event) =>
+                      handleDeliveryTypeChange(event.target.value)
+                    }
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                   >
                     <option value="">Select delivery type</option>
@@ -763,7 +908,9 @@ export default function QuotePage() {
                               : "border-[#D7E6FF] bg-[#F4F8FF] text-[#071D49] hover:border-[#2D8CFF]"
                           }`}
                         >
-                          <span className="block text-lg font-bold">{option.label}</span>
+                          <span className="block text-lg font-bold">
+                            {option.label}
+                          </span>
                           <span className="mt-1 block text-xs font-semibold opacity-80">
                             {option.text}
                           </span>
@@ -815,7 +962,9 @@ export default function QuotePage() {
                     name="collectionWindow"
                     required
                     value={collectionWindow}
-                    onChange={(event) => setCollectionWindow(event.target.value)}
+                    onChange={(event) =>
+                      setCollectionWindow(event.target.value)
+                    }
                     disabled={!collectionDate}
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                   >
@@ -831,7 +980,8 @@ export default function QuotePage() {
 
               {!showAddressFields && (
                 <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
-                  Select the collection date and collection window before entering collection and delivery addresses.
+                  Select the collection date and collection window before
+                  entering collection and delivery addresses.
                 </div>
               )}
             </section>
@@ -874,7 +1024,8 @@ export default function QuotePage() {
                         value={vehicle}
                         disabled={!isAvailable}
                       >
-                        {vehicleDetails[vehicle].label} {isAvailable ? "(Available)" : "(Unavailable)"}
+                        {vehicleDetails[vehicle].label}{" "}
+                        {isAvailable ? "(Available)" : "(Unavailable)"}
                       </option>
                     );
                   })}
@@ -897,7 +1048,8 @@ export default function QuotePage() {
 
               {!showAddressFields && (
                 <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
-                  Select the collection date and collection window before entering route information.
+                  Select the collection date and collection window before
+                  entering route information.
                 </div>
               )}
 
@@ -917,7 +1069,10 @@ export default function QuotePage() {
                         placeholder="Address line 1"
                         value={collectionAddress.addressLine1}
                         onChange={(event) =>
-                          updateCollectionAddress("addressLine1", event.target.value)
+                          updateCollectionAddress(
+                            "addressLine1",
+                            event.target.value,
+                          )
                         }
                         className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       />
@@ -926,7 +1081,10 @@ export default function QuotePage() {
                         placeholder="Address line 2"
                         value={collectionAddress.addressLine2}
                         onChange={(event) =>
-                          updateCollectionAddress("addressLine2", event.target.value)
+                          updateCollectionAddress(
+                            "addressLine2",
+                            event.target.value,
+                          )
                         }
                         className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       />
@@ -936,7 +1094,10 @@ export default function QuotePage() {
                         placeholder="Town / City"
                         value={collectionAddress.townCity}
                         onChange={(event) =>
-                          updateCollectionAddress("townCity", event.target.value)
+                          updateCollectionAddress(
+                            "townCity",
+                            event.target.value,
+                          )
                         }
                         className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       />
@@ -957,7 +1118,10 @@ export default function QuotePage() {
                           placeholder="Postcode"
                           value={collectionAddress.postcode}
                           onChange={(event) =>
-                            updateCollectionAddress("postcode", event.target.value)
+                            updateCollectionAddress(
+                              "postcode",
+                              event.target.value,
+                            )
                           }
                           className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
@@ -974,7 +1138,9 @@ export default function QuotePage() {
                   <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-bold text-[#071D49]">
-                        {showExtraStops ? "Delivery Address (Stop 1)" : "Delivery Address"}
+                        {showExtraStops
+                          ? "Delivery Address (Stop 1)"
+                          : "Delivery Address"}
                       </h3>
                       <InfoTooltip text="Enter the full delivery address. For Multi Drop, this is treated as Stop 1 and extra stops can be added below." />
                     </div>
@@ -985,7 +1151,10 @@ export default function QuotePage() {
                         placeholder="Address line 1"
                         value={deliveryAddress.addressLine1}
                         onChange={(event) =>
-                          updateDeliveryAddress("addressLine1", event.target.value)
+                          updateDeliveryAddress(
+                            "addressLine1",
+                            event.target.value,
+                          )
                         }
                         className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       />
@@ -994,7 +1163,10 @@ export default function QuotePage() {
                         placeholder="Address line 2"
                         value={deliveryAddress.addressLine2}
                         onChange={(event) =>
-                          updateDeliveryAddress("addressLine2", event.target.value)
+                          updateDeliveryAddress(
+                            "addressLine2",
+                            event.target.value,
+                          )
                         }
                         className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                       />
@@ -1025,7 +1197,10 @@ export default function QuotePage() {
                           placeholder="Postcode"
                           value={deliveryAddress.postcode}
                           onChange={(event) =>
-                            updateDeliveryAddress("postcode", event.target.value)
+                            updateDeliveryAddress(
+                              "postcode",
+                              event.target.value,
+                            )
                           }
                           className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
@@ -1053,8 +1228,9 @@ export default function QuotePage() {
                       />
 
                       <p className="mt-3 text-sm font-semibold text-[#071D49]">
-                        Return address is automatically set to the collection address.
-                        If the return address is different, select Multi Drop instead.
+                        Return address is automatically set to the collection
+                        address. If the return address is different, select
+                        Multi Drop instead.
                       </p>
                     </div>
                   )}
@@ -1067,7 +1243,8 @@ export default function QuotePage() {
                             Extra Stops
                           </p>
                           <p className="mt-1 text-sm text-slate-500">
-                            Delivery Address is Stop 1. Added stops begin from Stop 2.
+                            Delivery Address is Stop 1. Added stops begin from
+                            Stop 2.
                           </p>
                         </div>
 
@@ -1105,7 +1282,11 @@ export default function QuotePage() {
                                 required
                                 value={stop.addressLine1}
                                 onChange={(event) =>
-                                  updateStopAddress(index, "addressLine1", event.target.value)
+                                  updateStopAddress(
+                                    index,
+                                    "addressLine1",
+                                    event.target.value,
+                                  )
                                 }
                                 placeholder="Address line 1"
                                 className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
@@ -1114,7 +1295,11 @@ export default function QuotePage() {
                               <input
                                 value={stop.addressLine2}
                                 onChange={(event) =>
-                                  updateStopAddress(index, "addressLine2", event.target.value)
+                                  updateStopAddress(
+                                    index,
+                                    "addressLine2",
+                                    event.target.value,
+                                  )
                                 }
                                 placeholder="Address line 2"
                                 className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
@@ -1124,7 +1309,11 @@ export default function QuotePage() {
                                 required
                                 value={stop.townCity}
                                 onChange={(event) =>
-                                  updateStopAddress(index, "townCity", event.target.value)
+                                  updateStopAddress(
+                                    index,
+                                    "townCity",
+                                    event.target.value,
+                                  )
                                 }
                                 placeholder="Town / City"
                                 className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
@@ -1134,7 +1323,11 @@ export default function QuotePage() {
                                 required
                                 value={stop.county}
                                 onChange={(event) =>
-                                  updateStopAddress(index, "county", event.target.value)
+                                  updateStopAddress(
+                                    index,
+                                    "county",
+                                    event.target.value,
+                                  )
                                 }
                                 placeholder="County"
                                 className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
@@ -1145,7 +1338,11 @@ export default function QuotePage() {
                                   required
                                   value={stop.postcode}
                                   onChange={(event) =>
-                                    updateStopAddress(index, "postcode", event.target.value)
+                                    updateStopAddress(
+                                      index,
+                                      "postcode",
+                                      event.target.value,
+                                    )
                                   }
                                   placeholder="Postcode"
                                   className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
@@ -1181,7 +1378,8 @@ export default function QuotePage() {
               </div>
 
               <div className="mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm leading-6 text-[#071D49]">
-                Please provide the contact information for the delivery handover at collection so the driver knows who to hand the goods over to.
+                Please provide the contact information for the delivery handover
+                at collection so the driver knows who to hand the goods over to.
               </div>
 
               <div className="mb-6 rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
@@ -1321,11 +1519,13 @@ export default function QuotePage() {
                 <input
                   type="checkbox"
                   checked={accuracyConfirmed}
-                  onChange={(event) => setAccuracyConfirmed(event.target.checked)}
+                  onChange={(event) =>
+                    setAccuracyConfirmed(event.target.checked)
+                  }
                   className="mt-1"
                 />
-                I confirm that the collection, delivery, load and contact details provided
-                are accurate.
+                I confirm that the collection, delivery, load and contact
+                details provided are accurate.
               </label>
             </section>
 
