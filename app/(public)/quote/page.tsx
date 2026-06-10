@@ -260,12 +260,19 @@ export default function QuotePage() {
   const returnAddress = formatAddress(collectionAddress);
 
   const availableCollectionWindows = useMemo(() => {
-    if (collectionDate !== getTodayDateString()) {
+    if (!collectionDate) {
+      return [];
+    }
+
+    const today = getTodayDateString();
+
+    if (collectionDate !== today) {
       return twoHourWindows;
     }
 
     const now = new Date();
-    const earliestMinutes = now.getHours() * 60 + now.getMinutes() + 120;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const earliestMinutes = currentMinutes + 120;
 
     return twoHourWindows.filter((window) => {
       const startMinutes = getWindowStartMinutes(window);
