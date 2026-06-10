@@ -537,6 +537,9 @@ router.post("/", async (req, res) => {
         extraDrops: req.body.extraDrops || null,
 
         loadDescription: req.body.loadDescription || null,
+        handoverContactName: req.body.handoverContactName || null,
+        handoverContactPhone: req.body.handoverContactPhone || null,
+        handoverNotes: req.body.handoverNotes || null,
         palletCount: req.body.palletCount ? Number(req.body.palletCount) : null,
         fragileGoods: Boolean(req.body.fragileGoods),
         contactPreference: req.body.contactPreference || null,
