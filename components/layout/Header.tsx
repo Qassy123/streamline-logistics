@@ -37,6 +37,7 @@ export default function Header() {
 
             <Link
               href="/quote"
+              prefetch={false}
               className="font-medium text-white transition hover:text-[#2D8CFF]"
             >
               Instant Quote
