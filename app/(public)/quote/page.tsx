@@ -128,26 +128,10 @@ const vehicleOptions = Object.keys(vehicleDetails).sort((firstVehicle, secondVeh
 });
 
 const capacityOptions = [
-  {
-    percent: 25,
-    label: "25%",
-    description: "Quarter load",
-  },
-  {
-    percent: 50,
-    label: "50%",
-    description: "Half load",
-  },
-  {
-    percent: 75,
-    label: "75%",
-    description: "Three quarter load",
-  },
-  {
-    percent: 100,
-    label: "100%",
-    description: "Full load",
-  },
+  { percent: 25, label: "25%", text: "Quarter load" },
+  { percent: 50, label: "50%", text: "Half load" },
+  { percent: 75, label: "75%", text: "Three quarter load" },
+  { percent: 100, label: "100%", text: "Full load" },
 ];
 
 const emptyAddress: AddressFields = {
@@ -171,6 +155,28 @@ function getWindowStartMinutes(window: string) {
   const [hours, minutes] = window.split("-")[0].split(":").map(Number);
 
   return hours * 60 + minutes;
+}
+
+function formatTimeFromMinutes(totalMinutes: number) {
+  const minutesInDay = 24 * 60;
+  const wrappedMinutes = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+  const hours = Math.floor(wrappedMinutes / 60);
+  const minutes = wrappedMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function buildSameDayCollectionWindows() {
+  const now = new Date();
+  const earliestMinutes = now.getHours() * 60 + now.getMinutes() + 120;
+  const firstSlotStart = Math.ceil(earliestMinutes / 60) * 60;
+
+  return Array.from({ length: 12 }, (_, index) => {
+    const startMinutes = firstSlotStart + index * 120;
+    const endMinutes = startMinutes + 120;
+
+    return `${formatTimeFromMinutes(startMinutes)}-${formatTimeFromMinutes(endMinutes)}`;
+  });
 }
 
 function InfoTooltip({ text }: { text: string }) {
@@ -260,24 +266,11 @@ export default function QuotePage() {
   const returnAddress = formatAddress(collectionAddress);
 
   const availableCollectionWindows = useMemo(() => {
-    if (!collectionDate) {
-      return [];
-    }
-
-    const today = getTodayDateString();
-
-    if (collectionDate !== today) {
+    if (collectionDate !== getTodayDateString()) {
       return twoHourWindows;
     }
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const earliestMinutes = currentMinutes + 120;
-
-    return twoHourWindows.filter((window) => {
-      const startMinutes = getWindowStartMinutes(window);
-      return startMinutes >= earliestMinutes;
-    });
+    return buildSameDayCollectionWindows();
   }, [collectionDate]);
 
   function updateCollectionAddress(field: keyof AddressFields, value: string) {
@@ -541,6 +534,46 @@ export default function QuotePage() {
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 lg:py-12">
       <div className="mx-auto max-w-5xl">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#D7E6FF] bg-white px-5 py-3 text-sm font-bold text-[#071D49] shadow-sm transition hover:border-[#006CFF] hover:text-[#006CFF]"
+        >
+          ← Back
+        </button>
+
+        <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-2xl shadow-black/10 sm:p-8">
+          <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-center">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                Premium UK Logistics
+              </p>
+
+              <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
+                Instant courier quotes built for serious business deliveries.
+              </h1>
+
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">
+                Select your service, collection time, vehicle, route and load details.
+                Get a structured quote instantly with clear pricing and a reference number.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              {["Same day", "Multi-drop", "Full load"].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4"
+                >
+                  <p className="text-sm font-bold text-white">{item}</p>
+                  <p className="mt-1 text-xs text-white/60">
+                    Business-ready service
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
         {quote && (
           <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
             <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
@@ -715,7 +748,7 @@ export default function QuotePage() {
                       <label className="block text-sm font-semibold text-[#071D49]">
                         Capacity Required
                       </label>
-                      <InfoTooltip text="Select the estimated amount of vehicle space your goods require. This is hidden for Multi Drop because capacity changes across multiple delivery stops." />
+                      <InfoTooltip text="Select how much vehicle space your goods need. This is shown for One Way and Return journeys only." />
                     </div>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -732,7 +765,7 @@ export default function QuotePage() {
                         >
                           <span className="block text-lg font-bold">{option.label}</span>
                           <span className="mt-1 block text-xs font-semibold opacity-80">
-                            {option.description}
+                            {option.text}
                           </span>
                         </button>
                       ))}
