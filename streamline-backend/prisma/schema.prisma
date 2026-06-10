@@ -130,6 +130,9 @@ model Quote {
   contactPreference        String?
   fragileGoods             Boolean              @default(false)
   loadDescription          String?
+  handoverContactName      String?
+  handoverContactPhone     String?
+  handoverNotes            String?
   palletCount              Int?
   expiresAt                DateTime?
   userId                   String?
