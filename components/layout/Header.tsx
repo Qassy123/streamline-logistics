@@ -11,33 +11,32 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full overflow-hidden bg-[#071D49] shadow-sm">
+      <header className="sticky top-0 z-40 w-full bg-[#071D49] shadow-sm">
         <div className="mx-auto flex h-[96px] max-w-[1500px] items-center justify-between px-5 sm:h-[104px] lg:h-[108px] lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[310px] shrink-0 items-center sm:w-[360px] lg:w-[500px]"
+            className="relative z-10 flex h-full w-[240px] shrink-0 items-center sm:w-[280px] lg:w-[320px]"
             aria-label="Streamline Logistics Group home"
           >
-            <div className="relative h-[82px] w-[310px] sm:h-[90px] sm:w-[360px] lg:h-[96px] lg:w-[470px]">
+            <div className="relative h-[82px] w-[240px] sm:h-[90px] sm:w-[280px] lg:h-[96px] lg:w-[320px]">
               <Image
                 src="/images/logos/header-logo.png"
                 alt="Streamline Logistics Group"
                 fill
                 priority
-                sizes="(max-width: 640px) 310px, (max-width: 1024px) 360px, 470px"
-                className="origin-left scale-[1.55] object-contain object-left sm:scale-[1.35] lg:scale-[2.15]"
+                sizes="(max-width: 640px) 240px, (max-width: 1024px) 280px, 320px"
+                className="object-contain object-left"
               />
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-9 lg:flex">
+          <nav className="relative z-20 hidden items-center gap-9 lg:flex">
             <Link href="/" className="font-medium text-[#006CFF]">
               Home
             </Link>
 
             <Link
               href="/quote"
-              prefetch={false}
               className="font-medium text-white transition hover:text-[#2D8CFF]"
             >
               Instant Quote
@@ -58,7 +57,7 @@ export default function Header() {
             </Link>
           </nav>
 
-          <div className="hidden items-center gap-6 lg:flex">
+          <div className="relative z-20 hidden items-center gap-6 lg:flex">
             <a
               href="tel:03333440703"
               className="flex items-center gap-2 font-medium text-white"
@@ -80,7 +79,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="shrink-0 text-white lg:hidden"
+            className="relative z-20 shrink-0 text-white lg:hidden"
             aria-label="Open menu"
           >
             <Menu size={34} />
