@@ -89,9 +89,12 @@ function formatValue(value: string | number | null | undefined) {
 export default async function PaymentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ quoteId?: string }>;
+  searchParams: Promise<{
+    quoteId?: string;
+    tradeAccountApplication?: string;
+  }>;
 }) {
-  const { quoteId } = await searchParams;
+  const { quoteId, tradeAccountApplication } = await searchParams;
 
   if (!quoteId) {
     notFound();
@@ -104,6 +107,7 @@ export default async function PaymentsPage({
   }
 
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
+  const showTradeAccountSuccess = tradeAccountApplication === "received";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
@@ -133,6 +137,30 @@ export default async function PaymentsPage({
 
           <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
             <section className="grid gap-5 lg:gap-6">
+              {showTradeAccountSuccess && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-lg shadow-black/5">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <CheckCircle size={22} />
+                    </span>
+
+                    <div>
+                      <h2 className="text-lg font-bold text-emerald-900">
+                        Trade Account Application Received
+                      </h2>
+
+                      <p className="mt-2 text-sm leading-6 text-emerald-800">
+                        Your monthly invoicing business credit account application has been submitted successfully and is now under review. Approval is typically within 48 hours.
+                      </p>
+
+                      <p className="mt-3 text-sm font-bold text-emerald-900">
+                        Continue with secure payment below while your application is being assessed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <div className="mb-5 flex items-center gap-3">
                   <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
