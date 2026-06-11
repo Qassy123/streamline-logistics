@@ -45,13 +45,30 @@ export default async function PaymentSuccessPage({
   searchParams: Promise<{
     quoteId?: string;
     session_id?: string;
+    businessAccount?: string;
+    businessAccountCreated?: string;
+    tradeAccountApplication?: string;
   }>;
 }) {
-  const { quoteId } = await searchParams;
+  const {
+    quoteId,
+    businessAccount,
+    businessAccountCreated,
+    tradeAccountApplication,
+  } = await searchParams;
+
   const quote = await getQuote(quoteId);
   const hasLinkedAccount = Boolean(quote?.userId);
   const businessName =
     quote?.legalEntity || quote?.companyName || quote?.customerName || null;
+
+  const showBusinessAccountMessage =
+    hasLinkedAccount ||
+    businessAccount === "created" ||
+    businessAccountCreated === "true";
+
+  const showTradeAccountMessage =
+    tradeAccountApplication === "received";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 sm:py-12">
@@ -102,6 +119,40 @@ export default async function PaymentSuccessPage({
           </div>
 
           <div className="grid gap-6 p-5 sm:p-8">
+            {(showBusinessAccountMessage || showTradeAccountMessage) && (
+              <section className="grid gap-4 md:grid-cols-2">
+                {showBusinessAccountMessage && (
+                  <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6">
+                    <div className="mb-4 flex items-center gap-3">
+                      <BriefcaseBusiness className="shrink-0 text-[#006CFF]" size={24} />
+                      <h2 className="text-xl font-bold">
+                        Business Account Created
+                      </h2>
+                    </div>
+
+                    <p className="text-sm leading-6 text-slate-600">
+                      Your business account has been linked to this booking. Future account features, booking history and invoice management will be available from your dashboard when launched.
+                    </p>
+                  </div>
+                )}
+
+                {showTradeAccountMessage && (
+                  <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6">
+                    <div className="mb-4 flex items-center gap-3">
+                      <FileText className="shrink-0 text-[#006CFF]" size={24} />
+                      <h2 className="text-xl font-bold">
+                        Trade Account Application Received
+                      </h2>
+                    </div>
+
+                    <p className="text-sm leading-6 text-slate-600">
+                      Your monthly invoicing business credit account application has been received. Company verification and credit assessment will be reviewed, with approval typically within 48 hours.
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
             <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6">
               <div className="mb-5 flex items-center gap-3">
                 <FileText className="shrink-0 text-[#006CFF]" size={24} />
@@ -195,7 +246,7 @@ export default async function PaymentSuccessPage({
                   />
 
                   <ActionCard
-                    href={quoteId ? `/trade-account?quoteId=${quoteId}` : "/trade-account"}
+                    href={quoteId ? `/register-trade?quoteId=${quoteId}` : "/register-trade"}
                     icon="file"
                     title="Trade Account"
                     text="Apply for recurring bookings, monthly invoicing and credit terms."
