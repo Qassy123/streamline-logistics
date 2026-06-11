@@ -233,8 +233,8 @@ function RegisterTradeForm() {
 
       router.push(
         quoteId
-          ? `/payments?quoteId=${quoteId}&tradeAccountApplication=received`
-          : data?.redirectUrl || "/payment-success?tradeAccountApplication=received"
+          ? `/trade-account-success?quoteId=${quoteId}`
+          : "/trade-account-success"
       );
     } catch (error) {
       console.error("Trade account application error:", error);
