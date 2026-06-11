@@ -1,11 +1,7 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   Bell,
-  Building2,
-  CheckCircle,
   CreditCard,
-  FileText,
   ShieldCheck,
 } from "lucide-react";
 
@@ -91,10 +87,9 @@ export default async function PaymentsPage({
 }: {
   searchParams: Promise<{
     quoteId?: string;
-    tradeAccountApplication?: string;
   }>;
 }) {
-  const { quoteId, tradeAccountApplication } = await searchParams;
+  const { quoteId } = await searchParams;
 
   if (!quoteId) {
     notFound();
@@ -107,7 +102,6 @@ export default async function PaymentsPage({
   }
 
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
-  const showTradeAccountSuccess = tradeAccountApplication === "received";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
@@ -137,30 +131,6 @@ export default async function PaymentsPage({
 
           <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
             <section className="grid gap-5 lg:gap-6">
-              {showTradeAccountSuccess && (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-lg shadow-black/5">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                      <CheckCircle size={22} />
-                    </span>
-
-                    <div>
-                      <h2 className="text-lg font-bold text-emerald-900">
-                        Trade Account Application Received
-                      </h2>
-
-                      <p className="mt-2 text-sm leading-6 text-emerald-800">
-                        Your monthly invoicing business credit account application has been submitted successfully and is now under review. Approval is typically within 48 hours.
-                      </p>
-
-                      <p className="mt-3 text-sm font-bold text-emerald-900">
-                        Continue with secure payment below while your application is being assessed.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <div className="mb-5 flex items-center gap-3">
                   <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
@@ -169,37 +139,24 @@ export default async function PaymentsPage({
                   </h2>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-3">
-                  <PaymentOption
-                    icon="guest"
-                    title="Pay Now"
-                    subtitle="Guest Checkout"
-                    description="Pay securely now without creating an account."
-                  />
+                <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5 shadow-md shadow-black/5">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#006CFF]/10 text-[#006CFF]">
+                      <CreditCard size={20} />
+                    </span>
 
-                  <PaymentOption
-                    icon="business"
-                    title="Business Account Checkout"
-                    subtitle="Create account + pay now"
-                    description="Create a business account and continue to payment."
-                    href={`/register-business?quoteId=${quote.id}`}
-                    buttonText="Create Business Account"
-                  />
-
-                  <PaymentOption
-                    icon="trade"
-                    title="Pay Now + Apply For Trade Account"
-                    subtitle="Trade account application"
-                    description="Pay now and apply for trade account benefits."
-                    benefits={[
-                      "Access monthly invoicing",
-                      "Agreed line of credit",
-                      "Dedicated account management",
-                      "Monthly discounts (POA)",
-                    ]}
-                    href={`/register-trade?quoteId=${quote.id}`}
-                    buttonText="Apply For Trade Account"
-                  />
+                    <div>
+                      <h3 className="text-base font-bold text-[#071D49]">
+                        Pay Now
+                      </h3>
+                      <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]">
+                        Guest Checkout
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-slate-600">
+                        Pay securely now without creating an account. After payment, you can create a business account or apply for a trade account.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -266,71 +223,6 @@ export default async function PaymentsPage({
         </section>
       </div>
     </main>
-  );
-}
-
-function PaymentOption({
-  icon,
-  title,
-  subtitle,
-  description,
-  benefits,
-  href,
-  buttonText,
-}: {
-  icon: "guest" | "business" | "trade";
-  title: string;
-  subtitle: string;
-  description: string;
-  benefits?: string[];
-  href?: string;
-  buttonText?: string;
-}) {
-  const Icon =
-    icon === "guest"
-      ? CreditCard
-      : icon === "business"
-      ? Building2
-      : FileText;
-
-  return (
-    <div className="flex h-full flex-col rounded-2xl border border-[#D7E6FF] bg-white p-4 shadow-md shadow-black/5 sm:p-5">
-      <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#006CFF]/10 text-[#006CFF]">
-          <Icon size={20} />
-        </span>
-
-        <div>
-          <h3 className="text-base font-bold text-[#071D49]">{title}</h3>
-          <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]">
-            {subtitle}
-          </p>
-        </div>
-      </div>
-
-      <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
-
-      {benefits && (
-        <ul className="mt-4 grid gap-2 text-sm font-semibold text-[#071D49]">
-          {benefits.map((benefit) => (
-            <li key={benefit} className="flex items-start gap-2">
-              <CheckCircle size={15} className="mt-0.5 shrink-0 text-[#006CFF]" />
-              <span>{benefit}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {href && buttonText && (
-        <Link
-          href={href}
-          className="mt-auto flex w-full items-center justify-center gap-2 rounded-full bg-[#006CFF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
-        >
-          <Building2 size={16} />
-          {buttonText}
-        </Link>
-      )}
-    </div>
   );
 }
 
