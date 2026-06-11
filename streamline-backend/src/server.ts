@@ -9,6 +9,7 @@ import bookingRoutes from "./routes/bookings";
 import paymentRoutes from "./routes/payments";
 import distanceRoutes from "./routes/distance";
 import accountRoutes from "./routes/accounts";
+import tradeAccountRoutes from "./routes/tradeAccounts";
 
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
@@ -25,6 +26,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/distance", distanceRoutes);
 app.use("/api/accounts", accountRoutes);
+app.use("/api/trade-accounts", tradeAccountRoutes);
 
 app.get("/", (_, res) => {
   res.json({
