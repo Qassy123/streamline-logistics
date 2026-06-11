@@ -70,19 +70,29 @@ model TradeAccount {
   id                        String             @id @default(cuid())
   userId                    String             @unique
   status                    TradeAccountStatus @default(PENDING)
+
   companyName               String
   companyRegistrationNumber String?
   vatNumber                 String?
   directorName              String?
   businessAddress           String?
   tradeReferences           String?
+
+  monthlySpendEstimate      String?
+  creditLimitRequested      Decimal?
+  applicationNotes          String?
+  creditCheckConsent        Boolean            @default(false)
+  termsAccepted             Boolean            @default(false)
+
   creditLimit               Decimal            @default(2500)
   currentBalance            Decimal            @default(0)
   paymentTermsDays          Int                @default(30)
+
   approvedAt                DateTime?
   rejectedAt                DateTime?
   createdAt                 DateTime           @default(now())
   updatedAt                 DateTime           @updatedAt
+
   user                      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
