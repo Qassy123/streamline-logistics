@@ -72,17 +72,55 @@ model TradeAccount {
   status                    TradeAccountStatus @default(PENDING)
 
   companyName               String
+  tradingName               String?
   companyRegistrationNumber String?
   vatNumber                 String?
-  directorName              String?
-  businessAddress           String?
-  tradeReferences           String?
+  dateBusinessEstablished   String?
+  businessType              String?
+  companyWebsite            String?
+  annualTurnover            String?
 
-  monthlySpendEstimate      String?
-  creditLimitRequested      Decimal?
-  applicationNotes          String?
+  registeredAddressLine1    String?
+  registeredAddressLine2    String?
+  registeredTownCity        String?
+  registeredCounty          String?
+  registeredPostcode        String?
+  registeredCountry         String?
+
+  tradingAddressDifferent   Boolean            @default(false)
+  tradingAddressLine1       String?
+  tradingAddressLine2       String?
+  tradingTownCity           String?
+  tradingCounty             String?
+  tradingPostcode           String?
+  tradingCountry            String?
+
+  accountsContactName       String?
+  accountsJobTitle          String?
+  accountsEmail             String?
+  accountsPhone             String?
+  invoiceDeliveryEmail      String?
+
+  primaryFirstName          String?
+  primaryLastName           String?
+  primaryPosition           String?
+  primaryEmail              String?
+  primaryMobile             String?
+
+  requestedCreditLimit      Decimal?
+  expectedMonthlySpend      String?
+  estimatedShipmentsPerMonth String?
+  preferredPaymentTerms     String?
+
+  serviceNextDayDelivery    Boolean            @default(false)
+  serviceMultiDrop          Boolean            @default(false)
+  serviceDedicatedVehicles  Boolean            @default(false)
+
   creditCheckConsent        Boolean            @default(false)
+  authorisedToApply         Boolean            @default(false)
+  creditSubjectToApproval   Boolean            @default(false)
   termsAccepted             Boolean            @default(false)
+  privacyAccepted           Boolean            @default(false)
 
   creditLimit               Decimal            @default(2500)
   currentBalance            Decimal            @default(0)
