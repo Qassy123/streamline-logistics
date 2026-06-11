@@ -169,6 +169,8 @@ export default async function PaymentsPage({
                       "Dedicated account management",
                       "Monthly discounts (POA)",
                     ]}
+                    href={`/register-trade?quoteId=${quote.id}`}
+                    buttonText="Apply For Trade Account"
                   />
                 </div>
               </div>
