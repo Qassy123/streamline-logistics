@@ -269,6 +269,7 @@ export default function QuotePage() {
   const [selectedVehicle, setSelectedVehicle] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [capacityPercent, setCapacityPercent] = useState<number | null>(null);
+  const [returnCapacityPercent, setReturnCapacityPercent] = useState<number | null>(null);
   const [extraStops, setExtraStops] = useState<ExtraStop[]>([]);
 
   const [collectionDate, setCollectionDate] = useState("");
@@ -295,6 +296,7 @@ export default function QuotePage() {
         selectedJourneyType?: string;
         selectedVehicle?: string;
         capacityPercent?: number | null;
+        returnCapacityPercent?: number | null;
         extraStops?: ExtraStop[];
         collectionDate?: string;
         collectionWindow?: string;
@@ -309,6 +311,7 @@ export default function QuotePage() {
       setSelectedJourneyType(draft.selectedJourneyType || "");
       setSelectedVehicle(draft.selectedVehicle || "");
       setCapacityPercent(draft.capacityPercent ?? null);
+      setReturnCapacityPercent(draft.returnCapacityPercent ?? null);
       setExtraStops(Array.isArray(draft.extraStops) ? draft.extraStops : []);
       setCollectionDate(draft.collectionDate || "");
       setCollectionWindow(draft.collectionWindow || "");
@@ -363,6 +366,7 @@ export default function QuotePage() {
         selectedJourneyType,
         selectedVehicle,
         capacityPercent,
+        returnCapacityPercent,
         extraStops,
         collectionDate,
         collectionWindow,
@@ -383,6 +387,7 @@ export default function QuotePage() {
     selectedJourneyType,
     selectedVehicle,
     capacityPercent,
+    returnCapacityPercent,
     extraStops,
     collectionDate,
     collectionWindow,
@@ -396,8 +401,10 @@ export default function QuotePage() {
     selectedDeliveryType === "Full Day Booking" ||
     selectedDeliveryType === "Half Day Booking";
 
-  const showCapacity =
+  const showCollectionCapacity =
     selectedJourneyType === "One Way" || selectedJourneyType === "Return";
+  const showReturnCapacity = selectedJourneyType === "Return";
+  const showCapacity = showCollectionCapacity;
   const showExtraStops = selectedJourneyType === "Multi Drop";
   const showAddressFields = Boolean(collectionDate && collectionWindow);
   const returnAddress = formatAddress(collectionAddress);
@@ -461,6 +468,42 @@ export default function QuotePage() {
     );
   }
 
+  function scrollToField(target?: string) {
+    window.requestAnimationFrame(() => {
+      const form = formRef.current;
+
+      if (!form) return;
+
+      const targetElement = target
+        ? form.querySelector<HTMLElement>(
+            `[name="${target}"], [data-scroll-target="${target}"], #${target}`,
+          )
+        : form.querySelector<HTMLElement>(":invalid");
+
+      if (!targetElement) return;
+
+      targetElement.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      if (
+        targetElement instanceof HTMLInputElement ||
+        targetElement instanceof HTMLSelectElement ||
+        targetElement instanceof HTMLTextAreaElement ||
+        targetElement instanceof HTMLButtonElement
+      ) {
+        targetElement.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function stopWithError(message: string, target?: string) {
+    setError(message);
+    setLoading(false);
+    scrollToField(target);
+  }
+
   function handleDeliveryTypeChange(value: string) {
     setSelectedDeliveryType(value);
     setError("");
@@ -469,6 +512,7 @@ export default function QuotePage() {
     if (value === "Full Day Booking" || value === "Half Day Booking") {
       setSelectedJourneyType("");
       setCapacityPercent(null);
+      setReturnCapacityPercent(null);
       setExtraStops([]);
     }
   }
@@ -483,28 +527,25 @@ export default function QuotePage() {
     const formData = new FormData(form);
 
     if (!hideJourneyType && !selectedJourneyType) {
-      setError("Please select One Way, Return, or Multi Drop.");
-      setLoading(false);
+      stopWithError("Please select One Way, Return, or Multi Drop.", "journeyType");
       return;
     }
 
     if (!collectionDate || !collectionWindow) {
-      setError("Please select collection date and collection window.");
-      setLoading(false);
+      stopWithError("Please select collection date and collection window.", "collectionDate");
       return;
     }
 
     if (!showAddressFields) {
-      setError(
+      stopWithError(
         "Please select collection date and time before entering route details.",
+        "collectionDate",
       );
-      setLoading(false);
       return;
     }
 
     if (!selectedVehicle) {
-      setError("Please select a vehicle size.");
-      setLoading(false);
+      stopWithError("Please select a vehicle size.", "vehicleSize");
       return;
     }
 
@@ -513,40 +554,58 @@ export default function QuotePage() {
       vehicleAvailability[selectedVehicle] &&
       !vehicleAvailability[selectedVehicle].available
     ) {
-      setError(
+      stopWithError(
         "The selected vehicle is currently unavailable. Please choose another vehicle.",
+        "vehicleSize",
       );
-      setLoading(false);
       return;
     }
 
     if (showCapacity && !capacityPercent) {
-      setError("Please select the capacity required.");
-      setLoading(false);
+      stopWithError(
+        "Please select the capacity required on collection.",
+        "collection-capacity",
+      );
+      return;
+    }
+
+    if (showReturnCapacity && !returnCapacityPercent) {
+      stopWithError(
+        "Please select the capacity required on return.",
+        "return-capacity",
+      );
       return;
     }
 
     if (!isAddressComplete(collectionAddress)) {
-      setError("Please complete the full collection address.");
-      setLoading(false);
+      stopWithError(
+        "Please complete the full collection address.",
+        "route-information",
+      );
       return;
     }
 
     if (!isValidUkPostcode(collectionAddress.postcode)) {
-      setError("Please enter a valid UK postcode for the collection address.");
-      setLoading(false);
+      stopWithError(
+        "Please enter a valid UK postcode for the collection address.",
+        "route-information",
+      );
       return;
     }
 
     if (!isAddressComplete(deliveryAddress)) {
-      setError("Please complete the full delivery address.");
-      setLoading(false);
+      stopWithError(
+        "Please complete the full delivery address.",
+        "route-information",
+      );
       return;
     }
 
     if (!isValidUkPostcode(deliveryAddress.postcode)) {
-      setError("Please enter a valid UK postcode for the delivery address.");
-      setLoading(false);
+      stopWithError(
+        "Please enter a valid UK postcode for the delivery address.",
+        "route-information",
+      );
       return;
     }
 
@@ -564,16 +623,18 @@ export default function QuotePage() {
       .sort((a, b) => a.order - b.order);
 
     if (showExtraStops && cleanedStops.length === 0) {
-      setError(
+      stopWithError(
         "Please add at least one extra stop for this multi-drop journey.",
+        "extra-stops",
       );
-      setLoading(false);
       return;
     }
 
     if (showExtraStops && extraStops.some((stop) => !isAddressComplete(stop))) {
-      setError("Please complete the address for every extra stop.");
-      setLoading(false);
+      stopWithError(
+        "Please complete the address for every extra stop.",
+        "extra-stops",
+      );
       return;
     }
 
@@ -581,32 +642,29 @@ export default function QuotePage() {
       showExtraStops &&
       extraStops.some((stop) => !isValidUkPostcode(stop.postcode))
     ) {
-      setError("Please enter a valid UK postcode for every extra stop.");
-      setLoading(false);
+      stopWithError(
+        "Please enter a valid UK postcode for every extra stop.",
+        "extra-stops",
+      );
       return;
     }
 
     if (!accuracyConfirmed) {
-      setError("Please confirm that the quote details are accurate.");
-      setLoading(false);
+      stopWithError(
+        "Please confirm that the quote details are accurate.",
+        "accuracyConfirmed",
+      );
       return;
     }
 
     const loadDescription = String(
       formData.get("loadDescription") || "",
     ).trim();
-    const handoverName = String(
-      formData.get("handoverContactName") || "",
-    ).trim();
-    const handoverPhone = String(
-      formData.get("handoverContactPhone") || "",
-    ).trim();
-    const handoverNotes = String(formData.get("handoverNotes") || "").trim();
-
     const payload = {
       deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
       capacityPercent: showCapacity ? capacityPercent : null,
+      returnCapacityPercent: showReturnCapacity ? returnCapacityPercent : null,
 
       collectionDate: new Date(`${collectionDate}T00:00:00.000Z`).toISOString(),
       collectionWindow,
@@ -623,12 +681,12 @@ export default function QuotePage() {
           ? formatAddress(collectionAddress)
           : null,
 
-      extraDrops: cleanedStops.length > 0 ? cleanedStops : null,
+      extraDrops: showExtraStops && cleanedStops.length > 0 ? cleanedStops : null,
 
       loadDescription,
-      handoverContactName: handoverName,
-      handoverContactPhone: handoverPhone,
-      handoverNotes,
+      handoverContactName: null,
+      handoverContactPhone: null,
+      handoverNotes: null,
       fragileGoods,
       contactPreference: formData.get("contactPreference"),
       accuracyConfirmed,
@@ -874,6 +932,13 @@ export default function QuotePage() {
 
                               if (option === "Multi Drop") {
                                 setCapacityPercent(null);
+                                setReturnCapacityPercent(null);
+                              } else {
+                                setExtraStops([]);
+                              }
+
+                              if (option !== "Return") {
+                                setReturnCapacityPercent(null);
                               }
                             }}
                             className="sr-only"
@@ -885,13 +950,16 @@ export default function QuotePage() {
                   </div>
                 )}
 
-                {showCapacity && (
-                  <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                {showCollectionCapacity && (
+                  <div
+                    className="rounded-3xl border border-[#D7E6FF] bg-white p-5"
+                    data-scroll-target="collection-capacity"
+                  >
                     <div className="flex items-center gap-2">
                       <label className="block text-sm font-semibold text-[#071D49]">
-                        Capacity Required
+                        Capacity Required On Collection
                       </label>
-                      <InfoTooltip text="Select how much vehicle space your goods need. This is shown for One Way and Return journeys only." />
+                      <InfoTooltip text="Select how much vehicle space your goods need on collection." />
                     </div>
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -917,6 +985,42 @@ export default function QuotePage() {
                     </div>
                   </div>
                 )}
+
+                {showReturnCapacity && (
+                  <div
+                    className="rounded-3xl border border-[#D7E6FF] bg-white p-5"
+                    data-scroll-target="return-capacity"
+                  >
+                    <div className="flex items-center gap-2">
+                      <label className="block text-sm font-semibold text-[#071D49]">
+                        Capacity Required On Return
+                      </label>
+                      <InfoTooltip text="Select how much vehicle space your return load needs." />
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {capacityOptions.map((option) => (
+                        <button
+                          key={option.percent}
+                          type="button"
+                          onClick={() => setReturnCapacityPercent(option.percent)}
+                          className={`rounded-2xl border p-4 text-left transition ${
+                            returnCapacityPercent === option.percent
+                              ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                              : "border-[#D7E6FF] bg-[#F4F8FF] text-[#071D49] hover:border-[#2D8CFF]"
+                          }`}
+                        >
+                          <span className="block text-lg font-bold">
+                            {option.label}
+                          </span>
+                          <span className="mt-1 block text-xs font-semibold opacity-80">
+                            {option.text}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -927,7 +1031,7 @@ export default function QuotePage() {
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <h2 className="text-xl font-bold text-[#071D49]">
-                    Collection date + Time
+                    Collection Date & Time
                   </h2>
                   <InfoTooltip text="Select the collection date and collection window. Same-day bookings only show windows at least 2 hours ahead. Future dates show all valid windows." />
                 </div>
@@ -1031,7 +1135,10 @@ export default function QuotePage() {
               </div>
             </section>
 
-            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
+            <section
+              className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6"
+              data-scroll-target="route-information"
+            >
               <div className="mb-6">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
                   Step 4
@@ -1234,7 +1341,10 @@ export default function QuotePage() {
                   )}
 
                   {showExtraStops && (
-                    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                    <div
+                      className="rounded-3xl border border-[#D7E6FF] bg-white p-5"
+                      data-scroll-target="extra-stops"
+                    >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-sm font-bold text-[#071D49]">
@@ -1369,42 +1479,15 @@ export default function QuotePage() {
                 </p>
                 <div className="mt-2 flex items-center gap-2">
                   <h2 className="text-xl font-bold text-[#071D49]">
-                    Load + Contact details
+                    Load & Contact Details
                   </h2>
                   <InfoTooltip text="Provide load information and the best contact details for booking updates. Add handover contact details for the delivery handover at collection." />
                 </div>
               </div>
 
-              <div className="mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm leading-6 text-[#071D49]">
+              <div className="mb-6 rounded-2xl border border-[#006CFF]/30 bg-[#EAF2FF] p-5 text-sm font-bold leading-6 text-[#071D49] shadow-sm">
                 Please provide the contact information for the delivery handover
-                at collection so the driver knows who to hand the goods over to.
-              </div>
-
-              <div className="mb-6 rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                <h3 className="text-base font-bold text-[#071D49]">
-                  Delivery handover contact at collection
-                </h3>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <input
-                    name="handoverContactName"
-                    placeholder="Handover contact name"
-                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                  />
-
-                  <input
-                    name="handoverContactPhone"
-                    placeholder="Handover contact phone"
-                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
-                  />
-
-                  <textarea
-                    name="handoverNotes"
-                    rows={3}
-                    placeholder="Additional handover notes"
-                    className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10 md:col-span-2"
-                  />
-                </div>
+                at collection.
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
@@ -1416,7 +1499,7 @@ export default function QuotePage() {
                     name="loadDescription"
                     required
                     rows={3}
-                    placeholder="Example: palletised goods, machinery, boxed items"
+                    placeholder="Example: palletised goods, boxed items"
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                   />
                 </div>
@@ -1470,14 +1553,14 @@ export default function QuotePage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
-                    Trading Name If Different
+                    Legal Entity Name
                   </label>
                   <input
-                    name="tradingName"
+                    name="legalEntity"
+                    required
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                   />
                 </div>
-
 
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
@@ -1493,11 +1576,10 @@ export default function QuotePage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
-                    Legal Entity
+                    Trading Name If Different
                   </label>
                   <input
-                    name="legalEntity"
-                    required
+                    name="tradingName"
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                   />
                 </div>
@@ -1508,6 +1590,7 @@ export default function QuotePage() {
               <label className="flex cursor-pointer items-start gap-4 text-sm font-bold text-[#071D49]">
                 <input
                   type="checkbox"
+                  name="accuracyConfirmed"
                   checked={accuracyConfirmed}
                   onChange={(event) =>
                     setAccuracyConfirmed(event.target.checked)
