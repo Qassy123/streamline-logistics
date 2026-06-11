@@ -184,7 +184,11 @@ function RegisterBusinessForm() {
         throw new Error(getResponseErrorMessage(data));
       }
 
-      router.push(data?.redirectUrl || `/payments?quoteId=${quoteId}`);
+      router.push(
+        quoteId
+          ? `/business-account-success?quoteId=${quoteId}`
+          : "/business-account-success"
+      );
     } catch (error) {
       console.error("Business account registration error:", error);
       setError(
@@ -225,8 +229,8 @@ function RegisterBusinessForm() {
                   {[
                     "Account created instantly",
                     "Quote retained against your details",
-                    "Redirect back to secure payment",
-                    "Invoice emailed after successful payment",
+                    "Account confirmation shown after submission",
+                    "Future bookings prepared for account features",
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
                       <CheckCircle size={17} className="text-[#2D8CFF]" />
@@ -485,7 +489,7 @@ function RegisterBusinessForm() {
             >
               {loading
                 ? "Creating Business Account..."
-                : "Create Business Account & Continue To Payment"}
+                : "Create Business Account"}
             </button>
           </form>
         </section>
