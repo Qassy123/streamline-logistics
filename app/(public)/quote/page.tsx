@@ -90,7 +90,7 @@ const vehicleDetails: Record<
     maxWeight: "1,200kg",
     image: "/Vehicles/lwb.jpg",
   },
-  "XLWB High Roof": {
+  "XLWB High Roof Van": {
     label: "XLWB High Roof Van",
     length: "4.2m",
     width: "1.7m",
@@ -99,8 +99,8 @@ const vehicleDetails: Record<
     maxWeight: "1,400kg",
     image: "/Vehicles/XLWB High Roof.jpg",
   },
-  "Luton Tail Lift Curtainsider": {
-    label: "Luton Tail Lift Curtainsider Van",
+  "Luton Tail Lift Van": {
+    label: "Luton Tail Lift Van",
     length: "4.0m",
     width: "2.0m",
     height: "2.0m",
@@ -117,31 +117,32 @@ const vehicleAvailability: Record<
   "Small Van": { available: true },
   "SWB Van": { available: true },
   "LWB High Roof Van": { available: true },
-  "XLWB High Roof": { available: true },
-  "Luton Tail Lift Curtainsider": { available: true },
+  "XLWB High Roof Van": { available: true },
+  "Luton Tail Lift Van": { available: true },
 };
 
-const vehicleOptions = Object.keys(vehicleDetails).sort(
-  (firstVehicle, secondVehicle) => {
-    const firstAvailable = vehicleAvailability[firstVehicle]?.available ?? true;
-    const secondAvailable =
-      vehicleAvailability[secondVehicle]?.available ?? true;
-
-    if (firstAvailable === secondAvailable) {
-      return vehicleDetails[firstVehicle].label.localeCompare(
-        vehicleDetails[secondVehicle].label,
-      );
-    }
-
-    return firstAvailable ? -1 : 1;
-  },
-);
+const vehicleOptions = [
+  "Small Van",
+  "SWB Van",
+  "LWB High Roof Van",
+  "XLWB High Roof Van",
+  "Luton Tail Lift Van",
+];
 
 const capacityOptions = [
-  { percent: 25, label: "25%", text: "Quarter load" },
-  { percent: 50, label: "50%", text: "Half load" },
-  { percent: 75, label: "75%", text: "Three quarter load" },
-  { percent: 100, label: "100%", text: "Full load" },
+  { percent: 25, label: "0-25", text: "Quarter load" },
+  { percent: 50, label: "25-50", text: "Half load" },
+  { percent: 75, label: "50-75", text: "Three quarter load" },
+  { percent: 100, label: "75-100", text: "Full load" },
+];
+
+const collectingOptions = [
+  "Documents",
+  "Small Item",
+  "Medium Item",
+  "Large Item",
+  "Fragile Item",
+  "Pallet",
 ];
 
 const emptyAddress: AddressFields = {
@@ -266,6 +267,7 @@ export default function QuotePage() {
 
   const [selectedDeliveryType, setSelectedDeliveryType] = useState("");
   const [selectedJourneyType, setSelectedJourneyType] = useState("");
+  const [selectedCollectingItem, setSelectedCollectingItem] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [capacityPercent, setCapacityPercent] = useState<number | null>(null);
@@ -294,6 +296,7 @@ export default function QuotePage() {
       const draft = JSON.parse(savedDraft) as {
         selectedDeliveryType?: string;
         selectedJourneyType?: string;
+        selectedCollectingItem?: string;
         selectedVehicle?: string;
         capacityPercent?: number | null;
         returnCapacityPercent?: number | null;
@@ -309,6 +312,7 @@ export default function QuotePage() {
 
       setSelectedDeliveryType(draft.selectedDeliveryType || "");
       setSelectedJourneyType(draft.selectedJourneyType || "");
+      setSelectedCollectingItem(draft.selectedCollectingItem || "");
       setSelectedVehicle(draft.selectedVehicle || "");
       setCapacityPercent(draft.capacityPercent ?? null);
       setReturnCapacityPercent(draft.returnCapacityPercent ?? null);
@@ -364,6 +368,7 @@ export default function QuotePage() {
       JSON.stringify({
         selectedDeliveryType,
         selectedJourneyType,
+        selectedCollectingItem,
         selectedVehicle,
         capacityPercent,
         returnCapacityPercent,
@@ -385,6 +390,7 @@ export default function QuotePage() {
     draftLoaded,
     selectedDeliveryType,
     selectedJourneyType,
+    selectedCollectingItem,
     selectedVehicle,
     capacityPercent,
     returnCapacityPercent,
@@ -531,6 +537,11 @@ export default function QuotePage() {
       return;
     }
 
+    if (!selectedCollectingItem) {
+      stopWithError("Please select what we are collecting.", "collecting-item");
+      return;
+    }
+
     if (!collectionDate || !collectionWindow) {
       stopWithError("Please select collection date and collection window.", "collectionDate");
       return;
@@ -660,9 +671,14 @@ export default function QuotePage() {
     const loadDescription = String(
       formData.get("loadDescription") || "",
     ).trim();
+    const specialInstructions = String(
+      formData.get("specialInstructions") || "",
+    ).trim();
+
     const payload = {
       deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
+      collectingItem: selectedCollectingItem || null,
       capacityPercent: showCapacity ? capacityPercent : null,
       returnCapacityPercent: showReturnCapacity ? returnCapacityPercent : null,
 
@@ -684,6 +700,7 @@ export default function QuotePage() {
       extraDrops: showExtraStops && cleanedStops.length > 0 ? cleanedStops : null,
 
       loadDescription,
+      specialInstructions,
       handoverContactName: null,
       handoverContactPhone: null,
       handoverNotes: null,
@@ -892,17 +909,9 @@ export default function QuotePage() {
                     className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                   >
                     <option value="">Select delivery type</option>
-                    <option value="Same Day Delivery (One Way, Return, Multi Drop)">
-                      Same Day Delivery (One Way, Return, Multi Drop)
-                    </option>
-                    <option value="Next Day Delivery (One Way, Return, Multi Drop)">
-                      Next Day Delivery (One Way, Return, Multi Drop)
-                    </option>
-                    <option value="Full Day Booking">Full Day Booking</option>
-                    <option value="Half Day Booking">Half Day Booking</option>
-                    <option value="Full Load (One Way, Return, Multi Drop)">
-                      Full Load (One Way, Return, Multi Drop)
-                    </option>
+                    <option value="Same Day Delivery">Same Day Delivery</option>
+                    <option value="Next Day Delivery">Next Day Delivery</option>
+                    <option value="Multi Drop Delivery">Multi Drop Delivery</option>
                   </select>
                 </div>
 
@@ -949,6 +958,46 @@ export default function QuotePage() {
                     </div>
                   </div>
                 )}
+
+                <div
+                  className="rounded-3xl border border-[#D7E6FF] bg-white p-5"
+                  data-scroll-target="collecting-item"
+                >
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    What are we collecting?
+                  </label>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {collectingOptions.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setSelectedCollectingItem(option)}
+                        className={`rounded-2xl border p-4 text-left text-sm font-bold transition ${
+                          selectedCollectingItem === option
+                            ? "border-[#006CFF] bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/20"
+                            : "border-[#D7E6FF] bg-[#F4F8FF] text-[#071D49] hover:border-[#2D8CFF]"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold leading-6 text-red-800">
+                    Our couriers work in <span className="font-bold">1 man teams</span>; you may need to provide assistance lifting heavy or fragile items at the collection and delivery addresses.
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-900">
+                    <span className="font-bold">
+                      Please ensure suitable loading and unloading facilities are available
+                    </span>{" "}
+                    at both the pick up and delivery address (e.g a forklift,
+                    pallet truck, or sufficient manual assistance). Streamline
+                    cannot be held responsible if a pallet cannot be loaded or
+                    unloaded due to inadequate facilities at either address.
+                  </div>
+                </div>
 
                 {showCollectionCapacity && (
                   <div
@@ -1079,13 +1128,6 @@ export default function QuotePage() {
                   </select>
                 </div>
               </div>
-
-              {!showAddressFields && (
-                <div className="mt-6 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-semibold text-[#071D49]">
-                  Select the collection date and collection window before
-                  entering collection and delivery addresses.
-                </div>
-              )}
             </section>
 
             <section className="rounded-3xl border border-[#D7E6FF] bg-white p-5 sm:p-6">
@@ -1099,6 +1141,15 @@ export default function QuotePage() {
                   </h2>
                   <InfoTooltip text="Choose the vehicle size needed for the load. Available vehicles are shown first and unavailable vehicles are disabled for future booking control." />
                 </div>
+              </div>
+
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold leading-6 text-amber-900">
+                <span className="font-bold">Important:</span> you are
+                responsible for selecting the correct minimum van size. Please
+                ensure the van you select is large enough for all your items -
+                consider size, weight, and quantity. If in doubt, please choose
+                a larger size. Streamline cannot be held responsible if an
+                incorrectly sized van is selected and your items do not fit.
               </div>
 
               <div>
@@ -1504,6 +1555,18 @@ export default function QuotePage() {
                   />
                 </div>
 
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-[#071D49]">
+                    Any special instructions
+                  </label>
+                  <textarea
+                    name="specialInstructions"
+                    rows={3}
+                    placeholder="Add any special instructions for collection, delivery, access, loading or unloading."
+                    className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 text-[#071D49] outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
                     Contact Preference
@@ -1519,15 +1582,6 @@ export default function QuotePage() {
                     <option value="WhatsApp">WhatsApp</option>
                   </select>
                 </div>
-
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 text-sm font-bold text-[#071D49]">
-                  <input
-                    type="checkbox"
-                    checked={fragileGoods}
-                    onChange={(event) => setFragileGoods(event.target.checked)}
-                  />
-                  Fragile goods
-                </label>
 
                 <div>
                   <label className="block text-sm font-semibold text-[#071D49]">
