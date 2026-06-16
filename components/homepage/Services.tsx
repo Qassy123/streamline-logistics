@@ -20,7 +20,7 @@ export default function Services() {
           </p>
         </div>
 
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto grid max-w-6xl gap-8 md:grid-cols-2 lg:grid-cols-3">
           {services.map((service, index) => {
             const Icon = icons[index];
 
