@@ -1,6 +1,6 @@
 export const reasons = [
   {
-    title: "Fast & Efficient",
+    title: "Fast, Reliable & Dependable",
     description:
       "Urgent collections handled quickly with direct delivery from pickup to destination.",
   },
@@ -12,11 +12,11 @@ export const reasons = [
   {
     title: "Tailored Pricing",
     description:
-      "Flexible pricing for single jobs, repeat routes, half-day bookings and full-day support.",
+      "Flexible pricing tailored around your business delivery requirements.",
   },
   {
     title: "Complete Logistics Solutions",
     description:
-      "From parcels to full loads, we provide dependable transport support built around your operation.",
+      "Professional transport solutions designed to support your business operation.",
   },
 ];

@@ -11,7 +11,7 @@ const features = [
   {
     title: "Complete Delivery Solutions",
     description:
-      "Collection and drop-off support for parcels, business goods, multi-drop routes and full-load deliveries.",
+      "Collection and drop-off support for same day delivery, next day delivery, multi-drop routes and wider business delivery needs.",
     icon: MapPinned,
   },
   {
@@ -21,9 +21,9 @@ const features = [
     icon: Clock3,
   },
   {
-    title: "Reliable & Vetted Drivers",
+    title: "Reliable & Trusted",
     description:
-      "Our drivers are fully insured, carefully checked and prepared to handle business deliveries responsibly.",
+      "We are fully prepared to handle business deliveries responsibly.",
     icon: ShieldCheck,
   },
   {
@@ -41,7 +41,7 @@ const features = [
   {
     title: "Flexible Pricing",
     description:
-      "Pricing built around the job, including same-day, multi-drop, parcel and full-load delivery needs.",
+      "Pricing built around the job, including same day delivery, next day delivery and multi-drop delivery needs.",
     icon: BadgeCheck,
   },
 ];

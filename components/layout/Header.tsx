@@ -15,7 +15,7 @@ export default function Header() {
         <div className="mx-auto flex h-[86px] max-w-[1700px] items-center justify-between gap-4 px-4 sm:h-[96px] sm:px-6 lg:h-[120px] lg:gap-8 lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[230px] shrink-0 items-center sm:w-[300px] md:w-[360px] lg:w-[480px]"
+            className="flex h-full w-[270px] shrink-0 items-center sm:w-[330px] md:w-[380px] lg:w-[480px]"
             aria-label="Streamline Logistics Group home"
           >
             <Image
