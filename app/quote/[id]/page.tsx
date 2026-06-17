@@ -24,6 +24,7 @@ type QuoteDetails = {
   deliveryAddress: string | null;
   extraDrops: unknown;
   loadDescription: string | null;
+  specialInstructions?: string | null;
   fragileGoods: boolean | null;
   contactPreference: string | null;
   customerName: string | null;
@@ -289,8 +290,8 @@ export default async function QuoteDetailsPage({
                     value={quote.loadDescription}
                   />
                   <Detail
-                    label="Fragile Goods"
-                    value={formatValue(quote.fragileGoods)}
+                    label="Any Special Instructions"
+                    value={quote.specialInstructions}
                   />
                 </div>
               </div>
@@ -309,8 +310,11 @@ export default async function QuoteDetailsPage({
                     label="Contact Preference"
                     value={quote.contactPreference}
                   />
-                  <Detail label="Legal Entity" value={businessName} />
-                  <Detail label="Trading Name" value={quote.tradingName} />
+                  <Detail label="Legal Entity Name" value={businessName} />
+                  <Detail
+                    label="Trading Name If Different"
+                    value={quote.tradingName}
+                  />
                 </div>
               </div>
             </section>
