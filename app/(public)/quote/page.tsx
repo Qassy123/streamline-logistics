@@ -678,7 +678,7 @@ export default function QuotePage() {
     const payload = {
       deliveryType: formData.get("deliveryType"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
-      collectingItem: selectedCollectingItem || null,
+      whatAreWeCollecting: selectedCollectingItem || null,
       capacityPercent: showCapacity ? capacityPercent : null,
       returnCapacityPercent: showReturnCapacity ? returnCapacityPercent : null,
 
