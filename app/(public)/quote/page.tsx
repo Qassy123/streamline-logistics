@@ -342,7 +342,7 @@ function getResponseErrorMessage(data: unknown) {
   return "Unable to generate quote. Please try again.";
 }
 
-function setFormFieldIfEmpty(
+function setFormField(
   form: HTMLFormElement,
   name: string,
   value: string | null | undefined,
@@ -356,9 +356,7 @@ function setFormFieldIfEmpty(
     field instanceof HTMLSelectElement ||
     field instanceof HTMLTextAreaElement
   ) {
-    if (!field.value) {
-      field.value = value;
-    }
+    field.value = value;
   }
 }
 
@@ -548,15 +546,15 @@ export default function QuotePage() {
               .filter((value) => value && value.trim() !== "")
               .join(" ");
 
-          setFormFieldIfEmpty(form, "customerName", fullName);
-          setFormFieldIfEmpty(form, "customerEmail", user.email);
-          setFormFieldIfEmpty(form, "customerPhone", user.phone);
-          setFormFieldIfEmpty(
+          setFormField(form, "customerName", fullName);
+          setFormField(form, "customerEmail", user.email);
+          setFormField(form, "customerPhone", user.phone);
+          setFormField(
             form,
             "legalEntity",
             user.legalEntity || user.companyName,
           );
-          setFormFieldIfEmpty(form, "tradingName", user.tradingName);
+          setFormField(form, "tradingName", user.tradingName);
         });
       } catch {
         return;

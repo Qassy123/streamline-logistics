@@ -64,6 +64,70 @@ export default async function PaymentSuccessPage({
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 sm:py-12">
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              async function updateSuccessPageForLoggedInUser() {
+                try {
+                  var token = window.localStorage.getItem("streamline_auth_token");
+                  if (!token) return;
+
+                  var response = await fetch("${BACKEND_API_URL}/accounts/me", {
+                    headers: {
+                      Authorization: "Bearer " + token
+                    }
+                  });
+
+                  if (!response.ok) return;
+
+                  var data = await response.json();
+                  var user = data && data.user ? data.user : null;
+                  if (!user) return;
+
+                  var businessName =
+                    user.legalEntity ||
+                    user.companyName ||
+                    user.name ||
+                    "Business account linked";
+
+                  var accountValue = document.getElementById("payment-success-account-value");
+                  var eyebrow = document.getElementById("payment-success-account-eyebrow");
+                  var title = document.getElementById("payment-success-account-title");
+                  var text = document.getElementById("payment-success-account-text");
+                  var cta = document.getElementById("payment-success-account-cta");
+                  var ctaIconUser = document.getElementById("payment-success-user-icon");
+                  var ctaIconDashboard = document.getElementById("payment-success-dashboard-icon");
+                  var lockText = document.getElementById("payment-success-lock-text");
+
+                  if (accountValue) accountValue.textContent = businessName;
+                  if (eyebrow) eyebrow.textContent = "Account linked";
+                  if (title) title.textContent = "Manage this booking from your dashboard.";
+                  if (text) {
+                    text.textContent =
+                      "Your payment is complete and this booking is linked to your Streamline account. You can view tracking, invoices, saved routes and booking history from your dashboard.";
+                  }
+
+                  if (cta) {
+                    cta.setAttribute("href", "/dashboard");
+                    cta.innerHTML =
+                      '<span class="inline-flex items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>Go To Dashboard<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span>';
+                  }
+
+                  if (ctaIconUser) ctaIconUser.style.display = "none";
+                  if (ctaIconDashboard) ctaIconDashboard.style.display = "block";
+                  if (lockText) lockText.style.display = "none";
+                } catch (error) {
+                  return;
+                }
+              }
+
+              updateSuccessPageForLoggedInUser();
+            })();
+          `,
+        }}
+      />
+
       <div className="mx-auto max-w-6xl">
         <section className="overflow-hidden rounded-[1.5rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10 sm:rounded-[2rem]">
           <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white sm:p-10">
@@ -128,6 +192,7 @@ export default async function PaymentSuccessPage({
                       ? businessName || "Business account linked"
                       : "Guest checkout"
                   }
+                  valueId="payment-success-account-value"
                 />
               </div>
             </section>
@@ -136,25 +201,35 @@ export default async function PaymentSuccessPage({
               <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_58%,_#006CFF_100%)] p-6 text-white sm:p-8">
                 <div className="flex items-start gap-5">
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#2D8CFF]/40 bg-white/[0.06] text-[#2D8CFF]">
-                    {hasLinkedAccount ? (
+                    <span id="payment-success-dashboard-icon" style={{ display: hasLinkedAccount ? "block" : "none" }}>
                       <LayoutDashboard size={34} />
-                    ) : (
+                    </span>
+                    <span id="payment-success-user-icon" style={{ display: hasLinkedAccount ? "none" : "block" }}>
                       <User size={34} />
-                    )}
+                    </span>
                   </span>
 
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                    <p
+                      id="payment-success-account-eyebrow"
+                      className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]"
+                    >
                       {hasLinkedAccount ? "Account linked" : "One last step"}
                     </p>
 
-                    <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+                    <h2
+                      id="payment-success-account-title"
+                      className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl"
+                    >
                       {hasLinkedAccount
                         ? "Manage this booking from your dashboard."
                         : "Track your deliveries in real time."}
                     </h2>
 
-                    <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
+                    <p
+                      id="payment-success-account-text"
+                      className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base"
+                    >
                       {hasLinkedAccount
                         ? "Your payment is complete and this booking is linked to your Streamline account. You can view tracking, invoices, saved routes and booking history from your dashboard."
                         : "Create a free Streamline account to unlock live shipment tracking, saved details, booking history and one-click checkout."}
@@ -266,35 +341,40 @@ export default async function PaymentSuccessPage({
 
                 <div className="lg:col-span-2">
                   <div className="mx-auto grid max-w-xl gap-4">
-                    {hasLinkedAccount ? (
-                      <Link
-                        href="/dashboard"
-                        className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
-                      >
-                        <LayoutDashboard size={22} />
-                        Go To Dashboard
-                        <ArrowRight size={18} />
-                      </Link>
-                    ) : (
-                      <>
-                        <Link
-                          href={
-                            quoteId
-                              ? `/register-business?quoteId=${quoteId}`
-                              : "/register-business"
-                          }
-                          className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
-                        >
+                    <Link
+                      id="payment-success-account-cta"
+                      href={
+                        hasLinkedAccount
+                          ? "/dashboard"
+                          : quoteId
+                          ? `/register-business?quoteId=${quoteId}`
+                          : "/register-business"
+                      }
+                      className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
+                    >
+                      {hasLinkedAccount ? (
+                        <>
+                          <LayoutDashboard size={22} />
+                          Go To Dashboard
+                          <ArrowRight size={18} />
+                        </>
+                      ) : (
+                        <>
                           <UserPlus size={22} />
                           Create Free Account
                           <span aria-hidden="true">→</span>
-                        </Link>
+                        </>
+                      )}
+                    </Link>
 
-                        <p className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-500">
-                          <Lock size={16} />
-                          Free to create. No card details required.
-                        </p>
-                      </>
+                    {!hasLinkedAccount && (
+                      <p
+                        id="payment-success-lock-text"
+                        className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-500"
+                      >
+                        <Lock size={16} />
+                        Free to create. No card details required.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -317,14 +397,19 @@ export default async function PaymentSuccessPage({
 function ReferenceItem({
   label,
   value,
+  valueId,
 }: {
   label: string;
   value: string;
+  valueId?: string;
 }) {
   return (
     <div>
       <p className="text-sm font-semibold text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-base font-bold text-[#071D49]">
+      <p
+        id={valueId}
+        className="mt-2 break-words text-base font-bold text-[#071D49]"
+      >
         {value}
       </p>
     </div>
