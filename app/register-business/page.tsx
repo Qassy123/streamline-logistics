@@ -16,6 +16,9 @@ import {
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/business";
 
+const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
+const AUTH_USER_STORAGE_KEY = "streamline_auth_user";
+
 const businessTypes = [
   "Sole Trader",
   "Limited Company",
@@ -184,11 +187,20 @@ function RegisterBusinessForm() {
         throw new Error(getResponseErrorMessage(data));
       }
 
-      router.push(
-        quoteId
-          ? `/business-account-success?quoteId=${quoteId}`
-          : "/business-account-success"
-      );
+      if (data?.token) {
+        window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, data.token);
+      }
+
+      if (data?.user) {
+        window.localStorage.setItem(
+          AUTH_USER_STORAGE_KEY,
+          JSON.stringify(data.user)
+        );
+      }
+
+      window.dispatchEvent(new Event("streamline-auth-change"));
+
+      router.push(data?.redirectUrl || "/dashboard");
     } catch (error) {
       console.error("Business account registration error:", error);
       setError(

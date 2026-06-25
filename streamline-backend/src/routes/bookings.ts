@@ -1,5 +1,6 @@
 import { BookingStatus, Prisma, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
+import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
@@ -12,6 +13,49 @@ function generateBookingReference() {
   const randomPart = Math.floor(100000 + Math.random() * 900000);
 
   return `SL-${datePart}-${randomPart}`;
+}
+
+function getAuthToken(req: { headers: { authorization?: string } }) {
+  const header = req.headers.authorization || "";
+
+  if (!header.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return header.replace("Bearer ", "").trim();
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function getAuthenticatedUser(req: { headers: { authorization?: string } }) {
+  const token = getAuthToken(req);
+
+  if (!token) return null;
+
+  const session = await prisma.userSession.findUnique({
+    where: {
+      tokenHash: hashToken(token),
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!session || session.expiresAt <= new Date()) {
+    if (session) {
+      await prisma.userSession.delete({
+        where: {
+          id: session.id,
+        },
+      });
+    }
+
+    return null;
+  }
+
+  return session.user;
 }
 
 function getReservationWindow(collectionDate: Date, collectionWindow: string) {
@@ -64,6 +108,131 @@ router.get("/", async (_, res) => {
   }
 });
 
+router.get("/me", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated.",
+      });
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        payments: true,
+        invoices: true,
+        pod: true,
+        reservation: true,
+        trackingEvents: {
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+      },
+    });
+
+    res.json({
+      bookings,
+    });
+  } catch (error) {
+    console.error("Fetch user bookings error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch your bookings.",
+    });
+  }
+});
+
+router.get("/me/tracking", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated.",
+      });
+    }
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        trackingEvents: {
+          where: {
+            userVisible: true,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+      },
+    });
+
+    res.json({
+      bookings,
+    });
+  } catch (error) {
+    console.error("Fetch tracking error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch tracking.",
+    });
+  }
+});
+
+router.get("/me/invoices", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated.",
+      });
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        booking: {
+          include: {
+            quote: true,
+          },
+        },
+      },
+    });
+
+    res.json({
+      invoices,
+    });
+  } catch (error) {
+    console.error("Fetch invoices error:", error);
+
+    res.status(500).json({
+      error: "Failed to fetch invoices.",
+    });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const booking = await prisma.booking.findUnique({
@@ -78,6 +247,11 @@ router.get("/:id", async (req, res) => {
         invoices: true,
         pod: true,
         reservation: true,
+        trackingEvents: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
       },
     });
 
@@ -265,12 +439,21 @@ router.post("/from-quote/:quoteId", async (req, res) => {
             expiresAt,
           },
         },
+
+        trackingEvents: {
+          create: {
+            status: BookingStatus.PENDING_PAYMENT,
+            title: "Booking Created",
+            description: "Your booking has been created and is pending payment.",
+          },
+        },
       },
       include: {
         quote: true,
         vehicle: true,
         user: true,
         reservation: true,
+        trackingEvents: true,
       },
     });
 
@@ -337,12 +520,24 @@ router.post("/:id/confirm-payment", async (req, res) => {
               },
             }
           : undefined,
+        trackingEvents: {
+          create: {
+            status: BookingStatus.CONFIRMED,
+            title: "Payment Confirmed",
+            description: "Your payment has been received and your booking is confirmed.",
+          },
+        },
       },
       include: {
         quote: true,
         vehicle: true,
         user: true,
         reservation: true,
+        trackingEvents: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
       },
     });
 
@@ -358,12 +553,28 @@ router.post("/:id/confirm-payment", async (req, res) => {
 
 router.patch("/:id/status", async (req, res) => {
   try {
+    const status = req.body.status as BookingStatus;
+
     const booking = await prisma.booking.update({
       where: {
         id: req.params.id,
       },
       data: {
-        status: req.body.status,
+        status,
+        trackingEvents: {
+          create: {
+            status,
+            title: `Booking ${String(status).replace(/_/g, " ").toLowerCase()}`,
+            description: "Your booking status has been updated.",
+          },
+        },
+      },
+      include: {
+        trackingEvents: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
       },
     });
 

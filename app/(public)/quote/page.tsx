@@ -32,9 +32,26 @@ type AddressFields = {
   postcode: string;
 };
 
+type SavedRoutePrefill = {
+  deliveryType?: string | null;
+  journeyType?: string | null;
+  capacityPercent?: number | null;
+  vehicleSize?: string | null;
+  collectionAddress?: string | null;
+  collectionAddressDetails?: Partial<AddressFields> | null;
+  deliveryAddress?: string | null;
+  deliveryAddressDetails?: Partial<AddressFields> | null;
+  extraDrops?: unknown;
+  whatAreWeCollecting?: string | null;
+  loadDescription?: string | null;
+  specialInstructions?: string | null;
+  contactPreference?: string | null;
+};
+
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/quotes";
 const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
+const SAVED_ROUTE_STORAGE_KEY = "streamline_saved_route_prefill";
 
 const twoHourWindows = [
   "00:00-02:00",
@@ -130,10 +147,10 @@ const vehicleOptions = [
 ];
 
 const capacityOptions = [
-  { percent: 25, label: "0-25", text: "Quarter load" },
-  { percent: 50, label: "25-50", text: "Half load" },
-  { percent: 75, label: "50-75", text: "Three quarter load" },
-  { percent: 100, label: "75-100", text: "Full load" },
+  { percent: 25, label: "0-25%", text: "Quarter load" },
+  { percent: 50, label: "25-50%", text: "Half load" },
+  { percent: 75, label: "50-75%", text: "Three quarter load" },
+  { percent: 100, label: "75-100%", text: "Full load" },
 ];
 
 const collectingOptions = [
@@ -152,6 +169,59 @@ const emptyAddress: AddressFields = {
   county: "",
   postcode: "",
 };
+
+function normaliseAddressFields(
+  details: Partial<AddressFields> | null | undefined,
+  fallbackAddress?: string | null,
+): AddressFields {
+  if (details && typeof details === "object") {
+    return {
+      addressLine1: details.addressLine1 || "",
+      addressLine2: details.addressLine2 || "",
+      townCity: details.townCity || "",
+      county: details.county || "",
+      postcode: details.postcode || "",
+    };
+  }
+
+  if (!fallbackAddress) return emptyAddress;
+
+  const parts = fallbackAddress.split(",").map((part) => part.trim());
+
+  return {
+    addressLine1: parts[0] || "",
+    addressLine2: parts[1] || "",
+    townCity: parts[2] || "",
+    county: parts[3] || "",
+    postcode: parts[4] || "",
+  };
+}
+
+function normaliseExtraStops(extraDrops: unknown): ExtraStop[] {
+  if (!Array.isArray(extraDrops)) return [];
+
+  return extraDrops
+    .filter((drop) => drop && typeof drop === "object")
+    .map((drop, index) => {
+      const stop = drop as Partial<ExtraStop> & {
+        address?: string;
+      };
+
+      const fallbackAddress = stop.address || "";
+      const fallbackParts = fallbackAddress
+        .split(",")
+        .map((part) => part.trim());
+
+      return {
+        order: Number(stop.order || index + 2),
+        addressLine1: stop.addressLine1 || fallbackParts[0] || "",
+        addressLine2: stop.addressLine2 || fallbackParts[1] || "",
+        townCity: stop.townCity || fallbackParts[2] || "",
+        county: stop.county || fallbackParts[3] || "",
+        postcode: stop.postcode || fallbackParts[4] || "",
+      };
+    });
+}
 
 function getTodayDateString() {
   const today = new Date();
@@ -286,6 +356,64 @@ export default function QuotePage() {
 
   useEffect(() => {
     try {
+      const savedRoute = window.localStorage.getItem(SAVED_ROUTE_STORAGE_KEY);
+
+      if (savedRoute) {
+        const route = JSON.parse(savedRoute) as SavedRoutePrefill;
+
+        setSelectedDeliveryType(route.deliveryType || "");
+        setSelectedJourneyType(route.journeyType || "");
+        setSelectedCollectingItem(route.whatAreWeCollecting || "");
+        setSelectedVehicle(route.vehicleSize || "");
+        setCapacityPercent(route.capacityPercent ?? null);
+        setReturnCapacityPercent(null);
+        setExtraStops(normaliseExtraStops(route.extraDrops));
+        setCollectionAddress(
+          normaliseAddressFields(
+            route.collectionAddressDetails,
+            route.collectionAddress,
+          ),
+        );
+        setDeliveryAddress(
+          normaliseAddressFields(
+            route.deliveryAddressDetails,
+            route.deliveryAddress,
+          ),
+        );
+        setFragileGoods(false);
+        setAccuracyConfirmed(false);
+
+        window.localStorage.removeItem(SAVED_ROUTE_STORAGE_KEY);
+        window.localStorage.removeItem(QUOTE_FORM_STORAGE_KEY);
+
+        window.requestAnimationFrame(() => {
+          const form = formRef.current;
+
+          if (!form) return;
+
+          const formValues: Record<string, string> = {
+            loadDescription: route.loadDescription || "",
+            specialInstructions: route.specialInstructions || "",
+            contactPreference: route.contactPreference || "",
+          };
+
+          Object.entries(formValues).forEach(([name, value]) => {
+            const field = form.elements.namedItem(name);
+
+            if (
+              field instanceof HTMLInputElement ||
+              field instanceof HTMLSelectElement ||
+              field instanceof HTMLTextAreaElement
+            ) {
+              field.value = value;
+            }
+          });
+        });
+
+        setDraftLoaded(true);
+        return;
+      }
+
       const savedDraft = window.localStorage.getItem(QUOTE_FORM_STORAGE_KEY);
 
       if (!savedDraft) {
@@ -345,6 +473,7 @@ export default function QuotePage() {
       });
     } catch {
       window.localStorage.removeItem(QUOTE_FORM_STORAGE_KEY);
+      window.localStorage.removeItem(SAVED_ROUTE_STORAGE_KEY);
     } finally {
       setDraftLoaded(true);
     }

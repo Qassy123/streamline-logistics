@@ -2,12 +2,87 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, Phone, Search } from "lucide-react";
-import { useState } from "react";
+import { Menu, Phone, Search, UserCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import MobileMenu from "@/components/layout/MobileMenu";
+
+const API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/accounts/me";
+const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
+const AUTH_USER_STORAGE_KEY = "streamline_auth_user";
+
+type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  accountType: "BUSINESS" | "TRADE";
+};
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    loadUser();
+
+    window.addEventListener("streamline-auth-change", loadUser);
+    window.addEventListener("storage", loadUser);
+
+    return () => {
+      window.removeEventListener("streamline-auth-change", loadUser);
+      window.removeEventListener("storage", loadUser);
+    };
+  }, []);
+
+  async function loadUser() {
+    const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+    if (!token) {
+      setUser(null);
+      window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+      return;
+    }
+
+    try {
+      const response = await fetch(API_URL, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        setUser(null);
+        return;
+      }
+
+      const data = await response.json();
+
+      setUser(data.user);
+      window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
+    } catch {
+      setUser(null);
+    }
+  }
+
+  function handleLogout() {
+    const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+    if (token) {
+      fetch("https://streamline-logistics-production.up.railway.app/api/accounts/logout", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => null);
+    }
+
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    setUser(null);
+    window.dispatchEvent(new Event("streamline-auth-change"));
+  }
 
   return (
     <>
@@ -55,7 +130,7 @@ export default function Header() {
             </Link>
           </nav>
 
-          <div className="hidden w-[380px] shrink-0 items-center justify-end gap-6 lg:flex">
+          <div className="hidden w-[460px] shrink-0 items-center justify-end gap-5 lg:flex">
             <a
               href="tel:03333440703"
               className="flex items-center gap-2 whitespace-nowrap font-medium text-white"
@@ -64,12 +139,41 @@ export default function Header() {
               0333 344 0703
             </a>
 
-            <Link
-              href="/payments"
-              className="whitespace-nowrap rounded-full bg-[#006CFF] px-7 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
-            >
-              Make Payment
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-[#006CFF] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
+                >
+                  <UserCircle size={18} />
+                  Dashboard
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="whitespace-nowrap text-sm font-semibold text-white transition hover:text-[#2D8CFF]"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="whitespace-nowrap text-sm font-semibold text-white transition hover:text-[#2D8CFF]"
+                >
+                  Login
+                </Link>
+
+                <Link
+                  href="/register-business"
+                  className="whitespace-nowrap rounded-full bg-[#006CFF] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#2D8CFF]"
+                >
+                  Create Account
+                </Link>
+              </>
+            )}
 
             <Search size={22} className="shrink-0 cursor-pointer text-white" />
           </div>

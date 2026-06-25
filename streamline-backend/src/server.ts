@@ -10,6 +10,7 @@ import paymentRoutes from "./routes/payments";
 import distanceRoutes from "./routes/distance";
 import accountRoutes from "./routes/accounts";
 import tradeAccountRoutes from "./routes/tradeAccounts";
+import savedRouteRoutes from "./routes/savedRoutes";
 
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
@@ -27,6 +28,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/distance", distanceRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/trade-accounts", tradeAccountRoutes);
+app.use("/api/saved-routes", savedRouteRoutes);
 
 app.get("/", (_, res) => {
   res.json({
