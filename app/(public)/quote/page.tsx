@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HelpCircle } from "lucide-react";
 
@@ -361,6 +361,28 @@ function setFormField(
 }
 
 export default function QuotePage() {
+  return (
+    <Suspense fallback={<QuotePageLoading />}>
+      <QuotePageForm />
+    </Suspense>
+  );
+}
+
+function QuotePageLoading() {
+  return (
+    <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 lg:py-12">
+      <div className="mx-auto max-w-5xl">
+        <section className="rounded-[2rem] border border-[#D7E6FF] bg-white p-8 shadow-2xl shadow-black/10">
+          <p className="text-sm font-bold text-[#006CFF]">
+            Loading quote form...
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function QuotePageForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEditingSavedRoute = searchParams.get("edit") === "true";
