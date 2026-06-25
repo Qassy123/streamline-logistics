@@ -59,11 +59,76 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings     Booking[]
-  invoices     Invoice[]
-  payments     Payment[]
-  quotes       Quote[]
-  tradeAccount TradeAccount?
+  bookings            Booking[]
+  invoices            Invoice[]
+  payments            Payment[]
+  quotes              Quote[]
+  savedRoutes         SavedRoute[]
+  sessions            UserSession[]
+  passwordResetTokens PasswordResetToken[]
+  tradeAccount        TradeAccount?
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model SavedRoute {
+  id     String @id @default(cuid())
+  userId String
+
+  name String?
+
+  deliveryType    String?
+  journeyType     String?
+  capacityPercent Int?
+  vehicleSize     String?
+
+  collectionAddress        String
+  collectionAddressDetails Json?
+
+  deliveryAddress        String
+  deliveryAddressDetails Json?
+
+  returnAddress String?
+  extraDrops    Json?
+
+  whatAreWeCollecting String?
+  loadDescription     String?
+  specialInstructions String?
+
+  contactPreference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model TradeAccount {
@@ -107,10 +172,10 @@ model TradeAccount {
   primaryEmail              String?
   primaryMobile             String?
 
-  requestedCreditLimit      Decimal?
-  expectedMonthlySpend      String?
+  requestedCreditLimit       Decimal?
+  expectedMonthlySpend       String?
   estimatedShipmentsPerMonth String?
-  preferredPaymentTerms     String?
+  preferredPaymentTerms      String?
 
   serviceNextDayDelivery    Boolean            @default(false)
   serviceMultiDrop          Boolean            @default(false)
@@ -221,6 +286,22 @@ model Booking {
   pod                POD?
   payments           Payment[]
   reservation        VehicleReservation?
+  trackingEvents     BookingTrackingEvent[]
+}
+
+model BookingTrackingEvent {
+  id          String        @id @default(cuid())
+  bookingId   String
+  status      BookingStatus
+  title       String
+  description String?
+  userVisible Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([createdAt])
 }
 
 model VehicleReservation {
