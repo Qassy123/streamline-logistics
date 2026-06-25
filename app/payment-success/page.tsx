@@ -51,7 +51,7 @@ export default async function PaymentSuccessPage({
     tradeAccountApplication?: string;
   }>;
 }) {
-  const { quoteId } = await searchParams;
+  const { quoteId, session_id } = await searchParams;
 
   const quote = await getQuote(quoteId);
   const businessName =
@@ -248,7 +248,10 @@ export default async function PaymentSuccessPage({
                 </div>
 
                 <div className="lg:col-span-2">
-                  <PaymentSuccessAccountStatus quoteId={quoteId} />
+                  <PaymentSuccessAccountStatus
+                    quoteId={quoteId}
+                    sessionId={session_id}
+                  />
                 </div>
               </div>
 

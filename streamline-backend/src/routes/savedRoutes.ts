@@ -102,6 +102,25 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const existingSavedRoute = await prisma.savedRoute.findFirst({
+      where: {
+        userId: user.id,
+        collectionAddress,
+        deliveryAddress,
+        deliveryType: getString(req.body.deliveryType) || null,
+        journeyType: getString(req.body.journeyType) || null,
+        vehicleSize: getString(req.body.vehicleSize) || null,
+      },
+    });
+
+    if (existingSavedRoute) {
+      return res.json({
+        success: true,
+        alreadyExists: true,
+        savedRoute: existingSavedRoute,
+      });
+    }
+
     const savedRoute = await prisma.savedRoute.create({
       data: {
         userId: user.id,
@@ -136,6 +155,7 @@ router.post("/", async (req, res) => {
 
     res.status(201).json({
       success: true,
+      alreadyExists: false,
       savedRoute,
     });
   } catch (error) {
@@ -167,6 +187,25 @@ router.post("/from-quote/:quoteId", async (req, res) => {
     if (!quote) {
       return res.status(404).json({
         error: "Quote not found.",
+      });
+    }
+
+    const existingSavedRoute = await prisma.savedRoute.findFirst({
+      where: {
+        userId: user.id,
+        collectionAddress: quote.collectionAddress,
+        deliveryAddress: quote.deliveryAddress,
+        deliveryType: quote.deliveryType,
+        journeyType: quote.journeyType,
+        vehicleSize: quote.vehicleSize,
+      },
+    });
+
+    if (existingSavedRoute) {
+      return res.json({
+        success: true,
+        alreadyExists: true,
+        savedRoute: existingSavedRoute,
       });
     }
 
@@ -203,6 +242,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     res.status(201).json({
       success: true,
+      alreadyExists: false,
       savedRoute,
     });
   } catch (error) {

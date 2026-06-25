@@ -8,6 +8,8 @@ import MobileMenu from "@/components/layout/MobileMenu";
 
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/me";
+const LOGOUT_API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/accounts/logout";
 const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
 const AUTH_USER_STORAGE_KEY = "streamline_auth_user";
 
@@ -62,6 +64,8 @@ export default function Header() {
       setUser(data.user);
       window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
     } catch {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
       setUser(null);
     }
   }
@@ -69,8 +73,13 @@ export default function Header() {
   function handleLogout() {
     const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    setUser(null);
+    window.dispatchEvent(new Event("streamline-auth-change"));
+
     if (token) {
-      fetch("https://streamline-logistics-production.up.railway.app/api/accounts/logout", {
+      fetch(LOGOUT_API_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -78,10 +87,7 @@ export default function Header() {
       }).catch(() => null);
     }
 
-    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-    window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
-    setUser(null);
-    window.dispatchEvent(new Event("streamline-auth-change"));
+    window.location.href = "/";
   }
 
   return (
