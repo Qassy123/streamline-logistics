@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { calculateQuotePrice } from "../lib/pricing";
@@ -63,6 +64,49 @@ function getOpenRouteServiceApiKey() {
     process.env.OPEN_ROUTE_SERVICE_API_KEY ||
     ""
   );
+}
+
+function getAuthToken(req: { headers: { authorization?: string } }) {
+  const header = req.headers.authorization || "";
+
+  if (!header.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return header.replace("Bearer ", "").trim();
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function getAuthenticatedUser(req: { headers: { authorization?: string } }) {
+  const token = getAuthToken(req);
+
+  if (!token) return null;
+
+  const session = await prisma.userSession.findUnique({
+    where: {
+      tokenHash: hashToken(token),
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!session || session.expiresAt <= new Date()) {
+    if (session) {
+      await prisma.userSession.delete({
+        where: {
+          id: session.id,
+        },
+      });
+    }
+
+    return null;
+  }
+
+  return session.user;
 }
 
 function extractUkPostcode(address: string) {
@@ -443,6 +487,8 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
+    const user = await getAuthenticatedUser(req);
+
     let distanceMiles: number | null = null;
     let durationMinutes: number | null = null;
     let distanceSource = "fallback";
@@ -516,6 +562,7 @@ router.post("/", async (req, res) => {
     const quote = await prisma.quote.create({
       data: {
         status: "priced",
+        userId: user?.id || null,
 
         deliveryType: req.body.deliveryType,
         journeyType: req.body.journeyType || null,

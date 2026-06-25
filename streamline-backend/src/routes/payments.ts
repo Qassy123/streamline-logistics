@@ -25,6 +25,13 @@ function generateBookingReference() {
   return `SL-${datePart}-${randomPart}`;
 }
 
+function generateInvoiceNumber() {
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const randomPart = Math.floor(100000 + Math.random() * 900000);
+
+  return `INV-${datePart}-${randomPart}`;
+}
+
 function getAuthToken(req: { headers: { authorization?: string } }) {
   const header = req.headers.authorization || "";
 
@@ -91,6 +98,45 @@ function getVehicleAvailableAt(reservedUntil: Date) {
   return vehicleAvailableAt;
 }
 
+async function createInvoiceIfMissing(booking: {
+  id: string;
+  userId: string | null;
+  totalPrice: Prisma.Decimal;
+  quote?: {
+    adminPrice: Prisma.Decimal | null;
+    vatAmount: Prisma.Decimal | null;
+    totalPrice: Prisma.Decimal | null;
+  } | null;
+}) {
+  const existingInvoice = await prisma.invoice.findFirst({
+    where: {
+      bookingId: booking.id,
+    },
+  });
+
+  if (existingInvoice) return existingInvoice;
+
+  const subtotal = booking.quote?.adminPrice || booking.totalPrice;
+  const vatAmount = booking.quote?.vatAmount || 0;
+  const total = booking.quote?.totalPrice || booking.totalPrice;
+
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 30);
+
+  return prisma.invoice.create({
+    data: {
+      invoiceNumber: generateInvoiceNumber(),
+      bookingId: booking.id,
+      userId: booking.userId,
+      status: "ISSUED",
+      subtotal,
+      vatAmount,
+      total,
+      dueDate,
+    },
+  });
+}
+
 async function createConfirmedBookingFromQuote(quoteId: string, userId?: string) {
   const quote = await prisma.quote.findUnique({
     where: {
@@ -113,14 +159,26 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     throw new Error("A fixed collection window is required before booking.");
   }
 
+  const resolvedUserId = userId || quote.userId || undefined;
+
+  await prisma.quote.update({
+    where: {
+      id: quote.id,
+    },
+    data: {
+      userId: resolvedUserId || null,
+      status: "paid",
+    },
+  });
+
   if (quote.booking) {
-    await prisma.quote.update({
+    await prisma.vehicleReservation.updateMany({
       where: {
-        id: quote.id,
+        bookingId: quote.booking.id,
       },
       data: {
-        userId: userId || quote.userId,
-        status: "paid",
+        status: ReservationStatus.CONFIRMED,
+        expiresAt: null,
       },
     });
 
@@ -129,14 +187,8 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
         id: quote.booking.id,
       },
       data: {
-        userId: userId || quote.booking.userId || quote.userId,
+        userId: resolvedUserId || quote.booking.userId || null,
         status: BookingStatus.CONFIRMED,
-        reservation: {
-          update: {
-            status: ReservationStatus.CONFIRMED,
-            expiresAt: null,
-          },
-        },
         trackingEvents: {
           create: {
             status: BookingStatus.CONFIRMED,
@@ -158,6 +210,8 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
         },
       },
     });
+
+    await createInvoiceIfMissing(booking);
 
     return booking;
   }
@@ -198,19 +252,36 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     (vehicle) => vehicle.reservations.length === 0,
   );
 
-  if (!availableVehicle) {
-    throw new Error("No vehicle available for this collection window.");
-  }
-
   const booking = await prisma.booking.create({
     data: {
       reference: generateBookingReference(),
       status: BookingStatus.CONFIRMED,
 
-      quoteId: quote.id,
-      userId: userId || quote.userId,
+      quote: {
+        connect: {
+          id: quote.id,
+        },
+      },
 
-      vehicleId: availableVehicle.id,
+      ...(resolvedUserId
+        ? {
+            user: {
+              connect: {
+                id: resolvedUserId,
+              },
+            },
+          }
+        : {}),
+
+      ...(availableVehicle
+        ? {
+            vehicle: {
+              connect: {
+                id: availableVehicle.id,
+              },
+            },
+          }
+        : {}),
 
       collectionDate: quote.collectionDate,
       collectionWindow: quote.collectionWindow,
@@ -225,16 +296,20 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
 
       totalPrice: quote.totalPrice,
 
-      reservation: {
-        create: {
-          vehicleId: availableVehicle.id,
-          quoteId: quote.id,
-          status: ReservationStatus.CONFIRMED,
-          reservedFrom,
-          reservedUntil: vehicleAvailableAt,
-          expiresAt: null,
-        },
-      },
+      ...(availableVehicle
+        ? {
+            reservation: {
+              create: {
+                vehicleId: availableVehicle.id,
+                quoteId: quote.id,
+                status: ReservationStatus.CONFIRMED,
+                reservedFrom,
+                reservedUntil: vehicleAvailableAt,
+                expiresAt: null,
+              },
+            },
+          }
+        : {}),
 
       trackingEvents: {
         create: [
@@ -246,7 +321,10 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
           {
             status: BookingStatus.CONFIRMED,
             title: "Payment Confirmed",
-            description: "Your payment has been received and your booking is confirmed.",
+            description:
+              availableVehicle
+                ? "Your payment has been received and your booking is confirmed."
+                : "Your payment has been received. Operations will assign a vehicle.",
           },
         ],
       },
@@ -264,15 +342,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     },
   });
 
-  await prisma.quote.update({
-    where: {
-      id: quote.id,
-    },
-    data: {
-      userId: userId || quote.userId,
-      status: "paid",
-    },
-  });
+  await createInvoiceIfMissing(booking);
 
   return booking;
 }
