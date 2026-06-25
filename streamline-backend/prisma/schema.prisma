@@ -177,6 +177,7 @@ model Quote {
   accuracyConfirmed        Boolean              @default(false)
   contactPreference        String?
   fragileGoods             Boolean              @default(false)
+  whatAreWeCollecting      String?
   loadDescription          String?
   specialInstructions      String?
   handoverContactName      String?

@@ -536,6 +536,7 @@ router.post("/", async (req, res) => {
         returnAddress: req.body.returnAddress || null,
         extraDrops: req.body.extraDrops || null,
 
+        whatAreWeCollecting: req.body.whatAreWeCollecting || null,
         loadDescription: req.body.loadDescription || null,
         specialInstructions: req.body.specialInstructions || null,
         handoverContactName: req.body.handoverContactName || null,

@@ -23,6 +23,7 @@ type QuoteDetails = {
   collectionAddress: string | null;
   deliveryAddress: string | null;
   extraDrops: unknown;
+  whatAreWeCollecting?: string | null;
   loadDescription: string | null;
   specialInstructions?: string | null;
   fragileGoods: boolean | null;
@@ -286,9 +287,15 @@ export default async function QuoteDetailsPage({
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <Detail
+                    label="What Are We Collecting?"
+                    value={quote.whatAreWeCollecting}
+                  />
+
+                  <Detail
                     label="Load Description"
                     value={quote.loadDescription}
                   />
+
                   <Detail
                     label="Any Special Instructions"
                     value={quote.specialInstructions}
