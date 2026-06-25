@@ -23,6 +23,10 @@ function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function jsonOrNull(value: unknown) {
+  return value === null || value === undefined ? Prisma.JsonNull : value;
+}
+
 async function getAuthenticatedUser(req: { headers: { authorization?: string } }) {
   const token = getAuthToken(req);
 
@@ -135,15 +139,13 @@ router.post("/", async (req, res) => {
         vehicleSize: getString(req.body.vehicleSize) || null,
 
         collectionAddress,
-        collectionAddressDetails:
-          req.body.collectionAddressDetails || Prisma.JsonNull,
+        collectionAddressDetails: jsonOrNull(req.body.collectionAddressDetails),
 
         deliveryAddress,
-        deliveryAddressDetails:
-          req.body.deliveryAddressDetails || Prisma.JsonNull,
+        deliveryAddressDetails: jsonOrNull(req.body.deliveryAddressDetails),
 
         returnAddress: getString(req.body.returnAddress) || null,
-        extraDrops: req.body.extraDrops || Prisma.JsonNull,
+        extraDrops: jsonOrNull(req.body.extraDrops),
 
         whatAreWeCollecting: getString(req.body.whatAreWeCollecting) || null,
         loadDescription: getString(req.body.loadDescription) || null,
@@ -223,14 +225,13 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         vehicleSize: quote.vehicleSize,
 
         collectionAddress: quote.collectionAddress,
-        collectionAddressDetails:
-          quote.collectionAddressDetails || Prisma.JsonNull,
+        collectionAddressDetails: jsonOrNull(quote.collectionAddressDetails),
 
         deliveryAddress: quote.deliveryAddress,
-        deliveryAddressDetails: quote.deliveryAddressDetails || Prisma.JsonNull,
+        deliveryAddressDetails: jsonOrNull(quote.deliveryAddressDetails),
 
         returnAddress: quote.returnAddress,
-        extraDrops: quote.extraDrops || Prisma.JsonNull,
+        extraDrops: jsonOrNull(quote.extraDrops),
 
         whatAreWeCollecting: quote.whatAreWeCollecting,
         loadDescription: quote.loadDescription,
