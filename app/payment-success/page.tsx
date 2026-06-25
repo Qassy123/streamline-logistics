@@ -1,13 +1,16 @@
 import Link from "next/link";
 import {
-  ArrowRight,
-  BriefcaseBusiness,
+  Bell,
+  Building2,
   CheckCircle,
   FileText,
-  Home,
+  Lock,
+  MapPin,
   ShieldCheck,
   Truck,
   User,
+  UserPlus,
+  Zap,
 } from "lucide-react";
 
 type QuoteDetails = {
@@ -50,24 +53,12 @@ export default async function PaymentSuccessPage({
     tradeAccountApplication?: string;
   }>;
 }) {
-  const {
-    quoteId,
-    businessAccount,
-    businessAccountCreated,
-    tradeAccountApplication,
-  } = await searchParams;
+  const { quoteId } = await searchParams;
 
   const quote = await getQuote(quoteId);
   const hasLinkedAccount = Boolean(quote?.userId);
   const businessName =
     quote?.legalEntity || quote?.companyName || quote?.customerName || null;
-
-  const showBusinessAccountMessage =
-    hasLinkedAccount ||
-    businessAccount === "created" ||
-    businessAccountCreated === "true";
-
-  const showTradeAccountMessage = tradeAccountApplication === "received";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 sm:py-12">
@@ -116,26 +107,6 @@ export default async function PaymentSuccessPage({
           </div>
 
           <div className="grid gap-6 p-5 sm:p-8">
-            {(showBusinessAccountMessage || showTradeAccountMessage) && (
-              <section className="grid gap-4 md:grid-cols-2">
-                {showBusinessAccountMessage && (
-                  <SuccessPanel
-                    icon="business"
-                    title="Business Account Created"
-                    text="Your business account has been linked to this booking. Future booking history, invoice access and account management features will be available from your dashboard when launched."
-                  />
-                )}
-
-                {showTradeAccountMessage && (
-                  <SuccessPanel
-                    icon="file"
-                    title="Trade Account Application Received"
-                    text="Your monthly invoicing business credit account application has been received. Company verification and credit assessment will be reviewed, with approval typically within 48 hours."
-                  />
-                )}
-              </section>
-            )}
-
             <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6">
               <div className="mb-5 flex items-center gap-3">
                 <FileText className="shrink-0 text-[#006CFF]" size={24} />
@@ -187,84 +158,159 @@ export default async function PaymentSuccessPage({
             </section>
 
             <section className="overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-xl shadow-black/5">
-              <div className="bg-[linear-gradient(135deg,_#071D49_0%,_#0B2A63_55%,_#006CFF_100%)] p-6 text-white">
-                <div className="flex items-start gap-4">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#2D8CFF]/40 bg-white/[0.08] text-[#2D8CFF]">
-                    <ShieldCheck size={26} />
+              <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_58%,_#006CFF_100%)] p-6 text-white sm:p-8">
+                <div className="flex items-start gap-5">
+                  <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#2D8CFF]/40 bg-white/[0.06] text-[#2D8CFF]">
+                    <User size={34} />
                   </span>
 
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#2D8CFF]">
-                      Optional account setup
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
+                      One last step
                     </p>
 
-                    <h2 className="mt-2 text-2xl font-bold">
-                      Save time on future bookings.
+                    <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+                      Track your deliveries in real time.
                     </h2>
 
-                    <p className="mt-3 max-w-3xl text-sm leading-7 text-white/75">
-                      Your payment is complete. You can now continue as a guest, create a business account, or apply for a trade account with monthly invoicing and credit terms.
+                    <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
+                      Create a free Streamline account to unlock live shipment tracking, saved details, booking history and one-click checkout.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-4 bg-[#F4F8FF] p-5 sm:p-6 md:grid-cols-3">
-                <ActionCard
-                  href="/"
-                  icon="user"
-                  title="Continue as Guest"
-                  text="No account needed. Return to the homepage and wait for your booking confirmation."
-                  action="Continue"
-                />
+              <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_0.75fr] lg:items-center">
+                <div className="grid gap-5">
+                  <FeatureItem
+                    icon="tracking"
+                    title="Live Shipment Tracking"
+                    text="See your delivery in real time from pickup to destination."
+                  />
 
-                <ActionCard
-                  href={quoteId ? `/register-business?quoteId=${quoteId}` : "/register-business"}
-                  icon="business"
-                  title="Create Business Account"
-                  text="Save company details and prepare for future booking history and invoice access."
-                  action="Create Account"
-                />
+                  <FeatureItem
+                    icon="checkout"
+                    title="One-Click Checkout"
+                    text="Book again in seconds with your saved details and addresses."
+                  />
 
-                <ActionCard
-                  href={quoteId ? `/register-trade?quoteId=${quoteId}` : "/register-trade"}
-                  icon="file"
-                  title="Apply For Trade Account"
-                  text="Apply for monthly invoicing, agreed credit terms and dedicated account support."
-                  action="Apply Now"
-                />
+                  <FeatureItem
+                    icon="details"
+                    title="Saved Addresses & Details"
+                    text="Store your company and delivery addresses for faster bookings."
+                  />
+
+                  <FeatureItem
+                    icon="history"
+                    title="Booking History & Invoices"
+                    text="Access past bookings, invoices and delivery documents anytime."
+                  />
+
+                  <FeatureItem
+                    icon="monthly"
+                    title="Access to Monthly Invoices"
+                    text="View and manage monthly invoice records from your account."
+                  />
+
+                  <FeatureItem
+                    icon="notifications"
+                    title="Delivery Notifications"
+                    text="Get real-time updates so you always know where your delivery is."
+                  />
+                </div>
+
+                <div className="hidden justify-center lg:flex">
+                  <div className="relative">
+                    <div className="absolute inset-0 translate-x-8 rounded-full bg-[#EAF2FF] blur-2xl" />
+
+                    <div className="relative w-64 rounded-[2.5rem] border-[10px] border-[#020B1F] bg-white shadow-2xl shadow-[#071D49]/20">
+                      <div className="mx-auto h-6 w-28 rounded-b-2xl bg-[#020B1F]" />
+
+                      <div className="px-5 pb-6 pt-4">
+                        <div className="mb-5 flex items-center justify-between text-xs font-bold text-[#071D49]">
+                          <span>8:41</span>
+                          <span>Shipment #SL123456</span>
+                        </div>
+
+                        <div className="rounded-3xl bg-[#F4F8FF] p-4">
+                          <p className="text-sm font-bold text-[#071D49]">
+                            Out for Delivery
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">
+                            Estimated arrival
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-[#071D49]">
+                            Today, 14:30 - 16:30
+                          </p>
+                        </div>
+
+                        <div className="relative mt-6 h-36 rounded-3xl bg-[#F4F8FF]">
+                          <div className="absolute left-8 top-24 h-3 w-3 rounded-full bg-[#006CFF]" />
+                          <div className="absolute left-16 top-20 h-3 w-3 rounded-full bg-[#006CFF]" />
+                          <div className="absolute left-24 top-16 h-3 w-3 rounded-full bg-[#006CFF]" />
+                          <div className="absolute right-8 top-8 flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-white shadow-lg shadow-[#006CFF]/30">
+                            <Truck size={20} />
+                          </div>
+                          <div className="absolute left-10 top-[5.6rem] h-px w-16 rotate-[-18deg] bg-[#006CFF]" />
+                          <div className="absolute left-[5.7rem] top-[4.55rem] h-px w-20 rotate-[-28deg] bg-[#006CFF]" />
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[10px] font-bold text-slate-500">
+                          <span>Collection</span>
+                          <span>In Transit</span>
+                          <span className="text-[#006CFF]">Out For Delivery</span>
+                          <span>Delivered</span>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between rounded-2xl border border-[#D7E6FF] p-3">
+                          <div>
+                            <p className="text-[10px] font-semibold text-slate-500">
+                              Driver
+                            </p>
+                            <p className="text-xs font-bold text-[#071D49]">
+                              Alex Thompson
+                            </p>
+                          </div>
+
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#006CFF]/10 text-[#006CFF]">
+                            <Truck size={16} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <div className="mx-auto grid max-w-xl gap-4">
+                    <Link
+                      href={quoteId ? `/register-business?quoteId=${quoteId}` : "/register-business"}
+                      className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
+                    >
+                      <UserPlus size={22} />
+                      Create Free Account
+                      <span aria-hidden="true">→</span>
+                    </Link>
+
+                    <p className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-500">
+                      <Lock size={16} />
+                      Free to create. No card details required.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-[#D7E6FF] px-6 py-5 sm:px-8">
+                <p className="flex items-center gap-3 text-sm font-semibold text-slate-500">
+                  <ShieldCheck size={18} className="text-[#006CFF]" />
+                  Your booking is secure. Your information is safe with us.
+                </p>
               </div>
             </section>
           </div>
         </section>
       </div>
     </main>
-  );
-}
-
-function SuccessPanel({
-  icon,
-  title,
-  text,
-}: {
-  icon: "business" | "file";
-  title: string;
-  text: string;
-}) {
-  const Icon = icon === "business" ? BriefcaseBusiness : FileText;
-
-  return (
-    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 shadow-lg shadow-black/5 sm:p-6">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-          <Icon size={24} />
-        </span>
-
-        <h2 className="text-xl font-bold text-emerald-950">{title}</h2>
-      </div>
-
-      <p className="text-sm leading-6 text-emerald-900">{text}</p>
-    </div>
   );
 }
 
@@ -307,47 +353,38 @@ function StepCard({
   );
 }
 
-function ActionCard({
-  href,
+function FeatureItem({
   icon,
   title,
   text,
-  action,
 }: {
-  href: string;
-  icon: "home" | "user" | "business" | "file" | "truck";
+  icon: "tracking" | "checkout" | "details" | "history" | "monthly" | "notifications";
   title: string;
   text: string;
-  action: string;
 }) {
   const Icon =
-    icon === "home"
-      ? Home
-      : icon === "user"
-      ? User
-      : icon === "business"
-      ? BriefcaseBusiness
-      : icon === "truck"
-      ? Truck
+    icon === "tracking"
+      ? MapPin
+      : icon === "checkout"
+      ? Zap
+      : icon === "details"
+      ? Building2
+      : icon === "monthly"
+      ? FileText
+      : icon === "notifications"
+      ? Bell
       : FileText;
 
   return (
-    <Link
-      href={href}
-      className="group rounded-2xl border border-[#D7E6FF] bg-white p-5 shadow-sm shadow-black/5 transition hover:-translate-y-0.5 hover:border-[#006CFF] hover:shadow-xl"
-    >
-      <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF] transition group-hover:bg-[#006CFF] group-hover:text-white">
+    <div className="flex items-start gap-4">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#EAF2FF] text-[#006CFF]">
         <Icon size={24} />
       </span>
 
-      <h3 className="font-bold text-[#071D49]">{title}</h3>
-
-      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
-
-      <div className="mt-4 flex items-center gap-2 text-sm font-bold text-[#006CFF]">
-        {action}
-        <ArrowRight size={16} />
+      <div>
+        <h3 className="text-base font-bold text-[#071D49]">{title}</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">{text}</p>
       </div>
-    </Link>
+    </div>
   );
 }
