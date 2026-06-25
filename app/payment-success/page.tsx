@@ -1,9 +1,11 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   Bell,
   Building2,
   CheckCircle,
   FileText,
+  LayoutDashboard,
   Lock,
   MapPin,
   ShieldCheck,
@@ -134,20 +136,28 @@ export default async function PaymentSuccessPage({
               <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_58%,_#006CFF_100%)] p-6 text-white sm:p-8">
                 <div className="flex items-start gap-5">
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-[#2D8CFF]/40 bg-white/[0.06] text-[#2D8CFF]">
-                    <User size={34} />
+                    {hasLinkedAccount ? (
+                      <LayoutDashboard size={34} />
+                    ) : (
+                      <User size={34} />
+                    )}
                   </span>
 
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D8CFF]">
-                      One last step
+                      {hasLinkedAccount ? "Account linked" : "One last step"}
                     </p>
 
                     <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-                      Track your deliveries in real time.
+                      {hasLinkedAccount
+                        ? "Manage this booking from your dashboard."
+                        : "Track your deliveries in real time."}
                     </h2>
 
                     <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
-                      Create a free Streamline account to unlock live shipment tracking, saved details, booking history and one-click checkout.
+                      {hasLinkedAccount
+                        ? "Your payment is complete and this booking is linked to your Streamline account. You can view tracking, invoices, saved routes and booking history from your dashboard."
+                        : "Create a free Streamline account to unlock live shipment tracking, saved details, booking history and one-click checkout."}
                     </p>
                   </div>
                 </div>
@@ -256,19 +266,36 @@ export default async function PaymentSuccessPage({
 
                 <div className="lg:col-span-2">
                   <div className="mx-auto grid max-w-xl gap-4">
-                    <Link
-                      href={quoteId ? `/register-business?quoteId=${quoteId}` : "/register-business"}
-                      className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
-                    >
-                      <UserPlus size={22} />
-                      Create Free Account
-                      <span aria-hidden="true">→</span>
-                    </Link>
+                    {hasLinkedAccount ? (
+                      <Link
+                        href="/dashboard"
+                        className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
+                      >
+                        <LayoutDashboard size={22} />
+                        Go To Dashboard
+                        <ArrowRight size={18} />
+                      </Link>
+                    ) : (
+                      <>
+                        <Link
+                          href={
+                            quoteId
+                              ? `/register-business?quoteId=${quoteId}`
+                              : "/register-business"
+                          }
+                          className="inline-flex items-center justify-center gap-3 rounded-xl bg-[#245BFF] px-8 py-4 text-base font-bold text-white shadow-xl shadow-[#245BFF]/20 transition hover:bg-[#006CFF]"
+                        >
+                          <UserPlus size={22} />
+                          Create Free Account
+                          <span aria-hidden="true">→</span>
+                        </Link>
 
-                    <p className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-500">
-                      <Lock size={16} />
-                      Free to create. No card details required.
-                    </p>
+                        <p className="flex items-center justify-center gap-2 text-sm font-semibold text-slate-500">
+                          <Lock size={16} />
+                          Free to create. No card details required.
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

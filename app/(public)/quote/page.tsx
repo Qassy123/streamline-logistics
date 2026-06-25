@@ -48,10 +48,26 @@ type SavedRoutePrefill = {
   contactPreference?: string | null;
 };
 
+type AccountPrefill = {
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    legalEntity?: string | null;
+    companyName?: string | null;
+    tradingName?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  };
+};
+
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/quotes";
+const ACCOUNT_API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/accounts/me";
 const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
 const SAVED_ROUTE_STORAGE_KEY = "streamline_saved_route_prefill";
+const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
 
 const twoHourWindows = [
   "00:00-02:00",
@@ -326,6 +342,26 @@ function getResponseErrorMessage(data: unknown) {
   return "Unable to generate quote. Please try again.";
 }
 
+function setFormFieldIfEmpty(
+  form: HTMLFormElement,
+  name: string,
+  value: string | null | undefined,
+) {
+  if (!value) return;
+
+  const field = form.elements.namedItem(name);
+
+  if (
+    field instanceof HTMLInputElement ||
+    field instanceof HTMLSelectElement ||
+    field instanceof HTMLTextAreaElement
+  ) {
+    if (!field.value) {
+      field.value = value;
+    }
+  }
+}
+
 export default function QuotePage() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -478,6 +514,57 @@ export default function QuotePage() {
       setDraftLoaded(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!draftLoaded) return;
+
+    async function loadAccountDetails() {
+      try {
+        const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+        if (!token) return;
+
+        const response = await fetch(ACCOUNT_API_URL, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) return;
+
+        const data = (await response.json()) as AccountPrefill;
+        const user = data.user;
+
+        if (!user) return;
+
+        window.requestAnimationFrame(() => {
+          const form = formRef.current;
+
+          if (!form) return;
+
+          const fullName =
+            user.name ||
+            [user.firstName, user.lastName]
+              .filter((value) => value && value.trim() !== "")
+              .join(" ");
+
+          setFormFieldIfEmpty(form, "customerName", fullName);
+          setFormFieldIfEmpty(form, "customerEmail", user.email);
+          setFormFieldIfEmpty(form, "customerPhone", user.phone);
+          setFormFieldIfEmpty(
+            form,
+            "legalEntity",
+            user.legalEntity || user.companyName,
+          );
+          setFormFieldIfEmpty(form, "tradingName", user.tradingName);
+        });
+      } catch {
+        return;
+      }
+    }
+
+    loadAccountDetails();
+  }, [draftLoaded]);
 
   function saveQuoteDraft() {
     if (!draftLoaded) return;
