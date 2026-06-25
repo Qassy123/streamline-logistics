@@ -130,33 +130,6 @@ export default async function PaymentSuccessPage({
               </div>
             </section>
 
-            <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6">
-              <div className="mb-6 flex items-center gap-3">
-                <Truck className="shrink-0 text-[#006CFF]" size={24} />
-                <h2 className="text-xl font-bold">What Happens Next</h2>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <StepCard
-                  number="1"
-                  title="Booking Review"
-                  text="Our operations team will review your delivery details and prepare the booking."
-                />
-
-                <StepCard
-                  number="2"
-                  title="Confirmation"
-                  text="You will receive booking confirmation and delivery updates by email."
-                />
-
-                <StepCard
-                  number="3"
-                  title="Delivery"
-                  text="Your shipment will be assigned and moved through our delivery network."
-                />
-              </div>
-            </section>
-
             <section className="overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-xl shadow-black/5">
               <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_58%,_#006CFF_100%)] p-6 text-white sm:p-8">
                 <div className="flex items-start gap-5">
@@ -327,28 +300,6 @@ function ReferenceItem({
       <p className="mt-2 break-words text-base font-bold text-[#071D49]">
         {value}
       </p>
-    </div>
-  );
-}
-
-function StepCard({
-  number,
-  title,
-  text,
-}: {
-  number: string;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5 shadow-sm shadow-black/5">
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-sm font-bold text-white">
-        {number}
-      </div>
-
-      <h3 className="font-bold text-[#071D49]">{title}</h3>
-
-      <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
     </div>
   );
 }
