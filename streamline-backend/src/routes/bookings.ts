@@ -81,6 +81,68 @@ function getVehicleAvailableAt(reservedUntil: Date) {
   return vehicleAvailableAt;
 }
 
+async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
+  const booking = await prisma.booking.findUnique({
+    where: {
+      id: bookingId,
+    },
+    include: {
+      quote: true,
+    },
+  });
+
+  if (!booking || !booking.userId || !booking.quote) return;
+
+  const quote = booking.quote;
+
+  const existingSavedRoute = await prisma.savedRoute.findFirst({
+    where: {
+      userId: booking.userId,
+      collectionAddress: quote.collectionAddress,
+      deliveryAddress: quote.deliveryAddress,
+      deliveryType: quote.deliveryType,
+      journeyType: quote.journeyType,
+      vehicleSize: quote.vehicleSize,
+    },
+  });
+
+  if (existingSavedRoute) return;
+
+  await prisma.savedRoute.create({
+    data: {
+      userId: booking.userId,
+
+      name: `${quote.collectionAddress} to ${quote.deliveryAddress}`,
+
+      deliveryType: quote.deliveryType,
+      journeyType: quote.journeyType,
+      capacityPercent: quote.capacityPercent,
+      vehicleSize: quote.vehicleSize,
+
+      collectionAddress: quote.collectionAddress,
+      collectionAddressDetails:
+        quote.collectionAddressDetails === null
+          ? Prisma.JsonNull
+          : quote.collectionAddressDetails,
+
+      deliveryAddress: quote.deliveryAddress,
+      deliveryAddressDetails:
+        quote.deliveryAddressDetails === null
+          ? Prisma.JsonNull
+          : quote.deliveryAddressDetails,
+
+      returnAddress: quote.returnAddress,
+      extraDrops: quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
+
+      whatAreWeCollecting: quote.whatAreWeCollecting,
+      loadDescription: quote.loadDescription,
+      specialInstructions: quote.specialInstructions,
+
+      contactPreference: quote.contactPreference,
+    },
+  });
+}
+
 router.get("/", async (_, res) => {
   try {
     const bookings = await prisma.booking.findMany({
@@ -540,6 +602,8 @@ router.post("/:id/confirm-payment", async (req, res) => {
         },
       },
     });
+
+    await autoSaveRouteFromConfirmedBooking(updatedBooking.id);
 
     res.json(updatedBooking);
   } catch (error) {

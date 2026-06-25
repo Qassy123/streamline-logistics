@@ -117,6 +117,7 @@ export default function UpgradeAccountPage() {
     user?.accountType === "TRADE" || user?.tradeAccount?.status === "APPROVED";
 
   const hasTradeApplication = Boolean(user?.tradeAccount);
+  const canApply = !loading && !isTradeAccount && !hasTradeApplication;
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
@@ -143,7 +144,7 @@ export default function UpgradeAccountPage() {
                 : "Upgrade your free account to a trade account for monthly invoicing, agreed credit terms and account-managed logistics support."}
             </p>
 
-            {!loading && !isTradeAccount && !hasTradeApplication && (
+            {canApply && (
               <Link
                 href="/register-trade"
                 className="mt-8 inline-flex items-center gap-3 rounded-full bg-[#006CFF] px-8 py-4 text-sm font-bold text-white shadow-xl shadow-[#006CFF]/20 transition hover:bg-[#2D8CFF]"
@@ -260,7 +261,7 @@ export default function UpgradeAccountPage() {
               </div>
             </section>
 
-            {!isTradeAccount && !hasTradeApplication && (
+            {canApply && (
               <section className="rounded-3xl border border-[#D7E6FF] bg-white p-6 shadow-lg shadow-black/5">
                 <h2 className="text-2xl font-bold text-[#071D49]">
                   What happens after you apply?

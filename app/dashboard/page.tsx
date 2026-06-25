@@ -129,14 +129,13 @@ export default function DashboardPage() {
     user?.accountType === "TRADE" || user?.tradeAccount?.status === "APPROVED";
 
   const hasTradeApplication = Boolean(user?.tradeAccount);
+  const showUpgrade = !isTradeAccount && !hasTradeApplication;
 
   const cards = useMemo(() => {
-    if (isTradeAccount || hasTradeApplication) {
-      return baseCards;
-    }
+    if (!showUpgrade) return baseCards;
 
     return [...baseCards, upgradeCard];
-  }, [isTradeAccount, hasTradeApplication]);
+  }, [showUpgrade]);
 
   const businessName =
     user?.legalEntity || user?.companyName || user?.name || "Your account";
@@ -152,9 +151,17 @@ export default function DashboardPage() {
                   Customer Dashboard
                 </p>
 
-                <h1 className="mt-4 text-4xl font-bold tracking-tight md:text-6xl">
-                  Manage your Streamline account.
-                </h1>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <h1 className="text-4xl font-bold tracking-tight md:text-6xl">
+                    Manage your Streamline account.
+                  </h1>
+
+                  {!loading && (
+                    <span className="rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-white">
+                      {isTradeAccount ? "Trade Account" : "Business Account"}
+                    </span>
+                  )}
+                </div>
 
                 <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
                   Access bookings, tracking, invoices, saved routes and account settings.
@@ -239,7 +246,7 @@ export default function DashboardPage() {
               </section>
             )}
 
-            {!isTradeAccount && !hasTradeApplication && (
+            {showUpgrade && (
               <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>

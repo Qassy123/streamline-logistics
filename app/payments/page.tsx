@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
+import PaymentAccountStatus from "@/components/account/PaymentAccountStatus";
 
 type QuoteDetails = {
   id: string;
@@ -93,9 +94,7 @@ function formatValue(value: string | number | null | undefined) {
 function formatExtraDrops(extraDrops: unknown) {
   if (!extraDrops) return [];
 
-  if (Array.isArray(extraDrops)) {
-    return extraDrops;
-  }
+  if (Array.isArray(extraDrops)) return extraDrops;
 
   if (typeof extraDrops === "string") {
     try {
@@ -135,15 +134,11 @@ export default async function PaymentsPage({
 }) {
   const { quoteId } = await searchParams;
 
-  if (!quoteId) {
-    notFound();
-  }
+  if (!quoteId) notFound();
 
   const quote = await getQuote(quoteId);
 
-  if (!quote) {
-    notFound();
-  }
+  if (!quote) notFound();
 
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
   const extraDrops = formatExtraDrops(quote.extraDrops);
@@ -152,44 +147,6 @@ export default async function PaymentsPage({
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            (function () {
-              async function updatePaymentCopy() {
-                try {
-                  var token = window.localStorage.getItem("streamline_auth_token");
-                  if (!token) return;
-
-                  var response = await fetch("${BACKEND_API_URL}/accounts/me", {
-                    headers: {
-                      Authorization: "Bearer " + token
-                    }
-                  });
-
-                  if (!response.ok) return;
-
-                  var guestLabel = document.getElementById("payment-method-label");
-                  var guestText = document.getElementById("payment-method-text");
-                  var paymentButtonText = document.getElementById("payment-button-text");
-
-                  if (guestLabel) guestLabel.textContent = "Account Checkout";
-                  if (guestText) {
-                    guestText.textContent =
-                      "Pay securely now using your logged-in Streamline account. Your booking will be available from your dashboard after payment.";
-                  }
-                  if (paymentButtonText) paymentButtonText.textContent = "Pay Securely Now";
-                } catch (error) {
-                  return;
-                }
-              }
-
-              updatePaymentCopy();
-            })();
-          `,
-        }}
-      />
-
       <div className="mx-auto max-w-7xl">
         <section className="overflow-hidden rounded-[1.5rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10 sm:rounded-[2rem]">
           <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white sm:p-8">
@@ -224,31 +181,10 @@ export default async function PaymentsPage({
                   </h2>
                 </div>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5 shadow-md shadow-black/5">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#006CFF]/10 text-[#006CFF]">
-                      <CreditCard size={20} />
-                    </span>
-
-                    <div>
-                      <h3 className="text-base font-bold text-[#071D49]">
-                        Pay Now
-                      </h3>
-                      <p
-                        id="payment-method-label"
-                        className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]"
-                      >
-                        Guest Checkout
-                      </p>
-                      <p
-                        id="payment-method-text"
-                        className="mt-3 text-sm leading-6 text-slate-600"
-                      >
-                        Pay securely now without creating an account. After payment, you can create a business account or apply for a trade account.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <form action={createCheckoutSession}>
+                  <input type="hidden" name="quoteId" value={quote.id} />
+                  <PaymentAccountStatus />
+                </form>
               </div>
 
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
@@ -325,20 +261,6 @@ export default async function PaymentsPage({
                   </div>
                 </div>
               </div>
-
-              <form action={createCheckoutSession}>
-                <input type="hidden" name="quoteId" value={quote.id} />
-
-                <button
-                  type="submit"
-                  className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-[#006CFF] px-6 py-4 text-sm font-bold text-white shadow-xl shadow-[#006CFF]/20 transition hover:bg-[#2D8CFF]"
-                >
-                  <ShieldCheck size={20} />
-                  <span id="payment-button-text">
-                    Pay Securely Now - Guest Checkout
-                  </span>
-                </button>
-              </form>
 
               <div className="mt-5 grid gap-3 rounded-3xl border border-[#D7E6FF] bg-white p-5">
                 {[
