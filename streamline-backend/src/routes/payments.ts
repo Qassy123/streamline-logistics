@@ -114,6 +114,16 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
   }
 
   if (quote.booking) {
+    await prisma.quote.update({
+      where: {
+        id: quote.id,
+      },
+      data: {
+        userId: userId || quote.userId,
+        status: "paid",
+      },
+    });
+
     const booking = await prisma.booking.update({
       where: {
         id: quote.booking.id,
@@ -121,25 +131,18 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
       data: {
         userId: userId || quote.booking.userId || quote.userId,
         status: BookingStatus.CONFIRMED,
-        reservation: quote.booking.id
-          ? {
-              update: {
-                status: ReservationStatus.CONFIRMED,
-                expiresAt: null,
-              },
-            }
-          : undefined,
-        quote: {
+        reservation: {
           update: {
-            userId: userId || quote.userId,
-            status: "paid",
+            status: ReservationStatus.CONFIRMED,
+            expiresAt: null,
           },
         },
         trackingEvents: {
           create: {
             status: BookingStatus.CONFIRMED,
             title: "Payment Confirmed",
-            description: "Your payment has been received and your booking is confirmed.",
+            description:
+              "Your payment has been received and your booking is confirmed.",
           },
         },
       },
