@@ -117,6 +117,15 @@ function calculateExtraStopsPrice(quote: QuoteDetails) {
   return Math.max(subtotal - baseFare - mileage, 0);
 }
 
+function calculateMileageRate(quote: QuoteDetails) {
+  const distanceMiles = Number(quote.distanceMiles || 0);
+  const mileagePrice = Number(quote.fuelSurcharge || 0);
+
+  if (!distanceMiles) return 0;
+
+  return mileagePrice / distanceMiles;
+}
+
 export default async function PaymentsPage({
   searchParams,
 }: {
@@ -139,6 +148,7 @@ export default async function PaymentsPage({
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
   const extraDrops = formatExtraDrops(quote.extraDrops);
   const extraStopsPrice = calculateExtraStopsPrice(quote);
+  const mileageRate = calculateMileageRate(quote);
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
@@ -237,7 +247,7 @@ export default async function PaymentsPage({
                   icon={<MapPinned size={22} />}
                   iconClassName="text-[#006CFF]"
                   label="Mileage"
-                  detail={`${formatValue(quote.distanceMiles)} mi`}
+                  detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMoney(mileageRate)})`}
                   value={formatMoney(quote.fuelSurcharge)}
                 />
 
