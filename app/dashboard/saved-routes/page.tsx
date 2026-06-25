@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, MapPin, Route, Trash2 } from "lucide-react";
+import { ArrowRight, Pencil, Route, Trash2 } from "lucide-react";
 
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/saved-routes/me";
@@ -91,7 +91,7 @@ export default function SavedRoutesPage() {
     setRoutes((current) => current.filter((route) => route.id !== id));
   }
 
-  function bookAgain(route: SavedRoute) {
+  function storeRoute(route: SavedRoute) {
     localStorage.setItem(SAVED_ROUTE_STORAGE_KEY, JSON.stringify(route));
   }
 
@@ -217,11 +217,20 @@ export default function SavedRoutesPage() {
                     <div className="grid gap-3 lg:w-64">
                       <Link
                         href="/quote?savedRoute=true"
-                        onClick={() => bookAgain(route)}
+                        onClick={() => storeRoute(route)}
                         className="inline-flex items-center justify-center gap-2 rounded-full bg-[#006CFF] px-6 py-3 text-sm font-bold text-white hover:bg-[#2D8CFF]"
                       >
                         Book Again
                         <ArrowRight size={16} />
+                      </Link>
+
+                      <Link
+                        href="/quote?savedRoute=true&edit=true"
+                        onClick={() => storeRoute(route)}
+                        className="inline-flex items-center justify-center gap-2 rounded-full border border-[#006CFF] bg-white px-6 py-3 text-sm font-bold text-[#006CFF] hover:bg-[#EAF2FF]"
+                      >
+                        Edit Route
+                        <Pencil size={16} />
                       </Link>
 
                       <button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HelpCircle } from "lucide-react";
 
 type QuoteResponse = {
@@ -362,9 +362,12 @@ function setFormField(
 
 export default function QuotePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEditingSavedRoute = searchParams.get("edit") === "true";
   const formRef = useRef<HTMLFormElement | null>(null);
 
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [loadedSavedRoute, setLoadedSavedRoute] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
@@ -419,6 +422,7 @@ export default function QuotePage() {
 
         window.localStorage.removeItem(SAVED_ROUTE_STORAGE_KEY);
         window.localStorage.removeItem(QUOTE_FORM_STORAGE_KEY);
+        setLoadedSavedRoute(true);
 
         window.requestAnimationFrame(() => {
           const form = formRef.current;
@@ -511,7 +515,7 @@ export default function QuotePage() {
     } finally {
       setDraftLoaded(true);
     }
-  }, []);
+  }, [isEditingSavedRoute]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -1008,6 +1012,33 @@ export default function QuotePage() {
             </div>
           </div>
         </section>
+
+        {loadedSavedRoute && (
+          <section
+            className={`mb-8 rounded-[2rem] border p-6 shadow-lg shadow-black/5 ${
+              isEditingSavedRoute
+                ? "border-[#006CFF] bg-[#EAF2FF]"
+                : "border-[#D7E6FF] bg-white"
+            }`}
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
+              {isEditingSavedRoute ? "Editing saved route" : "Saved route loaded"}
+            </p>
+
+            <h2 className="mt-2 text-2xl font-bold text-[#071D49]">
+              {isEditingSavedRoute
+                ? "Change anything before generating your new quote."
+                : "Your saved route has been loaded into the quote form."}
+            </h2>
+
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              {isEditingSavedRoute
+                ? "You can keep the same route and change vehicle size, capacity, collection date, delivery type or load details."
+                : "Review the details, add a collection date and generate a fresh quote."}
+            </p>
+          </section>
+        )}
+
         {quote && (
           <section className="mb-8 overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
             <div className="bg-gradient-to-r from-[#020B1F] via-[#071D49] to-[#006CFF] p-8 text-white">
