@@ -97,8 +97,10 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const collectionAddress = getString(req.body.collectionAddress);
-    const deliveryAddress = getString(req.body.deliveryAddress);
+    const body = req.body || {};
+
+    const collectionAddress = getString(body.collectionAddress);
+    const deliveryAddress = getString(body.deliveryAddress);
 
     if (!collectionAddress || !deliveryAddress) {
       return res.status(400).json({
@@ -111,9 +113,9 @@ router.post("/", async (req, res) => {
         userId: user.id,
         collectionAddress,
         deliveryAddress,
-        deliveryType: getString(req.body.deliveryType) || null,
-        journeyType: getString(req.body.journeyType) || null,
-        vehicleSize: getString(req.body.vehicleSize) || null,
+        deliveryType: getString(body.deliveryType) || null,
+        journeyType: getString(body.journeyType) || null,
+        vehicleSize: getString(body.vehicleSize) || null,
       },
     });
 
@@ -129,29 +131,29 @@ router.post("/", async (req, res) => {
       data: {
         userId: user.id,
 
-        name: getString(req.body.name) || null,
+        name: getString(body.name) || null,
 
-        deliveryType: getString(req.body.deliveryType) || null,
-        journeyType: getString(req.body.journeyType) || null,
-        capacityPercent: req.body.capacityPercent
-          ? Number(req.body.capacityPercent)
+        deliveryType: getString(body.deliveryType) || null,
+        journeyType: getString(body.journeyType) || null,
+        capacityPercent: body.capacityPercent
+          ? Number(body.capacityPercent)
           : null,
-        vehicleSize: getString(req.body.vehicleSize) || null,
+        vehicleSize: getString(body.vehicleSize) || null,
 
         collectionAddress,
-        collectionAddressDetails: jsonOrNull(req.body.collectionAddressDetails),
+        collectionAddressDetails: jsonOrNull(body.collectionAddressDetails),
 
         deliveryAddress,
-        deliveryAddressDetails: jsonOrNull(req.body.deliveryAddressDetails),
+        deliveryAddressDetails: jsonOrNull(body.deliveryAddressDetails),
 
-        returnAddress: getString(req.body.returnAddress) || null,
-        extraDrops: jsonOrNull(req.body.extraDrops),
+        returnAddress: getString(body.returnAddress) || null,
+        extraDrops: jsonOrNull(body.extraDrops),
 
-        whatAreWeCollecting: getString(req.body.whatAreWeCollecting) || null,
-        loadDescription: getString(req.body.loadDescription) || null,
-        specialInstructions: getString(req.body.specialInstructions) || null,
+        whatAreWeCollecting: getString(body.whatAreWeCollecting) || null,
+        loadDescription: getString(body.loadDescription) || null,
+        specialInstructions: getString(body.specialInstructions) || null,
 
-        contactPreference: getString(req.body.contactPreference) || null,
+        contactPreference: getString(body.contactPreference) || null,
       },
     });
 
@@ -178,6 +180,8 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         error: "Not authenticated.",
       });
     }
+
+    const body = req.body || {};
 
     const quote = await prisma.quote.findFirst({
       where: {
@@ -216,7 +220,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         userId: user.id,
 
         name:
-          getString(req.body.name) ||
+          getString(body.name) ||
           `${quote.collectionAddress} to ${quote.deliveryAddress}`,
 
         deliveryType: quote.deliveryType,
