@@ -1,8 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import {
-  Bell,
   CreditCard,
+  MapPinned,
+  MapPin,
+  PoundSterling,
+  ReceiptText,
   ShieldCheck,
+  Truck,
 } from "lucide-react";
 
 type QuoteDetails = {
@@ -16,9 +20,13 @@ type QuoteDetails = {
   customerPhone: string | null;
   legalEntity?: string | null;
   companyName?: string | null;
-  totalPrice: string | number | null;
-  vatAmount: string | number | null;
+  distanceMiles: string | number | null;
+  basePrice: string | number | null;
+  fuelSurcharge: string | number | null;
   adminPrice: string | number | null;
+  vatAmount: string | number | null;
+  totalPrice: string | number | null;
+  extraDrops: unknown;
 };
 
 const BACKEND_API_URL = "https://streamline-logistics-production.up.railway.app/api";
@@ -82,6 +90,33 @@ function formatValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function formatExtraDrops(extraDrops: unknown) {
+  if (!extraDrops) return [];
+
+  if (Array.isArray(extraDrops)) {
+    return extraDrops;
+  }
+
+  if (typeof extraDrops === "string") {
+    try {
+      const parsed = JSON.parse(extraDrops);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function calculateExtraStopsPrice(quote: QuoteDetails) {
+  const subtotal = Number(quote.adminPrice || 0);
+  const baseFare = Number(quote.basePrice || 0);
+  const mileage = Number(quote.fuelSurcharge || 0);
+
+  return Math.max(subtotal - baseFare - mileage, 0);
+}
+
 export default async function PaymentsPage({
   searchParams,
 }: {
@@ -102,6 +137,8 @@ export default async function PaymentsPage({
   }
 
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
+  const extraDrops = formatExtraDrops(quote.extraDrops);
+  const extraStopsPrice = calculateExtraStopsPrice(quote);
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-3 py-6 text-[#071D49] sm:px-6 sm:py-12">
@@ -161,45 +198,73 @@ export default async function PaymentsPage({
               </div>
 
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
-                <div className="mb-4 flex items-center gap-3">
-                  <Bell className="shrink-0 text-[#006CFF]" size={22} />
-                  <h2 className="text-lg font-bold sm:text-xl">
-                    Notifications
-                  </h2>
-                </div>
+                <h2 className="text-lg font-bold sm:text-xl">
+                  Payment summary
+                </h2>
 
-                <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
-                  <p className="text-sm font-bold text-[#071D49]">
-                    Pending for now
-                  </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Review the booking details before continuing to secure payment.
+                </p>
+
+                <div className="mt-5 grid gap-3">
+                  <SummaryRow label="Customer" value={quote.customerName} />
+                  <SummaryRow label="Business" value={businessName} />
+                  <SummaryRow label="Email" value={quote.customerEmail} />
+                  <SummaryRow label="Delivery type" value={quote.deliveryType} />
+                  <SummaryRow label="Journey type" value={quote.journeyType} />
                 </div>
               </div>
             </section>
 
             <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-2xl shadow-black/10 sm:p-6 lg:sticky lg:top-28">
-              <h2 className="text-lg font-bold sm:text-xl">
-                Payment summary
-              </h2>
+              <div className="mb-5 flex items-center gap-3">
+                <ReceiptText className="shrink-0 text-[#006CFF]" size={24} />
+                <h2 className="text-lg font-bold sm:text-xl">
+                  Price breakdown
+                </h2>
+              </div>
 
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Review the booking details before continuing to secure payment.
-              </p>
+              <div className="grid gap-3">
+                <PriceBreakdownRow
+                  icon={<Truck size={22} />}
+                  iconClassName="text-violet-600"
+                  label="Base Fare"
+                  detail={formatValue(quote.deliveryType)}
+                  value={formatMoney(quote.basePrice)}
+                />
 
-              <div className="mt-5 grid gap-3">
-                <SummaryRow label="Customer" value={quote.customerName} />
-                <SummaryRow label="Business" value={businessName} />
-                <SummaryRow label="Email" value={quote.customerEmail} />
-                <SummaryRow label="Delivery type" value={quote.deliveryType} />
-                <SummaryRow label="Journey type" value={quote.journeyType} />
-                <SummaryRow label="Subtotal" value={formatMoney(quote.adminPrice)} />
-                <SummaryRow label="VAT" value={formatMoney(quote.vatAmount)} />
+                <PriceBreakdownRow
+                  icon={<MapPinned size={22} />}
+                  iconClassName="text-[#006CFF]"
+                  label="Mileage"
+                  detail={`${formatValue(quote.distanceMiles)} mi`}
+                  value={formatMoney(quote.fuelSurcharge)}
+                />
+
+                <PriceBreakdownRow
+                  icon={<MapPin size={22} />}
+                  iconClassName="text-orange-500"
+                  label="Extra Stops"
+                  detail={`(${extraDrops.length})`}
+                  value={formatMoney(extraStopsPrice)}
+                />
+
+                <PriceBreakdownRow
+                  icon={<ReceiptText size={22} />}
+                  iconClassName="text-pink-600"
+                  label="VAT"
+                  detail="20%"
+                  value={formatMoney(quote.vatAmount)}
+                />
 
                 <div className="mt-3 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white shadow-xl shadow-[#071D49]/20">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2D8CFF]">
-                    Total due
-                  </p>
-                  <div className="mt-3 flex items-center justify-between gap-4">
-                    <p className="font-bold text-white/80">Payable now</p>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-white">
+                        <PoundSterling size={22} />
+                      </span>
+                      <p className="text-lg font-bold">Total Price</p>
+                    </div>
                     <p className="text-2xl font-bold sm:text-3xl">
                       {formatMoney(quote.totalPrice)}
                     </p>
@@ -218,6 +283,22 @@ export default async function PaymentsPage({
                   Pay Securely Now - Guest Checkout
                 </button>
               </form>
+
+              <div className="mt-5 grid gap-3 rounded-3xl border border-[#D7E6FF] bg-white p-5">
+                {[
+                  "Secure online payment",
+                  "VAT invoice provided",
+                  "Business booking reference included",
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-3 text-sm font-bold text-[#071D49]"
+                  >
+                    <ShieldCheck size={18} className="text-[#006CFF]" />
+                    {item}
+                  </div>
+                ))}
+              </div>
             </aside>
           </div>
         </section>
@@ -239,6 +320,38 @@ function SummaryRow({
       <p className="break-words text-left text-sm font-bold text-[#071D49] sm:text-right">
         {formatValue(value)}
       </p>
+    </div>
+  );
+}
+
+function PriceBreakdownRow({
+  icon,
+  iconClassName,
+  label,
+  detail,
+  value,
+}: {
+  icon: React.ReactNode;
+  iconClassName: string;
+  label: string;
+  detail: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#D7E6FF] bg-white p-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`shrink-0 ${iconClassName}`}>{icon}</span>
+        <p className="min-w-0 text-sm font-bold text-[#071D49]">
+          {label}
+          {detail && (
+            <span className="ml-1 font-semibold text-slate-600">
+              {detail}
+            </span>
+          )}
+        </p>
+      </div>
+
+      <p className="shrink-0 text-sm font-bold text-[#071D49]">{value}</p>
     </div>
   );
 }
