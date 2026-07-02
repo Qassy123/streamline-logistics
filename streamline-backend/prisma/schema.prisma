@@ -14,6 +14,7 @@ model User {
   companyName String?
   name        String
   email       String  @unique
+  username    String? @unique
   phone       String?
 
   passwordHash String?

@@ -13,7 +13,7 @@ const AUTH_USER_STORAGE_KEY = "streamline_auth_user";
 export default function LoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -32,7 +32,7 @@ export default function LoginPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
+          identifier,
           password,
         }),
       });
@@ -91,14 +91,14 @@ export default function LoginPage() {
             <label className="block">
               <span className="mb-2 flex items-center gap-2 text-sm font-semibold">
                 <Mail size={16} />
-                Email Address
+                Email or Username
               </span>
 
               <input
-                type="email"
+                type="text"
                 required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                value={identifier}
+                onChange={(event) => setIdentifier(event.target.value)}
                 className="w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none focus:border-[#006CFF]"
               />
             </label>

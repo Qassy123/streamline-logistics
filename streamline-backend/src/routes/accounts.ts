@@ -77,6 +77,7 @@ function publicUser(user: {
   companyName: string | null;
   name: string;
   email: string;
+  username: string | null;
   phone: string | null;
   legalEntity: string | null;
   tradingName: string | null;
@@ -116,6 +117,7 @@ function publicUser(user: {
     companyName: user.companyName,
     name: user.name,
     email: user.email,
+    username: user.username,
     phone: user.phone,
 
     legalEntity: user.legalEntity,
@@ -157,14 +159,22 @@ router.post("/business", async (req, res) => {
     const firstName = getString(req.body.firstName);
     const lastName = getString(req.body.lastName);
     const email = getString(req.body.email).toLowerCase();
+    const username = getString(req.body.username).toLowerCase();
     const mobileNumber = getString(req.body.mobileNumber);
+    const contactNumber = getString(req.body.alternativeContactNumber);
     const password = getString(req.body.password);
     const confirmPassword = getString(req.body.confirmPassword);
     const quoteId = getString(req.body.quoteId);
 
-    if (!legalEntity || !firstName || !lastName || !email || !mobileNumber) {
+    if (!legalEntity || !firstName || !lastName || !email || !username || !contactNumber) {
       return res.status(400).json({
         error: "Please complete all required business account fields.",
+      });
+    }
+
+    if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
+      return res.status(400).json({
+        error: "Username must be 3-30 characters and can only contain letters, numbers, dots, underscores and hyphens.",
       });
     }
 
@@ -192,15 +202,24 @@ router.post("/business", async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma.user.findFirst({
       where: {
-        email,
+        OR: [
+          { email },
+          { username },
+        ],
       },
     });
 
-    if (existingUser) {
+    if (existingUser?.email === email) {
       return res.status(409).json({
         error: "An account already exists with this email address.",
+      });
+    }
+
+    if (existingUser?.username === username) {
+      return res.status(409).json({
+        error: "This username is already taken.",
       });
     }
 
@@ -212,7 +231,8 @@ router.post("/business", async (req, res) => {
 
         name: `${firstName} ${lastName}`.trim(),
         email,
-        phone: mobileNumber,
+        username,
+        phone: contactNumber || mobileNumber || null,
         companyName: legalEntity,
 
         passwordHash,
@@ -230,8 +250,7 @@ router.post("/business", async (req, res) => {
         lastName,
         jobTitle: getString(req.body.jobTitle) || null,
         accountsEmail: getString(req.body.accountsEmail).toLowerCase() || null,
-        alternativeContactNumber:
-          getString(req.body.alternativeContactNumber) || null,
+        alternativeContactNumber: contactNumber || null,
 
         registeredAddressLine1:
           getString(req.body.registeredAddressLine1) || null,
@@ -276,7 +295,7 @@ router.post("/business", async (req, res) => {
           companyName: legalEntity,
           customerName: `${firstName} ${lastName}`.trim(),
           customerEmail: email,
-          customerPhone: mobileNumber,
+          customerPhone: contactNumber || mobileNumber,
         },
       });
 
@@ -342,18 +361,21 @@ router.post("/business", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   try {
-    const email = getString(req.body.email).toLowerCase();
+    const identifier = getString(req.body.identifier || req.body.email).toLowerCase();
     const password = getString(req.body.password);
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({
-        error: "Email and password are required.",
+        error: "Email or username and password are required.",
       });
     }
 
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
-        email,
+        OR: [
+          { email: identifier },
+          { username: identifier },
+        ],
       },
       include: {
         tradeAccount: true,
@@ -362,7 +384,7 @@ router.post("/login", async (req, res) => {
 
     if (!user || !user.passwordHash) {
       return res.status(401).json({
-        error: "Invalid email or password.",
+        error: "Invalid email, username or password.",
       });
     }
 
@@ -370,7 +392,7 @@ router.post("/login", async (req, res) => {
 
     if (!passwordMatches) {
       return res.status(401).json({
-        error: "Invalid email or password.",
+        error: "Invalid email, username or password.",
       });
     }
 
