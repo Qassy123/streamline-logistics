@@ -287,7 +287,13 @@ model Booking {
   pod                POD?
   payments           Payment[]
   reservation        VehicleReservation?
+  driverId               String?
+  trackingShareTokenHash String?
+  trackingStartedAt      DateTime?
+  trackingEndedAt        DateTime?
+
   trackingEvents     BookingTrackingEvent[]
+  driverLocations    DriverLocation[]
 }
 
 model BookingTrackingEvent {
@@ -319,6 +325,34 @@ model VehicleReservation {
   booking       Booking?          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   quote         Quote?            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Driver {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DriverLocation {
+  id        String   @id @default(cuid())
+  bookingId String
+  driverId  String?
+  latitude  Decimal
+  longitude Decimal
+  accuracy  Decimal?
+  heading   Decimal?
+  speed     Decimal?
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([driverId])
+  @@index([createdAt])
 }
 
 model Payment {
