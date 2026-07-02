@@ -61,8 +61,28 @@ type AccountPrefill = {
   };
 };
 
+type LiveVehicleAvailability = {
+  available: boolean;
+  reason?: string | null;
+  unavailableUntil?: string | null;
+};
+
+type VehicleAvailabilityResponse = {
+  vehicles?: {
+    id: string;
+    name: string;
+    vehicleType: string;
+    active: boolean;
+    available: boolean;
+    unavailableUntil?: string | null;
+    reason?: string | null;
+  }[];
+};
+
 const API_URL =
   "https://streamline-logistics-production.up.railway.app/api/quotes";
+const VEHICLE_AVAILABILITY_API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/vehicles/availability";
 const ACCOUNT_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/me";
 const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
@@ -141,17 +161,6 @@ const vehicleDetails: Record<
     maxWeight: "1,000kg",
     image: "/Vehicles/Luton Tail Lift.jpg",
   },
-};
-
-const vehicleAvailability: Record<
-  string,
-  { available: boolean; reason?: string }
-> = {
-  "Small Van": { available: true },
-  "SWB Van": { available: true },
-  "LWB High Roof Van": { available: true },
-  "XLWB High Roof Van": { available: true },
-  "Luton Tail Lift Van": { available: true },
 };
 
 const vehicleOptions = [
@@ -262,6 +271,19 @@ function formatTimeFromMinutes(totalMinutes: number) {
   const minutes = wrappedMinutes % 60;
 
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function formatUnavailableUntil(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function buildSameDayCollectionWindows() {
@@ -398,6 +420,11 @@ function QuotePageForm() {
   const [selectedJourneyType, setSelectedJourneyType] = useState("");
   const [selectedCollectingItem, setSelectedCollectingItem] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState("");
+  const [liveVehicleAvailability, setLiveVehicleAvailability] = useState<
+    Record<string, LiveVehicleAvailability>
+  >({});
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
+  const [vehicleAvailabilityError, setVehicleAvailabilityError] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
   const [capacityPercent, setCapacityPercent] = useState<number | null>(null);
   const [returnCapacityPercent, setReturnCapacityPercent] = useState<number | null>(null);
@@ -590,6 +617,95 @@ function QuotePageForm() {
     loadAccountDetails();
   }, [draftLoaded]);
 
+  useEffect(() => {
+    if (!collectionDate || !collectionWindow) {
+      setLiveVehicleAvailability({});
+      setVehicleAvailabilityError("");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadVehicleAvailability() {
+      setLoadingVehicles(true);
+      setVehicleAvailabilityError("");
+
+      try {
+        const params = new URLSearchParams({
+          collectionDate,
+          collectionWindow,
+        });
+
+        const response = await fetch(
+          `${VEHICLE_AVAILABILITY_API_URL}?${params.toString()}`,
+          {
+            cache: "no-store",
+          },
+        );
+
+        const data = (await response.json().catch(() => null)) as
+          | VehicleAvailabilityResponse
+          | { error?: string }
+          | null;
+
+        if (!response.ok) {
+          throw new Error(
+            data && "error" in data && typeof data.error === "string"
+              ? data.error
+              : "Unable to check vehicle availability.",
+          );
+        }
+
+        if (cancelled) return;
+
+        const availability: Record<string, LiveVehicleAvailability> = {};
+
+        if (data && "vehicles" in data && Array.isArray(data.vehicles)) {
+          data.vehicles.forEach((vehicle) => {
+            availability[vehicle.vehicleType] = {
+              available: vehicle.available,
+              reason: vehicle.reason || null,
+              unavailableUntil: vehicle.unavailableUntil || null,
+            };
+          });
+        }
+
+        setLiveVehicleAvailability(availability);
+
+        if (
+          selectedVehicle &&
+          availability[selectedVehicle] &&
+          !availability[selectedVehicle].available
+        ) {
+          setSelectedVehicle("");
+          setShowVehicleModal(false);
+          setError(
+            "The selected vehicle is no longer available for this collection time. Please choose another vehicle.",
+          );
+        }
+      } catch (error) {
+        if (cancelled) return;
+
+        setLiveVehicleAvailability({});
+        setVehicleAvailabilityError(
+          error instanceof Error
+            ? error.message
+            : "Unable to check vehicle availability.",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingVehicles(false);
+        }
+      }
+    }
+
+    loadVehicleAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [collectionDate, collectionWindow, selectedVehicle]);
+
   function saveQuoteDraft() {
     if (!draftLoaded) return;
 
@@ -662,6 +778,12 @@ function QuotePageForm() {
 
     return buildSameDayCollectionWindows();
   }, [collectionDate]);
+
+  const allVehiclesUnavailable =
+    showAddressFields &&
+    vehicleOptions.every(
+      (vehicle) => liveVehicleAvailability[vehicle]?.available === false,
+    );
 
   function updateCollectionAddress(field: keyof AddressFields, value: string) {
     setCollectionAddress((current) => ({
@@ -802,8 +924,8 @@ function QuotePageForm() {
 
     if (
       selectedVehicle &&
-      vehicleAvailability[selectedVehicle] &&
-      !vehicleAvailability[selectedVehicle].available
+      liveVehicleAvailability[selectedVehicle] &&
+      !liveVehicleAvailability[selectedVehicle].available
     ) {
       stopWithError(
         "The selected vehicle is currently unavailable. Please choose another vehicle.",
@@ -1427,6 +1549,25 @@ function QuotePageForm() {
               </div>
 
               <div>
+                {loadingVehicles && (
+                  <div className="mb-4 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm font-bold text-[#071D49]">
+                    Checking live vehicle availability...
+                  </div>
+                )}
+
+                {vehicleAvailabilityError && (
+                  <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+                    {vehicleAvailabilityError}
+                  </div>
+                )}
+
+                {allVehiclesUnavailable && (
+                  <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                    No vehicles are available for the selected collection time.
+                    Please choose another collection window or date.
+                  </div>
+                )}
+
                 <label className="block text-sm font-semibold text-[#071D49]">
                   Vehicle Size
                 </label>
@@ -1442,8 +1583,11 @@ function QuotePageForm() {
                 >
                   <option value="">Select vehicle</option>
                   {vehicleOptions.map((vehicle) => {
-                    const availability = vehicleAvailability[vehicle];
+                    const availability = liveVehicleAvailability[vehicle];
                     const isAvailable = availability?.available ?? true;
+                    const unavailableUntil = formatUnavailableUntil(
+                      availability?.unavailableUntil,
+                    );
 
                     return (
                       <option
@@ -1452,7 +1596,11 @@ function QuotePageForm() {
                         disabled={!isAvailable}
                       >
                         {vehicleDetails[vehicle].label}{" "}
-                        {isAvailable ? "(Available)" : "(Unavailable)"}
+                        {isAvailable
+                          ? "(Available)"
+                          : unavailableUntil
+                          ? `(Unavailable until ${unavailableUntil})`
+                          : "(Unavailable)"}
                       </option>
                     );
                   })}
@@ -1930,10 +2078,14 @@ function QuotePageForm() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || loadingVehicles}
               className="rounded-2xl bg-gradient-to-r from-[#071D49] via-[#0B2A63] to-[#006CFF] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:from-[#020B1F] hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Generating Quote..." : "Get Instant Quote"}
+              {loading
+                ? "Generating Quote..."
+                : loadingVehicles
+                ? "Checking Vehicles..."
+                : "Get Instant Quote"}
             </button>
           </div>
         </form>

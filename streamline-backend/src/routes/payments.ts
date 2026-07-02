@@ -9,8 +9,8 @@ const router = Router();
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 
-const RESERVATION_MINUTES = 30;
-const COOLING_OFF_HOURS = 2;
+const PAYMENT_RESERVATION_MINUTES = 30;
+const VEHICLE_BLOCK_HOURS = 6;
 
 if (!stripeSecretKey) {
   throw new Error("STRIPE_SECRET_KEY is missing from environment variables");
@@ -83,19 +83,12 @@ function getReservationWindow(collectionDate: Date, collectionWindow: string) {
   reservedFrom.setHours(hours, minutes, 0, 0);
 
   const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setMinutes(reservedUntil.getMinutes() + RESERVATION_MINUTES);
+  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
 
   return {
     reservedFrom,
     reservedUntil,
   };
-}
-
-function getVehicleAvailableAt(reservedUntil: Date) {
-  const vehicleAvailableAt = new Date(reservedUntil);
-  vehicleAvailableAt.setHours(vehicleAvailableAt.getHours() + COOLING_OFF_HOURS);
-
-  return vehicleAvailableAt;
 }
 
 async function createInvoiceIfMissing(booking: {
@@ -221,7 +214,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     quote.collectionWindow,
   );
 
-  const vehicleAvailableAt = getVehicleAvailableAt(reservedUntil);
+  const vehicleAvailableAt = reservedUntil;
 
   const vehicles = await prisma.vehicle.findMany({
     where: {
@@ -238,7 +231,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
             in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
           },
           reservedFrom: {
-            lt: vehicleAvailableAt,
+            lt: reservedUntil,
           },
           reservedUntil: {
             gt: reservedFrom,
@@ -304,7 +297,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
                 quoteId: quote.id,
                 status: ReservationStatus.CONFIRMED,
                 reservedFrom,
-                reservedUntil: vehicleAvailableAt,
+                reservedUntil,
                 expiresAt: null,
               },
             },

@@ -5,8 +5,8 @@ import { prisma } from "../lib/prisma";
 
 const router = Router();
 
-const RESERVATION_MINUTES = 30;
-const COOLING_OFF_HOURS = 2;
+const PAYMENT_RESERVATION_MINUTES = 30;
+const VEHICLE_BLOCK_HOURS = 6;
 
 function generateBookingReference() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -66,19 +66,12 @@ function getReservationWindow(collectionDate: Date, collectionWindow: string) {
   reservedFrom.setHours(hours, minutes, 0, 0);
 
   const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setMinutes(reservedUntil.getMinutes() + RESERVATION_MINUTES);
+  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
 
   return {
     reservedFrom,
     reservedUntil,
   };
-}
-
-function getVehicleAvailableAt(reservedUntil: Date) {
-  const vehicleAvailableAt = new Date(reservedUntil);
-  vehicleAvailableAt.setHours(vehicleAvailableAt.getHours() + COOLING_OFF_HOURS);
-
-  return vehicleAvailableAt;
 }
 
 async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
@@ -427,7 +420,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       quote.collectionWindow
     );
 
-    const vehicleAvailableAt = getVehicleAvailableAt(reservedUntil);
+    const vehicleAvailableAt = reservedUntil;
 
     const vehicles = await prisma.vehicle.findMany({
       where: {
@@ -444,7 +437,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
               in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
             },
             reservedFrom: {
-              lt: vehicleAvailableAt,
+              lt: reservedUntil,
             },
             reservedUntil: {
               gt: reservedFrom,
@@ -465,7 +458,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
     }
 
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + RESERVATION_MINUTES);
+    expiresAt.setMinutes(expiresAt.getMinutes() + PAYMENT_RESERVATION_MINUTES);
 
     const booking = await prisma.booking.create({
       data: {
@@ -497,7 +490,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
             quoteId: quote.id,
             status: ReservationStatus.ACTIVE,
             reservedFrom,
-            reservedUntil: vehicleAvailableAt,
+            reservedUntil,
             expiresAt,
           },
         },
