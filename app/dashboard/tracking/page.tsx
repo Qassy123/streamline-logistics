@@ -124,6 +124,10 @@ function googleMapsUrl(location: LatestLocation) {
   return `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
 }
 
+function googleMapsEmbedUrl(location: LatestLocation) {
+  return `https://www.google.com/maps?q=${location.latitude},${location.longitude}&z=15&output=embed`;
+}
+
 export default function TrackingPage() {
   const [bookings, setBookings] = useState<EnrichedTrackingBooking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -430,8 +434,8 @@ function LiveLocationCard({ booking }: { booking: EnrichedTrackingBooking }) {
   );
 
   return (
-    <div className="rounded-3xl border border-[#D7E6FF] bg-white p-5">
-      <div className="flex items-start gap-4">
+    <div className="overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-lg shadow-black/5">
+      <div className="flex items-start gap-4 p-5">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]">
           <Navigation size={24} />
         </span>
@@ -448,54 +452,94 @@ function LiveLocationCard({ booking }: { booking: EnrichedTrackingBooking }) {
       </div>
 
       {!location && (
-        <div className="mt-5 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+        <div className="mx-5 mb-5 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
           <p className="text-sm font-bold text-[#071D49]">
-            Live location will appear once the driver starts sharing.
+            Live map will appear once the driver starts sharing location.
           </p>
         </div>
       )}
 
       {location && (
-        <div className="mt-5 grid gap-3">
-          <Info
-            icon={<Clock size={18} />}
-            label="Last Updated"
-            value={formatTime(location.createdAt)}
-          />
+        <div className="grid gap-5">
+          <div className="relative h-[420px] w-full border-y border-[#D7E6FF] bg-[#F4F8FF]">
+            <iframe
+              title={`Live map for ${booking.reference}`}
+              src={googleMapsEmbedUrl(location)}
+              className="h-full w-full"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
 
-          <Info
-            icon={<MapPin size={18} />}
-            label="Latitude"
-            value={String(location.latitude)}
-          />
+            <div className="absolute left-4 top-4 rounded-2xl border border-[#D7E6FF] bg-white/95 p-4 shadow-xl shadow-black/10 backdrop-blur">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#006CFF]">
+                Driver En Route
+              </p>
+              <p className="mt-1 text-sm font-bold text-[#071D49]">
+                Last updated: {formatTime(location.createdAt)}
+              </p>
+            </div>
 
-          <Info
-            icon={<MapPin size={18} />}
-            label="Longitude"
-            value={String(location.longitude)}
-          />
+            <div className="absolute bottom-4 left-4 right-4 grid gap-3 rounded-3xl border border-[#D7E6FF] bg-white/95 p-4 shadow-xl shadow-black/10 backdrop-blur sm:grid-cols-4">
+              <MapStat label="Latitude" value={String(location.latitude)} />
+              <MapStat label="Longitude" value={String(location.longitude)} />
+              <MapStat
+                label="Accuracy"
+                value={
+                  location.accuracy === null || location.accuracy === undefined
+                    ? "Not provided"
+                    : `${Math.round(location.accuracy)}m`
+                }
+              />
+              <MapStat
+                label="Status"
+                value={trackingActive ? "Live" : "Inactive"}
+                highlight={trackingActive}
+              />
+            </div>
+          </div>
 
-          <Info
-            icon={<Navigation size={18} />}
-            label="Accuracy"
-            value={
-              location.accuracy === null || location.accuracy === undefined
-                ? "Not provided"
-                : `${Math.round(location.accuracy)}m`
-            }
-          />
+          <div className="grid gap-3 p-5 pt-0 sm:grid-cols-2">
+            <a
+              href={googleMapsUrl(location)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#006CFF] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+            >
+              Open in Google Maps
+              <ExternalLink size={17} />
+            </a>
 
-          <a
-            href={googleMapsUrl(location)}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex items-center justify-center gap-2 rounded-2xl bg-[#006CFF] px-5 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
-          >
-            Open in Google Maps
-            <ExternalLink size={17} />
-          </a>
+            <div className="flex items-center justify-center rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] px-5 py-4 text-sm font-bold text-[#071D49]">
+              Updates every 15 seconds while active
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MapStat({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-3 text-center">
+      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </p>
+      <p
+        className={`mt-1 text-sm font-bold ${
+          highlight ? "text-green-600" : "text-[#071D49]"
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
