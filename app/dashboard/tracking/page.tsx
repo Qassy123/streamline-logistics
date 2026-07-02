@@ -133,7 +133,6 @@ export default function TrackingPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
 
   const hasActiveTracking = useMemo(
     () =>
@@ -147,8 +146,8 @@ export default function TrackingPage() {
     [bookings],
   );
 
-  const orderedBookings = useMemo(() => {
-    return [...bookings].sort((a, b) => {
+  const selectedBooking = useMemo(() => {
+    const orderedBookings = [...bookings].sort((a, b) => {
       const aActive = isActiveTracking(
         a.status,
         a.trackingStartedAt,
@@ -164,17 +163,17 @@ export default function TrackingPage() {
         return aActive ? -1 : 1;
       }
 
+      const aLastEvent = a.trackingEvents[a.trackingEvents.length - 1]?.createdAt;
+      const bLastEvent = b.trackingEvents[b.trackingEvents.length - 1]?.createdAt;
+
       return (
-        new Date(b.collectionDate).getTime() -
-        new Date(a.collectionDate).getTime()
+        new Date(bLastEvent || b.collectionDate).getTime() -
+        new Date(aLastEvent || a.collectionDate).getTime()
       );
     });
-  }, [bookings]);
 
-  const selectedBooking =
-    orderedBookings.find((booking) => booking.id === selectedBookingId) ||
-    orderedBookings[0] ||
-    null;
+    return orderedBookings[0] || null;
+  }, [bookings]);
 
   useEffect(() => {
     loadTracking();
@@ -189,16 +188,6 @@ export default function TrackingPage() {
 
     return () => window.clearInterval(interval);
   }, [hasActiveTracking]);
-
-  useEffect(() => {
-    if (selectedBookingId && bookings.some((booking) => booking.id === selectedBookingId)) {
-      return;
-    }
-
-    if (orderedBookings[0]) {
-      setSelectedBookingId(orderedBookings[0].id);
-    }
-  }, [bookings, orderedBookings, selectedBookingId]);
 
   async function loadTracking(options?: { silent?: boolean }) {
     try {
