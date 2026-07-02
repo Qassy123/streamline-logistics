@@ -174,8 +174,8 @@ export default async function PaymentSuccessPage({
 
                   <FeatureItem
                     icon="monthly"
-                    title="Access to Monthly Invoices"
-                    text="View and manage monthly invoice records from your account."
+                    title="Invoice History"
+                    text="View and download invoices generated from your completed bookings."
                   />
 
                   <FeatureItem
