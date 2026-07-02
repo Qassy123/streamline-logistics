@@ -5,7 +5,9 @@ import {
   CheckCircle,
   CreditCard,
   MapPin,
+  MapPinned,
   Package,
+  PoundSterling,
   ReceiptText,
   Truck,
   User,
@@ -368,47 +370,66 @@ export default async function QuoteDetailsPage({
               </div>
             </section>
 
-            <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 shadow-2xl shadow-black/10">
+            <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-2xl shadow-black/10 sm:p-6">
               <div className="mb-5 flex items-center gap-3">
-                <ReceiptText className="text-[#006CFF]" size={24} />
-                <h2 className="text-xl font-bold">Price Breakdown</h2>
+                <ReceiptText className="shrink-0 text-[#006CFF]" size={24} />
+                <h2 className="text-lg font-bold sm:text-xl">
+                  Price breakdown
+                </h2>
               </div>
 
               <div className="grid gap-3">
-                <PriceRow
-                  label="Mileage"
-                  value={`${formatValue(quote.distanceMiles)} mi × ${formatMileageRate(
-                    mileageRate,
-                  )}`}
-                />
-                <PriceRow
+                <PriceBreakdownRow
+                  icon={<Truck size={22} />}
+                  iconClassName="text-violet-600"
                   label={baseFareLabel}
+                  detail=""
                   value={formatMoney(quote.basePrice)}
                 />
-                <PriceRow
-                  label={extraStopsLabel}
-                  value={formatMoneyFromNumber(extraStopsPrice)}
-                />
-                <PriceRow
-                  label="Subtotal (ex VAT)"
-                  value={formatMoney(quote.adminPrice)}
-                />
-                <PriceRow
-                  label="VAT @20%"
-                  value={formatMoney(quote.vatAmount)}
-                />
-                <PriceRow
-                  label="Total Inc VAT"
-                  value={formatMoney(quote.totalPrice)}
+
+                <PriceBreakdownRow
+                  icon={<MapPinned size={22} />}
+                  iconClassName="text-[#006CFF]"
+                  label="Mileage"
+                  detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMileageRate(
+                    mileageRate,
+                  )})`}
+                  value={formatMoney(quote.fuelSurcharge)}
                 />
 
-                <div className="mt-4 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-xl shadow-[#071D49]/20">
-                  <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2D8CFF]">
-                    Total payable
-                  </p>
-                  <div className="mt-3 flex items-center justify-between gap-4">
-                    <p className="font-bold text-white/80">Amount due today</p>
-                    <p className="text-3xl font-bold">
+                <PriceBreakdownRow
+                  icon={<MapPin size={22} />}
+                  iconClassName="text-orange-500"
+                  label={extraStopsLabel}
+                  detail=""
+                  value={formatMoneyFromNumber(extraStopsPrice)}
+                />
+
+                <PriceBreakdownRow
+                  icon={<ReceiptText size={22} />}
+                  iconClassName="text-slate-600"
+                  label="Subtotal"
+                  detail="(ex VAT)"
+                  value={formatMoney(quote.adminPrice)}
+                />
+
+                <PriceBreakdownRow
+                  icon={<ReceiptText size={22} />}
+                  iconClassName="text-pink-600"
+                  label="VAT"
+                  detail="@20%"
+                  value={formatMoney(quote.vatAmount)}
+                />
+
+                <div className="mt-3 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-5 text-white shadow-xl shadow-[#071D49]/20">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-white">
+                        <PoundSterling size={22} />
+                      </span>
+                      <p className="text-lg font-bold">Total Inc VAT</p>
+                    </div>
+                    <p className="text-2xl font-bold sm:text-3xl">
                       {formatMoney(quote.totalPrice)}
                     </p>
                   </div>
@@ -480,11 +501,34 @@ function AddressBlock({
   );
 }
 
-function PriceRow({ label, value }: { label: string; value: string }) {
+function PriceBreakdownRow({
+  icon,
+  iconClassName,
+  label,
+  detail,
+  value,
+}: {
+  icon: React.ReactNode;
+  iconClassName: string;
+  label: string;
+  detail: string;
+  value: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#D7E6FF] bg-white p-4">
-      <p className="text-sm font-semibold text-slate-600">{label}</p>
-      <p className="text-sm font-bold text-[#071D49]">{value}</p>
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`shrink-0 ${iconClassName}`}>{icon}</span>
+        <p className="min-w-0 text-sm font-bold text-[#071D49]">
+          {label}
+          {detail && (
+            <span className="ml-1 font-semibold text-slate-600">
+              {detail}
+            </span>
+          )}
+        </p>
+      </div>
+
+      <p className="shrink-0 text-sm font-bold text-[#071D49]">{value}</p>
     </div>
   );
 }
