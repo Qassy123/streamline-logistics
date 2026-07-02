@@ -1670,24 +1670,14 @@ function QuotePageForm() {
                       className="rounded-3xl border border-[#D7E6FF] bg-white p-5"
                       data-scroll-target="extra-stops"
                     >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-sm font-bold text-[#071D49]">
-                            Extra Stops
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            Delivery Address is Stop 1. Added stops begin from
-                            Stop 2.
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={addStop}
-                          className="rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
-                        >
-                          Add Stop
-                        </button>
+                      <div>
+                        <p className="text-sm font-bold text-[#071D49]">
+                          Extra Stops
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Delivery Address is Stop 1. Added stops begin from
+                          Stop 2.
+                        </p>
                       </div>
 
                       <div className="mt-5 grid gap-4">
@@ -1790,6 +1780,14 @@ function QuotePageForm() {
                             </div>
                           </div>
                         ))}
+
+                        <button
+                          type="button"
+                          onClick={addStop}
+                          className="rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+                        >
+                          Add Stop
+                        </button>
                       </div>
                     </div>
                   )}
