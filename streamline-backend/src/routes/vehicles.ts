@@ -3,33 +3,72 @@ import { prisma } from "../lib/prisma";
 
 const router = Router();
 
+const VEHICLE_BLOCK_HOURS = 6;
+const UK_TIME_ZONE = "Europe/London";
+
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function parseCollectionWindow(collectionDate: string, collectionWindow: string) {
-  const [start] = collectionWindow.split("-");
-  const [hours, minutes] = start.split(":").map(Number);
+function getTimeZoneOffsetMs(timeZone: string, date: Date) {
+  const zonedDate = new Date(
+    date.toLocaleString("en-US", {
+      timeZone,
+    }),
+  );
+
+  const utcDate = new Date(
+    date.toLocaleString("en-US", {
+      timeZone: "UTC",
+    }),
+  );
+
+  return zonedDate.getTime() - utcDate.getTime();
+}
+
+function createUtcDateFromUkLocalTime(
+  collectionDate: string,
+  hours: number,
+  minutes: number,
+) {
+  const [year, month, day] = collectionDate.split("-").map(Number);
 
   if (
-    !collectionDate ||
-    !collectionWindow ||
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
     !Number.isFinite(hours) ||
     !Number.isFinite(minutes)
   ) {
     return null;
   }
 
-  const reservedFrom = new Date(`${collectionDate}T00:00:00.000Z`);
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
+  const offsetMs = getTimeZoneOffsetMs(UK_TIME_ZONE, utcGuess);
 
-  if (Number.isNaN(reservedFrom.getTime())) {
+  return new Date(utcGuess.getTime() - offsetMs);
+}
+
+function parseCollectionWindow(collectionDate: string, collectionWindow: string) {
+  const [start] = collectionWindow.split("-");
+  const [hours, minutes] = start.split(":").map(Number);
+
+  if (!collectionDate || !collectionWindow) {
     return null;
   }
 
-  reservedFrom.setUTCHours(hours, minutes, 0, 0);
+  const reservedFrom = createUtcDateFromUkLocalTime(
+    collectionDate,
+    hours,
+    minutes,
+  );
+
+  if (!reservedFrom || Number.isNaN(reservedFrom.getTime())) {
+    return null;
+  }
 
   const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setUTCHours(reservedUntil.getUTCHours() + 6);
+  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
 
   return {
     reservedFrom,
