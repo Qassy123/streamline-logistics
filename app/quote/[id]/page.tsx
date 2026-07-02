@@ -22,6 +22,7 @@ type QuoteDetails = {
   vehicleSize: string | null;
   collectionAddress: string | null;
   deliveryAddress: string | null;
+  returnAddress?: string | null;
   extraDrops: unknown;
   whatAreWeCollecting?: string | null;
   loadDescription: string | null;
@@ -85,6 +86,30 @@ function formatMoney(value: string | number | null) {
   }).format(numberValue);
 }
 
+function toNumber(value: string | number | null | undefined) {
+  const numberValue = Number(value || 0);
+
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function formatMoneyFromNumber(value: number) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(value);
+}
+
+function formatMileageRate(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "£0.00";
+
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function formatValue(value: string | number | boolean | null | undefined) {
   if (value === null || value === undefined || value === "") {
     return "Not provided";
@@ -131,6 +156,16 @@ export default async function QuoteDetailsPage({
   const extraDrops = formatExtraDrops(quote.extraDrops);
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
   const showCapacity = quote.journeyType === "One Way";
+  const distanceMiles = toNumber(quote.distanceMiles);
+  const basePrice = toNumber(quote.basePrice);
+  const fuelSurcharge = toNumber(quote.fuelSurcharge);
+  const subtotal = toNumber(quote.adminPrice);
+  const mileageRate = distanceMiles > 0 ? fuelSurcharge / distanceMiles : 0;
+  const extraStopsPrice = Math.max(subtotal - basePrice - fuelSurcharge, 0);
+  const baseFareLabel = `Base Fare (${quote.vehicleSize || "Van Size"})`;
+  const extraStopsLabel = `Extra Stops (${extraDrops.length})`;
+  const returnAddress =
+    quote.returnAddress || quote.collectionAddress || "Not provided";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-6 py-12 text-[#071D49]">
@@ -240,6 +275,13 @@ export default async function QuoteDetailsPage({
                     value={quote.deliveryAddress}
                   />
 
+                  {quote.journeyType === "Return" && (
+                    <AddressBlock
+                      label="Return Address"
+                      value={returnAddress}
+                    />
+                  )}
+
                   {extraDrops.length > 0 && (
                     <div className="rounded-2xl border border-[#D7E6FF] bg-white p-5">
                       <p className="text-sm font-bold text-slate-500">
@@ -334,19 +376,31 @@ export default async function QuoteDetailsPage({
 
               <div className="grid gap-3">
                 <PriceRow
-                  label="Estimated Distance"
-                  value={`${formatValue(quote.distanceMiles)} miles`}
+                  label="Mileage"
+                  value={`${formatValue(quote.distanceMiles)} mi × ${formatMileageRate(
+                    mileageRate,
+                  )}`}
                 />
                 <PriceRow
-                  label="Base Price"
+                  label={baseFareLabel}
                   value={formatMoney(quote.basePrice)}
                 />
                 <PriceRow
-                  label="Subtotal Before VAT"
+                  label={extraStopsLabel}
+                  value={formatMoneyFromNumber(extraStopsPrice)}
+                />
+                <PriceRow
+                  label="Subtotal (ex VAT)"
                   value={formatMoney(quote.adminPrice)}
                 />
-                <PriceRow label="VAT" value={formatMoney(quote.vatAmount)} />
-                <PriceRow label="Total" value={formatMoney(quote.totalPrice)} />
+                <PriceRow
+                  label="VAT @20%"
+                  value={formatMoney(quote.vatAmount)}
+                />
+                <PriceRow
+                  label="Total Inc VAT"
+                  value={formatMoney(quote.totalPrice)}
+                />
 
                 <div className="mt-4 rounded-3xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white shadow-xl shadow-[#071D49]/20">
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#2D8CFF]">
