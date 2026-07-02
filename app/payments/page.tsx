@@ -1,6 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 import {
-  CreditCard,
   MapPinned,
   MapPin,
   PoundSterling,
@@ -8,7 +7,6 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
-import PaymentAccountStatus from "@/components/account/PaymentAccountStatus";
 
 type QuoteDetails = {
   id: string;
@@ -27,6 +25,7 @@ type QuoteDetails = {
   adminPrice: string | number | null;
   vatAmount: string | number | null;
   totalPrice: string | number | null;
+  vehicleSize: string | null;
   extraDrops: unknown;
 };
 
@@ -174,20 +173,6 @@ export default async function PaymentsPage({
           <div className="grid gap-5 bg-white p-4 text-[#071D49] lg:grid-cols-[1fr_0.85fr] lg:gap-8 lg:p-8">
             <section className="grid gap-5 lg:gap-6">
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
-                <div className="mb-5 flex items-center gap-3">
-                  <CreditCard className="shrink-0 text-[#006CFF]" size={22} />
-                  <h2 className="text-lg font-bold sm:text-xl">
-                    Choose payment method
-                  </h2>
-                </div>
-
-                <form action={createCheckoutSession}>
-                  <input type="hidden" name="quoteId" value={quote.id} />
-                  <PaymentAccountStatus />
-                </form>
-              </div>
-
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5 sm:p-5">
                 <h2 className="text-lg font-bold sm:text-xl">
                   Payment summary
                 </h2>
@@ -218,8 +203,8 @@ export default async function PaymentsPage({
                 <PriceBreakdownRow
                   icon={<Truck size={22} />}
                   iconClassName="text-violet-600"
-                  label="Base Fare"
-                  detail={formatValue(quote.deliveryType)}
+                  label={`Base Fare (${formatValue(quote.vehicleSize)})`}
+                  detail=""
                   value={formatMoney(quote.basePrice)}
                 />
 
@@ -241,9 +226,17 @@ export default async function PaymentsPage({
 
                 <PriceBreakdownRow
                   icon={<ReceiptText size={22} />}
+                  iconClassName="text-slate-600"
+                  label="Subtotal"
+                  detail="(ex VAT)"
+                  value={formatMoney(quote.adminPrice)}
+                />
+
+                <PriceBreakdownRow
+                  icon={<ReceiptText size={22} />}
                   iconClassName="text-pink-600"
                   label="VAT"
-                  detail="20%"
+                  detail="@20%"
                   value={formatMoney(quote.vatAmount)}
                 />
 
@@ -253,7 +246,7 @@ export default async function PaymentsPage({
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#006CFF] text-white">
                         <PoundSterling size={22} />
                       </span>
-                      <p className="text-lg font-bold">Total Price</p>
+                      <p className="text-lg font-bold">Total Inc VAT</p>
                     </div>
                     <p className="text-2xl font-bold sm:text-3xl">
                       {formatMoney(quote.totalPrice)}
@@ -277,6 +270,16 @@ export default async function PaymentsPage({
                   </div>
                 ))}
               </div>
+
+              <form action={createCheckoutSession} className="mt-5">
+                <input type="hidden" name="quoteId" value={quote.id} />
+                <button
+                  type="submit"
+                  className="inline-flex w-full items-center justify-center rounded-full bg-[#006CFF] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+                >
+                  Pay Securely Now
+                </button>
+              </form>
             </aside>
           </div>
         </section>
