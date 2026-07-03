@@ -11,7 +11,7 @@ import {
   UserPlus,
 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = "https://streamline-logistics-production.up.railway.app";
 
 type Vehicle = {
   id: string;

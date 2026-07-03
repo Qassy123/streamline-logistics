@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Mail, Phone, Truck, User, Shield, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = "https://streamline-logistics-production.up.railway.app";
 
 export default function DriverProfilePage() {
   const router = useRouter();

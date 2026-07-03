@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = "https://streamline-logistics-production.up.railway.app";
 
 type Vehicle = {
   id: string;
@@ -78,9 +78,6 @@ export default function DriverDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("driverToken") : null;
 
   const activeJob = useMemo(() => {
     if (!data) return null;
