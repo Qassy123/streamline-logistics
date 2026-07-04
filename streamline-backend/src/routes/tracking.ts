@@ -98,13 +98,18 @@ router.post("/driver/start", async (req, res) => {
         trackingShareTokenHash: tokenHash,
         trackingStartedAt: new Date(),
         trackingEndedAt: null,
+        status:
+          booking.status === BookingStatus.CONFIRMED ||
+          booking.status === BookingStatus.ASSIGNED
+            ? BookingStatus.IN_PROGRESS
+            : booking.status,
         trackingEvents: {
           create: {
-            status: booking.status,
+            status: BookingStatus.IN_PROGRESS,
             title: "Live Tracking Started",
             description: driverName
-              ? `${driverName} has started live tracking.`
-              : "The driver has started live tracking.",
+              ? `${driverName} has started sharing live location.`
+              : "The driver has started sharing live location.",
             userVisible: true,
           },
         },
@@ -178,16 +183,18 @@ router.post("/driver/location", async (req, res) => {
       data: {
         trackingStartedAt: booking.trackingStartedAt || new Date(),
         status:
-          booking.status === BookingStatus.CONFIRMED
+          booking.status === BookingStatus.CONFIRMED ||
+          booking.status === BookingStatus.ASSIGNED
             ? BookingStatus.IN_PROGRESS
             : booking.status,
         trackingEvents:
-          booking.status === BookingStatus.CONFIRMED
+          booking.status === BookingStatus.CONFIRMED ||
+          booking.status === BookingStatus.ASSIGNED
             ? {
                 create: {
                   status: BookingStatus.IN_PROGRESS,
                   title: "Driver En Route",
-                  description: "Live location updates are now active.",
+                  description: "Your driver is travelling to the collection address.",
                   userVisible: true,
                 },
               }
@@ -240,7 +247,7 @@ router.post("/driver/stop", async (req, res) => {
           create: {
             status: booking.status,
             title: "Live Tracking Stopped",
-            description: "The driver has stopped live location sharing.",
+            description: "The driver has stopped sharing live location.",
             userVisible: true,
           },
         },
