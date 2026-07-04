@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Camera,
@@ -17,6 +17,7 @@ import {
 import { useParams, useRouter } from "next/navigation";
 
 const API_BASE = "https://streamline-logistics-production.up.railway.app";
+const AUTO_LOCATION_INTERVAL_MS = 15000;
 
 type Vehicle = {
   id: string;
@@ -126,8 +127,28 @@ function formatTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
+}
+
 function statusLabel(status: string) {
   return status.replaceAll("_", " ");
+}
+
+function getLocationPayload(position: GeolocationPosition) {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    heading: position.coords.heading,
+    speed: position.coords.speed,
+  };
 }
 
 export default function DriverJobDetailPage() {
@@ -135,10 +156,18 @@ export default function DriverJobDetailPage() {
   const params = useParams();
   const bookingId = String(params.id);
 
+  const watchIdRef = useRef<number | null>(null);
+  const lastLocationSentAtRef = useRef(0);
+  const autoTrackingStartedRef = useRef(false);
+
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState("");
   const [error, setError] = useState("");
+  const [trackingMessage, setTrackingMessage] = useState("");
+  const [lastAutoLocationAt, setLastAutoLocationAt] = useState("");
+  const [autoTrackingEnabled, setAutoTrackingEnabled] = useState(false);
+
   const [podRecipient, setPodRecipient] = useState("");
   const [podNotes, setPodNotes] = useState("");
   const [signatureUrl, setSignatureUrl] = useState("");
@@ -181,9 +210,12 @@ export default function DriverJobDetailPage() {
     return payload;
   }
 
-  async function loadJob() {
+  async function loadJob(options?: { silent?: boolean }) {
     setError("");
-    setLoading(true);
+
+    if (!options?.silent) {
+      setLoading(true);
+    }
 
     try {
       const payload = await authedFetch(`/api/driver/jobs/${bookingId}`);
@@ -197,7 +229,9 @@ export default function DriverJobDetailPage() {
         setError(err.message);
       }
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -224,8 +258,83 @@ export default function DriverJobDetailPage() {
     }
   }
 
+  async function sendLocationPayload(payload: ReturnType<typeof getLocationPayload>) {
+    await authedFetch(`/api/driver/tracking/${bookingId}/location`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+
+    const now = new Date().toISOString();
+    setLastAutoLocationAt(now);
+    setTrackingMessage("Location sent automatically.");
+  }
+
+  async function handleAutoLocation(position: GeolocationPosition) {
+    const now = Date.now();
+
+    if (now - lastLocationSentAtRef.current < AUTO_LOCATION_INTERVAL_MS) {
+      return;
+    }
+
+    lastLocationSentAtRef.current = now;
+
+    try {
+      await sendLocationPayload(getLocationPayload(position));
+      await loadJob({ silent: true });
+    } catch (err) {
+      setTrackingMessage(
+        err instanceof Error ? err.message : "Unable to send location update.",
+      );
+    }
+  }
+
+  function startBrowserAutoTracking() {
+    if (!navigator.geolocation) {
+      setTrackingMessage("GPS is not available on this device.");
+      return;
+    }
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    setAutoTrackingEnabled(true);
+    setTrackingMessage("Automatic GPS updates are active. Keep this page open.");
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        void handleAutoLocation(position);
+      },
+      (locationError) => {
+        setAutoTrackingEnabled(false);
+        setTrackingMessage(
+          locationError.message || "Location permission was denied.",
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 5000,
+      },
+    );
+
+    watchIdRef.current = watchId;
+  }
+
+  function stopBrowserAutoTracking() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    autoTrackingStartedRef.current = false;
+    setAutoTrackingEnabled(false);
+  }
+
   async function startTracking() {
     setError("");
+    setTrackingMessage("");
     setWorking("start-tracking");
 
     try {
@@ -237,67 +346,28 @@ export default function DriverJobDetailPage() {
           () => resolve(null),
           {
             enableHighAccuracy: true,
-            timeout: 8000,
+            timeout: 10000,
             maximumAge: 0,
-          }
+          },
         );
       });
 
-      const body = position
-        ? {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            heading: position.coords.heading,
-            speed: position.coords.speed,
-          }
-        : {};
+      const body = position ? getLocationPayload(position) : {};
 
       const payload = await authedFetch(`/api/driver/tracking/${bookingId}/start`, {
         method: "POST",
         body: JSON.stringify(body),
       });
 
+      if (position) {
+        lastLocationSentAtRef.current = Date.now();
+        setLastAutoLocationAt(new Date().toISOString());
+      }
+
       setJob(payload.booking);
+      startBrowserAutoTracking();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start tracking");
-    } finally {
-      setWorking("");
-    }
-  }
-
-  async function sendLocation() {
-    setError("");
-    setWorking("location");
-
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error("GPS is not available on this device"));
-          return;
-        }
-
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
-        });
-      });
-
-      await authedFetch(`/api/driver/tracking/${bookingId}/location`, {
-        method: "POST",
-        body: JSON.stringify({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          heading: position.coords.heading,
-          speed: position.coords.speed,
-        }),
-      });
-
-      await loadJob();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send location");
     } finally {
       setWorking("");
     }
@@ -308,11 +378,14 @@ export default function DriverJobDetailPage() {
     setWorking("stop-tracking");
 
     try {
+      stopBrowserAutoTracking();
+
       const payload = await authedFetch(`/api/driver/tracking/${bookingId}/stop`, {
         method: "POST",
       });
 
       setJob(payload.booking);
+      setTrackingMessage("Tracking stopped.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to stop tracking");
     } finally {
@@ -325,6 +398,8 @@ export default function DriverJobDetailPage() {
     setWorking("complete");
 
     try {
+      stopBrowserAutoTracking();
+
       const payload = await authedFetch(`/api/driver/pod/${bookingId}/complete`, {
         method: "POST",
         body: JSON.stringify({
@@ -336,6 +411,7 @@ export default function DriverJobDetailPage() {
       });
 
       setJob(payload.booking);
+      setTrackingMessage("Delivery completed.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to complete delivery");
     } finally {
@@ -345,7 +421,44 @@ export default function DriverJobDetailPage() {
 
   useEffect(() => {
     loadJob();
+
+    return () => {
+      stopBrowserAutoTracking();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!trackingActive) {
+      stopBrowserAutoTracking();
+      return;
+    }
+
+    if (autoTrackingStartedRef.current) return;
+
+    autoTrackingStartedRef.current = true;
+    startBrowserAutoTracking();
+  }, [trackingActive]);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (!trackingActive) return;
+
+      if (document.visibilityState === "visible") {
+        startBrowserAutoTracking();
+        void loadJob({ silent: true });
+      } else {
+        setTrackingMessage(
+          "Tracking can pause if this page is closed or the phone is locked.",
+        );
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [trackingActive]);
 
   if (loading) {
     return (
@@ -409,6 +522,9 @@ export default function DriverJobDetailPage() {
               <p className="mt-2 text-sm text-blue-100">
                 Tracking: {trackingActive ? "Live" : "Inactive"}
               </p>
+              <p className="mt-1 text-sm text-blue-100">
+                Auto GPS: {autoTrackingEnabled ? "Active" : "Inactive"}
+              </p>
             </div>
           </div>
         </div>
@@ -434,7 +550,7 @@ export default function DriverJobDetailPage() {
               <div className="mt-5 flex flex-wrap gap-3">
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                    job.collectionAddress
+                    job.collectionAddress,
                   )}`}
                   target="_blank"
                   className="inline-flex items-center gap-2 rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white hover:bg-[#008fe6]"
@@ -445,7 +561,7 @@ export default function DriverJobDetailPage() {
 
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                    job.deliveryAddress
+                    job.deliveryAddress,
                   )}`}
                   target="_blank"
                   className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
@@ -554,15 +670,6 @@ export default function DriverJobDetailPage() {
                 </button>
 
                 <button
-                  onClick={sendLocation}
-                  disabled={Boolean(working)}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  {working === "location" ? "Sending..." : "Send GPS location"}
-                </button>
-
-                <button
                   onClick={stopTracking}
                   disabled={Boolean(working) || !trackingActive}
                   className="rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60"
@@ -570,6 +677,30 @@ export default function DriverJobDetailPage() {
                   {working === "stop-tracking" ? "Stopping..." : "Stop tracking"}
                 </button>
               </div>
+
+              <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+                <p className="font-bold">Automatic GPS updates</p>
+                <p className="mt-2 leading-6">
+                  After Start tracking is pressed, this page sends location every
+                  15 seconds while it remains open and the phone allows location access.
+                </p>
+                <p className="mt-2 font-semibold">
+                  Keep this page open during the delivery. Mobile browsers can pause
+                  GPS if the phone is locked or the browser is closed.
+                </p>
+              </div>
+
+              {trackingMessage && (
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+                  {trackingMessage}
+                </div>
+              )}
+
+              {lastAutoLocationAt && (
+                <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-semibold text-green-700">
+                  Last automatic update: {formatDateTime(lastAutoLocationAt)}
+                </div>
+              )}
 
               {job.driverLocations?.[0] && (
                 <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm">
@@ -657,7 +788,7 @@ function AddressCard({ title, address }: { title: string; address: string }) {
       <p className="font-semibold leading-6">{address}</p>
       <a
         href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-          address
+          address,
         )}`}
         target="_blank"
         className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-[#007bff]"
