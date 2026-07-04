@@ -101,8 +101,7 @@ router.get("/:bookingId", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { bookingId } = req.params;
-
+    const bookingId = String(req.params.bookingId || "");
     const booking = await getAssignedBooking(bookingId, driver.id);
 
     if (!booking) {
@@ -124,8 +123,11 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { bookingId } = req.params;
-    const uploadType = cleanString(req.body.type);
+    const bookingId = String(req.params.bookingId || "");
+    const rawType = req.body?.type;
+    const uploadType = Array.isArray(rawType)
+      ? cleanString(rawType[0])
+      : cleanString(rawType);
 
     if (uploadType !== "signature" && uploadType !== "photo") {
       return res.status(400).json({
@@ -149,10 +151,13 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
       return res.status(404).json({ error: "Booking not found" });
     }
 
+    const cloudinaryUploadType: "signature" | "photo" =
+      uploadType === "signature" ? "signature" : "photo";
+
     const url = await uploadBufferToCloudinary({
       buffer: req.file.buffer,
       bookingId: booking.id,
-      type: uploadType,
+      type: cloudinaryUploadType,
       mimetype,
     });
 
@@ -161,7 +166,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
         bookingId: booking.id,
       },
       update:
-        uploadType === "signature"
+        cloudinaryUploadType === "signature"
           ? {
               signatureUrl: url,
             }
@@ -171,7 +176,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
       create: {
         bookingId: booking.id,
         status: PODStatus.PENDING,
-        ...(uploadType === "signature"
+        ...(cloudinaryUploadType === "signature"
           ? {
               signatureUrl: url,
             }
@@ -183,7 +188,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
 
     return res.json({
       message: "POD file uploaded",
-      type: uploadType,
+      type: cloudinaryUploadType,
       url,
       pod,
     });
@@ -207,7 +212,7 @@ router.post("/:bookingId", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { bookingId } = req.params;
+    const bookingId = String(req.params.bookingId || "");
     const recipientName = cleanString(req.body.recipientName);
     const signatureUrl = cleanString(req.body.signatureUrl);
     const photoUrl = cleanString(req.body.photoUrl);
@@ -257,7 +262,7 @@ router.post("/:bookingId/complete", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { bookingId } = req.params;
+    const bookingId = String(req.params.bookingId || "");
     const recipientName = cleanString(req.body.recipientName);
     const signatureUrl = cleanString(req.body.signatureUrl);
     const photoUrl = cleanString(req.body.photoUrl);
