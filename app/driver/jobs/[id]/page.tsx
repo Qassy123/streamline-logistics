@@ -12,7 +12,9 @@ import {
   Phone,
   RefreshCw,
   Signature,
+  Trash2,
   Truck,
+  Upload,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -151,6 +153,15 @@ function getLocationPayload(position: GeolocationPosition) {
   };
 }
 
+function getCanvasPoint(canvas: HTMLCanvasElement, event: React.PointerEvent<HTMLCanvasElement>) {
+  const rect = canvas.getBoundingClientRect();
+
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+
 export default function DriverJobDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -159,6 +170,8 @@ export default function DriverJobDetailPage() {
   const watchIdRef = useRef<number | null>(null);
   const lastLocationSentAtRef = useRef(0);
   const autoTrackingStartedRef = useRef(false);
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -172,6 +185,8 @@ export default function DriverJobDetailPage() {
   const [podNotes, setPodNotes] = useState("");
   const [signatureUrl, setSignatureUrl] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [signatureDrawn, setSignatureDrawn] = useState(false);
+  const [podMessage, setPodMessage] = useState("");
 
   const trackingActive = useMemo(() => {
     return Boolean(job?.trackingStartedAt) && !job?.trackingEndedAt;
@@ -208,6 +223,51 @@ export default function DriverJobDetailPage() {
     }
 
     return payload;
+  }
+
+  async function uploadPodFile(file: File | Blob, type: "signature" | "photo") {
+    const token = localStorage.getItem("driverToken");
+
+    if (!token) {
+      router.push("/driver/login");
+      throw new Error("Unauthorized");
+    }
+
+    const formData = new FormData();
+    formData.append("type", type);
+    formData.append(
+      "file",
+      file,
+      type === "signature" ? "signature.png" : "delivery-photo.jpg",
+    );
+
+    const response = await fetch(`${API_BASE}/api/driver/pod/${bookingId}/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (response.status === 401) {
+      localStorage.removeItem("driverToken");
+      localStorage.removeItem("driver");
+      router.push("/driver/login");
+      throw new Error("Unauthorized");
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.error || "Upload failed");
+    }
+
+    return payload as {
+      message: string;
+      type: "signature" | "photo";
+      url: string;
+      pod: POD;
+    };
   }
 
   async function loadJob(options?: { silent?: boolean }) {
@@ -393,11 +453,201 @@ export default function DriverJobDetailPage() {
     }
   }
 
+  function prepareSignaturePad() {
+    const canvas = signatureCanvasRef.current;
+
+    if (!canvas) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+
+    const context = canvas.getContext("2d");
+
+    if (!context) return;
+
+    context.scale(ratio, ratio);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, rect.width, rect.height);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.lineWidth = 3;
+    context.strokeStyle = "#07182f";
+  }
+
+  function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = signatureCanvasRef.current;
+
+    if (!canvas) return;
+
+    drawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+
+    const context = canvas.getContext("2d");
+    const point = getCanvasPoint(canvas, event);
+
+    if (!context) return;
+
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
+
+  function drawSignature(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+
+    const canvas = signatureCanvasRef.current;
+
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    const point = getCanvasPoint(canvas, event);
+
+    if (!context) return;
+
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    setSignatureDrawn(true);
+  }
+
+  function stopDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = signatureCanvasRef.current;
+
+    if (!canvas) return;
+
+    drawingRef.current = false;
+
+    try {
+      canvas.releasePointerCapture(event.pointerId);
+    } catch {
+      // pointer capture may already be released
+    }
+  }
+
+  function clearSignature() {
+    prepareSignaturePad();
+    setSignatureDrawn(false);
+    setSignatureUrl("");
+    setPodMessage("");
+  }
+
+  async function savePodDraft(updatedValues?: {
+    signatureUrl?: string;
+    photoUrl?: string;
+  }) {
+    await authedFetch(`/api/driver/pod/${bookingId}`, {
+      method: "POST",
+      body: JSON.stringify({
+        recipientName: podRecipient,
+        signatureUrl: updatedValues?.signatureUrl || signatureUrl,
+        photoUrl: updatedValues?.photoUrl || photoUrl,
+        notes: podNotes,
+      }),
+    });
+  }
+
+  async function uploadSignature() {
+    setError("");
+    setPodMessage("");
+
+    const canvas = signatureCanvasRef.current;
+
+    if (!canvas) {
+      setError("Signature pad is not available");
+      return;
+    }
+
+    if (!signatureDrawn && !signatureUrl) {
+      setError("Please capture a signature before uploading");
+      return;
+    }
+
+    setWorking("upload-signature");
+
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((result) => resolve(result), "image/png");
+      });
+
+      if (!blob) {
+        throw new Error("Unable to prepare signature image");
+      }
+
+      const result = await uploadPodFile(blob, "signature");
+
+      setSignatureUrl(result.url);
+      setJob((currentJob) =>
+        currentJob
+          ? {
+              ...currentJob,
+              pod: result.pod,
+            }
+          : currentJob,
+      );
+
+      await savePodDraft({
+        signatureUrl: result.url,
+      });
+
+      setPodMessage("Signature uploaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to upload signature");
+    } finally {
+      setWorking("");
+    }
+  }
+
+  async function uploadPhoto(file: File | null) {
+    if (!file) return;
+
+    setError("");
+    setPodMessage("");
+    setWorking("upload-photo");
+
+    try {
+      const result = await uploadPodFile(file, "photo");
+
+      setPhotoUrl(result.url);
+      setJob((currentJob) =>
+        currentJob
+          ? {
+              ...currentJob,
+              pod: result.pod,
+            }
+          : currentJob,
+      );
+
+      await savePodDraft({
+        photoUrl: result.url,
+      });
+
+      setPodMessage("Delivery photo uploaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to upload photo");
+    } finally {
+      setWorking("");
+    }
+  }
+
   async function completeDelivery() {
     setError("");
+    setPodMessage("");
     setWorking("complete");
 
     try {
+      if (!podRecipient.trim()) {
+        throw new Error("Recipient name is required");
+      }
+
+      if (!signatureUrl) {
+        throw new Error("Signature must be uploaded before completing delivery");
+      }
+
+      if (!photoUrl) {
+        throw new Error("Delivery photo must be uploaded before completing delivery");
+      }
+
       stopBrowserAutoTracking();
 
       const payload = await authedFetch(`/api/driver/pod/${bookingId}/complete`, {
@@ -412,6 +662,7 @@ export default function DriverJobDetailPage() {
 
       setJob(payload.booking);
       setTrackingMessage("Delivery completed.");
+      setPodMessage("Delivery completed.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to complete delivery");
     } finally {
@@ -459,6 +710,20 @@ export default function DriverJobDetailPage() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [trackingActive]);
+
+  useEffect(() => {
+    prepareSignaturePad();
+
+    function handleResize() {
+      prepareSignaturePad();
+    }
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -537,6 +802,12 @@ export default function DriverJobDetailPage() {
           </div>
         )}
 
+        {podMessage && (
+          <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+            {podMessage}
+          </div>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <div className="space-y-6">
             <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -592,7 +863,7 @@ export default function DriverJobDetailPage() {
             <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
               <h2 className="text-xl font-bold">Proof of delivery</h2>
 
-              <div className="mt-5 grid gap-4">
+              <div className="mt-5 grid gap-5">
                 <label className="block">
                   <span className="mb-2 block text-sm font-bold text-slate-700">
                     Recipient name
@@ -605,31 +876,96 @@ export default function DriverJobDetailPage() {
                   />
                 </label>
 
-                <label className="block">
-                  <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                    <Signature className="h-4 w-4" />
-                    Signature URL
-                  </span>
-                  <input
-                    value={signatureUrl}
-                    onChange={(event) => setSignatureUrl(event.target.value)}
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
-                    placeholder="Temporary URL field until signature capture is added"
-                  />
-                </label>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                      <Signature className="h-4 w-4" />
+                      Recipient signature
+                    </span>
 
-                <label className="block">
+                    <button
+                      type="button"
+                      onClick={clearSignature}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Clear
+                    </button>
+                  </div>
+
+                  <canvas
+                    ref={signatureCanvasRef}
+                    onPointerDown={startDrawing}
+                    onPointerMove={drawSignature}
+                    onPointerUp={stopDrawing}
+                    onPointerCancel={stopDrawing}
+                    className="h-56 w-full touch-none rounded-2xl border border-slate-300 bg-white shadow-inner"
+                  />
+
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={uploadSignature}
+                      disabled={Boolean(working) || (!signatureDrawn && !signatureUrl)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white hover:bg-[#008fe6] disabled:opacity-60"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {working === "upload-signature"
+                        ? "Uploading signature..."
+                        : "Upload signature"}
+                    </button>
+
+                    {signatureUrl && (
+                      <a
+                        href={signatureUrl}
+                        target="_blank"
+                        className="text-sm font-bold text-[#007bff]"
+                      >
+                        View uploaded signature
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div>
                   <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                     <Camera className="h-4 w-4" />
-                    Photo URL
+                    Delivery photo
                   </span>
+
                   <input
-                    value={photoUrl}
-                    onChange={(event) => setPhotoUrl(event.target.value)}
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
-                    placeholder="Temporary URL field until upload is added"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(event) =>
+                      uploadPhoto(event.target.files?.[0] || null)
+                    }
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-[#07182f] file:px-4 file:py-2 file:text-sm file:font-bold file:text-white"
                   />
-                </label>
+
+                  {working === "upload-photo" && (
+                    <p className="mt-2 text-sm font-semibold text-slate-500">
+                      Uploading photo...
+                    </p>
+                  )}
+
+                  {photoUrl && (
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                      <img
+                        src={photoUrl}
+                        alt="Delivery proof"
+                        className="max-h-80 w-full object-contain"
+                      />
+                      <a
+                        href={photoUrl}
+                        target="_blank"
+                        className="block px-4 py-3 text-sm font-bold text-[#007bff]"
+                      >
+                        Open uploaded photo
+                      </a>
+                    </div>
+                  )}
+                </div>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-bold text-slate-700">
