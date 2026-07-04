@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Loader2,
+  Lock,
+  LogOut,
   RefreshCw,
   Shield,
   Trash2,
@@ -12,6 +14,7 @@ import {
 } from "lucide-react";
 
 const API_BASE = "https://streamline-logistics-production.up.railway.app";
+const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 
 type Vehicle = {
   id: string;
@@ -34,9 +37,11 @@ type Driver = {
 };
 
 export default function AdminDriversPage() {
+  const [adminKey, setAdminKey] = useState("");
+  const [adminKeyInput, setAdminKeyInput] = useState("");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
@@ -49,13 +54,52 @@ export default function AdminDriversPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function loadData() {
+  function adminHeaders() {
+    return {
+      "Content-Type": "application/json",
+      "x-admin-key": adminKey,
+    };
+  }
+
+  function saveAdminKey(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const cleanKey = adminKeyInput.trim();
+
+    if (!cleanKey) {
+      setError("Admin key is required");
+      return;
+    }
+
+    localStorage.setItem(ADMIN_KEY_STORAGE_KEY, cleanKey);
+    setAdminKey(cleanKey);
+    setError("");
+    setMessage("");
+  }
+
+  function clearAdminKey() {
+    localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+    setAdminKey("");
+    setAdminKeyInput("");
+    setDrivers([]);
+    setVehicles([]);
+    setMessage("");
+    setError("");
+  }
+
+  async function loadData(activeAdminKey = adminKey) {
+    if (!activeAdminKey) return;
+
     setLoading(true);
     setError("");
 
     try {
       const [driversResponse, vehiclesResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/admin/drivers`),
+        fetch(`${API_BASE}/api/admin/drivers`, {
+          headers: {
+            "x-admin-key": activeAdminKey,
+          },
+        }),
         fetch(`${API_BASE}/api/vehicles`),
       ]);
 
@@ -63,6 +107,11 @@ export default function AdminDriversPage() {
       const vehiclesPayload = await vehiclesResponse.json();
 
       if (!driversResponse.ok) {
+        if (driversResponse.status === 401) {
+          clearAdminKey();
+          throw new Error("Admin key rejected");
+        }
+
         throw new Error(driversPayload?.error || "Unable to load drivers");
       }
 
@@ -88,6 +137,12 @@ export default function AdminDriversPage() {
 
   async function createDriver(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!adminKey) {
+      setError("Admin key is required");
+      return;
+    }
+
     setSaving(true);
     setMessage("");
     setError("");
@@ -95,9 +150,7 @@ export default function AdminDriversPage() {
     try {
       const response = await fetch(`${API_BASE}/api/admin/drivers`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: adminHeaders(),
         body: JSON.stringify({
           name,
           username,
@@ -112,12 +165,15 @@ export default function AdminDriversPage() {
       const payload = await response.json();
 
       if (!response.ok) {
+        if (response.status === 401) {
+          clearAdminKey();
+          throw new Error("Admin key rejected");
+        }
+
         throw new Error(payload?.error || "Unable to create driver");
       }
 
-      setMessage(
-        `Driver created. Login: ${username} / Password: ${password}`
-      );
+      setMessage(`Driver created. Login: ${username} / Password: ${password}`);
 
       setName("");
       setUsername("");
@@ -135,17 +191,30 @@ export default function AdminDriversPage() {
   }
 
   async function deactivateDriver(driverId: string) {
+    if (!adminKey) {
+      setError("Admin key is required");
+      return;
+    }
+
     setError("");
     setMessage("");
 
     try {
       const response = await fetch(`${API_BASE}/api/admin/drivers/${driverId}`, {
         method: "DELETE",
+        headers: {
+          "x-admin-key": adminKey,
+        },
       });
 
       const payload = await response.json();
 
       if (!response.ok) {
+        if (response.status === 401) {
+          clearAdminKey();
+          throw new Error("Admin key rejected");
+        }
+
         throw new Error(payload?.error || "Unable to deactivate driver");
       }
 
@@ -153,19 +222,78 @@ export default function AdminDriversPage() {
       await loadData();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to deactivate driver"
+        err instanceof Error ? err.message : "Unable to deactivate driver",
       );
     }
   }
 
   useEffect(() => {
-    loadData();
+    const storedAdminKey = localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+
+    if (storedAdminKey) {
+      setAdminKey(storedAdminKey);
+      setAdminKeyInput(storedAdminKey);
+      loadData(storedAdminKey);
+    }
   }, []);
+
+  useEffect(() => {
+    if (adminKey) {
+      loadData(adminKey);
+    }
+  }, [adminKey]);
+
+  if (!adminKey) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-5 text-slate-950">
+        <section className="w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#18a8ff] text-white">
+              <Lock className="h-6 w-6" />
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-blue-600">
+                Admin
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight">
+                Driver Management
+              </h1>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={saveAdminKey} className="space-y-4">
+            <Input
+              label="Admin key"
+              type="password"
+              value={adminKeyInput}
+              onChange={setAdminKeyInput}
+              required
+            />
+
+            <button
+              type="submit"
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-[#07182f] px-5 py-3 text-sm font-bold text-white hover:bg-[#0b2445]"
+            >
+              <Shield className="h-4 w-4" />
+              Unlock admin
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <header className="bg-[#07182f] text-white">
-        <div className="mx-auto max-w-7xl px-5 py-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#18a8ff]">
               <Shield className="h-6 w-6" />
@@ -179,6 +307,15 @@ export default function AdminDriversPage() {
               </h1>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={clearAdminKey}
+            className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+          >
+            <LogOut className="h-4 w-4" />
+            Lock admin
+          </button>
         </div>
       </header>
 
@@ -280,7 +417,7 @@ export default function AdminDriversPage() {
               </div>
 
               <button
-                onClick={loadData}
+                onClick={() => loadData()}
                 className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
               >
                 <RefreshCw className="h-4 w-4" />

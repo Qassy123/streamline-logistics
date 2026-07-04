@@ -13,6 +13,27 @@ function normalizeEmail(value: unknown) {
   return cleanString(value).toLowerCase();
 }
 
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const configuredAdminKey = process.env.ADMIN_API_KEY;
+  const suppliedAdminKey = cleanString(req.headers["x-admin-key"]);
+
+  if (!configuredAdminKey) {
+    console.error("ADMIN_API_KEY is missing from environment variables");
+
+    return res.status(500).json({
+      error: "Admin security is not configured",
+    });
+  }
+
+  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
+    return res.status(401).json({
+      error: "Admin access denied",
+    });
+  }
+
+  return next();
+}
+
 function publicDriver(driver: any) {
   return {
     id: driver.id,
@@ -29,6 +50,8 @@ function publicDriver(driver: any) {
     updatedAt: driver.updatedAt,
   };
 }
+
+router.use(requireAdmin);
 
 /**
  * LIST DRIVERS
