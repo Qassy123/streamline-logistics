@@ -3,6 +3,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
+import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
 
 const router = Router();
 
@@ -205,8 +206,26 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     });
 
     await createInvoiceIfMissing(booking);
+    await assignRandomAvailableDriverToBooking(booking.id);
 
-    return booking;
+    const assignedBooking = await prisma.booking.findUnique({
+      where: {
+        id: booking.id,
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        user: true,
+        reservation: true,
+        trackingEvents: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+      },
+    });
+
+    return assignedBooking || booking;
   }
 
   const { reservedFrom, reservedUntil } = getReservationWindow(
@@ -336,8 +355,26 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
   });
 
   await createInvoiceIfMissing(booking);
+  await assignRandomAvailableDriverToBooking(booking.id);
 
-  return booking;
+  const assignedBooking = await prisma.booking.findUnique({
+    where: {
+      id: booking.id,
+    },
+    include: {
+      quote: true,
+      vehicle: true,
+      user: true,
+      reservation: true,
+      trackingEvents: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+    },
+  });
+
+  return assignedBooking || booking;
 }
 
 router.post("/create-checkout-session", async (req, res) => {

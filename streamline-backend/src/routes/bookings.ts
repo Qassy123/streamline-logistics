@@ -2,6 +2,7 @@ import { BookingStatus, Prisma, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
+import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
 
 const router = Router();
 
@@ -597,8 +598,27 @@ router.post("/:id/confirm-payment", async (req, res) => {
     });
 
     await autoSaveRouteFromConfirmedBooking(updatedBooking.id);
+    await assignRandomAvailableDriverToBooking(updatedBooking.id);
 
-    res.json(updatedBooking);
+    const finalBooking = await prisma.booking.findUnique({
+      where: {
+        id: updatedBooking.id,
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        user: true,
+        driver: true,
+        reservation: true,
+        trackingEvents: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+      },
+    });
+
+    res.json(finalBooking || updatedBooking);
   } catch (error) {
     console.error(error);
 
