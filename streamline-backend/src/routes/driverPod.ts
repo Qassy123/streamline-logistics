@@ -25,6 +25,10 @@ function getBearerToken(authHeader: string | undefined) {
 }
 
 function cleanString(value: unknown) {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0].trim() : "";
+  }
+
   return typeof value === "string" ? value.trim() : "";
 }
 
@@ -75,7 +79,9 @@ async function uploadBufferToCloudinary(params: {
   }
 
   const folder = `streamline-logistics/pod/${params.bookingId}`;
-  const dataUri = `data:${params.mimetype};base64,${params.buffer.toString("base64")}`;
+  const dataUri = `data:${params.mimetype};base64,${params.buffer.toString(
+    "base64",
+  )}`;
 
   const result = await cloudinary.uploader.upload(dataUri, {
     folder,
@@ -119,17 +125,21 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
     }
 
     const { bookingId } = req.params;
-    const type = cleanString(req.body.type);
+    const uploadType = cleanString(req.body.type);
 
-    if (type !== "signature" && type !== "photo") {
-      return res.status(400).json({ error: "Upload type must be signature or photo" });
+    if (uploadType !== "signature" && uploadType !== "photo") {
+      return res.status(400).json({
+        error: "Upload type must be signature or photo",
+      });
     }
 
     if (!req.file) {
       return res.status(400).json({ error: "File is required" });
     }
 
-    if (!req.file.mimetype.startsWith("image/")) {
+    const mimetype = String(req.file.mimetype || "");
+
+    if (!mimetype.startsWith("image/")) {
       return res.status(400).json({ error: "Only image files are allowed" });
     }
 
@@ -142,8 +152,8 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
     const url = await uploadBufferToCloudinary({
       buffer: req.file.buffer,
       bookingId: booking.id,
-      type,
-      mimetype: req.file.mimetype,
+      type: uploadType,
+      mimetype,
     });
 
     const pod = await prisma.pOD.upsert({
@@ -151,7 +161,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
         bookingId: booking.id,
       },
       update:
-        type === "signature"
+        uploadType === "signature"
           ? {
               signatureUrl: url,
             }
@@ -161,7 +171,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
       create: {
         bookingId: booking.id,
         status: PODStatus.PENDING,
-        ...(type === "signature"
+        ...(uploadType === "signature"
           ? {
               signatureUrl: url,
             }
@@ -173,7 +183,7 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
 
     return res.json({
       message: "POD file uploaded",
-      type,
+      type: uploadType,
       url,
       pod,
     });
