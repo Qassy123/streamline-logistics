@@ -192,6 +192,14 @@ export default function DriverJobDetailPage() {
     return Boolean(job?.trackingStartedAt) && !job?.trackingEndedAt;
   }, [job]);
 
+  const deliveryCompleted = useMemo(() => {
+    return Boolean(
+      job?.status === "COMPLETED" ||
+        job?.pod?.status === "COMPLETED" ||
+        job?.pod?.deliveredAt,
+    );
+  }, [job]);
+
   async function authedFetch(path: string, options: RequestInit = {}) {
     const token = localStorage.getItem("driverToken");
 
@@ -296,6 +304,11 @@ export default function DriverJobDetailPage() {
   }
 
   async function updateStatus(action: (typeof STATUS_ACTIONS)[number]) {
+    if (deliveryCompleted) {
+      setError("This job has already been completed and cannot be changed.");
+      return;
+    }
+
     setError("");
     setWorking(action.label);
 
@@ -393,6 +406,11 @@ export default function DriverJobDetailPage() {
   }
 
   async function startTracking() {
+    if (deliveryCompleted) {
+      setError("This job has already been completed and tracking cannot be restarted.");
+      return;
+    }
+
     setError("");
     setTrackingMessage("");
     setWorking("start-tracking");
@@ -478,6 +496,8 @@ export default function DriverJobDetailPage() {
   }
 
   function startDrawing(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (deliveryCompleted) return;
+
     const canvas = signatureCanvasRef.current;
 
     if (!canvas) return;
@@ -495,6 +515,7 @@ export default function DriverJobDetailPage() {
   }
 
   function drawSignature(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (deliveryCompleted) return;
     if (!drawingRef.current) return;
 
     const canvas = signatureCanvasRef.current;
@@ -526,6 +547,8 @@ export default function DriverJobDetailPage() {
   }
 
   function clearSignature() {
+    if (deliveryCompleted) return;
+
     prepareSignaturePad();
     setSignatureDrawn(false);
     setSignatureUrl("");
@@ -536,6 +559,8 @@ export default function DriverJobDetailPage() {
     signatureUrl?: string;
     photoUrl?: string;
   }) {
+    if (deliveryCompleted) return;
+
     await authedFetch(`/api/driver/pod/${bookingId}`, {
       method: "POST",
       body: JSON.stringify({
@@ -548,6 +573,11 @@ export default function DriverJobDetailPage() {
   }
 
   async function uploadSignature() {
+    if (deliveryCompleted) {
+      setError("Proof of delivery is already completed and cannot be changed.");
+      return;
+    }
+
     setError("");
     setPodMessage("");
 
@@ -601,6 +631,11 @@ export default function DriverJobDetailPage() {
   async function uploadPhoto(file: File | null) {
     if (!file) return;
 
+    if (deliveryCompleted) {
+      setError("Proof of delivery is already completed and cannot be changed.");
+      return;
+    }
+
     setError("");
     setPodMessage("");
     setWorking("upload-photo");
@@ -631,6 +666,11 @@ export default function DriverJobDetailPage() {
   }
 
   async function completeDelivery() {
+    if (deliveryCompleted) {
+      setError("This job has already been completed.");
+      return;
+    }
+
     setError("");
     setPodMessage("");
     setWorking("complete");
@@ -790,6 +830,11 @@ export default function DriverJobDetailPage() {
               <p className="mt-1 text-sm text-blue-100">
                 Auto GPS: {autoTrackingEnabled ? "Active" : "Inactive"}
               </p>
+              {deliveryCompleted && (
+                <p className="mt-3 rounded-full bg-green-500/20 px-3 py-2 text-sm font-bold text-green-100">
+                  Delivery locked
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -851,7 +896,7 @@ export default function DriverJobDetailPage() {
                   <button
                     key={action.label}
                     onClick={() => updateStatus(action)}
-                    disabled={Boolean(working)}
+                    disabled={Boolean(working) || deliveryCompleted}
                     className="rounded-2xl border border-slate-200 px-4 py-4 text-left text-sm font-bold transition hover:border-[#18a8ff] hover:bg-blue-50 disabled:opacity-60"
                   >
                     {working === action.label ? "Updating..." : action.label}
@@ -863,6 +908,12 @@ export default function DriverJobDetailPage() {
             <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
               <h2 className="text-xl font-bold">Proof of delivery</h2>
 
+              {deliveryCompleted && (
+                <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+                  Delivery has been completed. Proof of delivery is locked and cannot be edited.
+                </div>
+              )}
+
               <div className="mt-5 grid gap-5">
                 <label className="block">
                   <span className="mb-2 block text-sm font-bold text-slate-700">
@@ -871,7 +922,8 @@ export default function DriverJobDetailPage() {
                   <input
                     value={podRecipient}
                     onChange={(event) => setPodRecipient(event.target.value)}
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
+                    disabled={deliveryCompleted}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500"
                     placeholder="Name of recipient"
                   />
                 </label>
@@ -886,7 +938,8 @@ export default function DriverJobDetailPage() {
                     <button
                       type="button"
                       onClick={clearSignature}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      disabled={deliveryCompleted}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
                       <Trash2 className="h-3 w-3" />
                       Clear
@@ -899,14 +952,20 @@ export default function DriverJobDetailPage() {
                     onPointerMove={drawSignature}
                     onPointerUp={stopDrawing}
                     onPointerCancel={stopDrawing}
-                    className="h-56 w-full touch-none rounded-2xl border border-slate-300 bg-white shadow-inner"
+                    className={`h-56 w-full touch-none rounded-2xl border border-slate-300 bg-white shadow-inner ${
+                      deliveryCompleted ? "opacity-60" : ""
+                    }`}
                   />
 
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <button
                       type="button"
                       onClick={uploadSignature}
-                      disabled={Boolean(working) || (!signatureDrawn && !signatureUrl)}
+                      disabled={
+                        Boolean(working) ||
+                        deliveryCompleted ||
+                        (!signatureDrawn && !signatureUrl)
+                      }
                       className="inline-flex items-center justify-center gap-2 rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white hover:bg-[#008fe6] disabled:opacity-60"
                     >
                       <Upload className="h-4 w-4" />
@@ -937,10 +996,11 @@ export default function DriverJobDetailPage() {
                     type="file"
                     accept="image/*"
                     capture="environment"
+                    disabled={deliveryCompleted}
                     onChange={(event) =>
                       uploadPhoto(event.target.files?.[0] || null)
                     }
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-[#07182f] file:px-4 file:py-2 file:text-sm file:font-bold file:text-white"
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-[#07182f] file:px-4 file:py-2 file:text-sm file:font-bold file:text-white disabled:bg-slate-100 disabled:text-slate-500"
                   />
 
                   {working === "upload-photo" && (
@@ -974,19 +1034,24 @@ export default function DriverJobDetailPage() {
                   <textarea
                     value={podNotes}
                     onChange={(event) => setPodNotes(event.target.value)}
+                    disabled={deliveryCompleted}
                     rows={4}
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500"
                     placeholder="Delivery notes"
                   />
                 </label>
 
                 <button
                   onClick={completeDelivery}
-                  disabled={Boolean(working)}
+                  disabled={Boolean(working) || deliveryCompleted}
                   className="inline-flex items-center justify-center gap-2 rounded-full bg-[#07182f] px-5 py-3 text-sm font-bold text-white hover:bg-[#0b2445] disabled:opacity-60"
                 >
                   <ClipboardCheck className="h-4 w-4" />
-                  {working === "complete" ? "Completing..." : "Complete delivery"}
+                  {deliveryCompleted
+                    ? "Delivery completed"
+                    : working === "complete"
+                      ? "Completing..."
+                      : "Complete delivery"}
                 </button>
               </div>
             </section>
@@ -999,7 +1064,7 @@ export default function DriverJobDetailPage() {
               <div className="mt-5 grid gap-3">
                 <button
                   onClick={startTracking}
-                  disabled={Boolean(working) || trackingActive}
+                  disabled={Boolean(working) || trackingActive || deliveryCompleted}
                   className="rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white hover:bg-[#008fe6] disabled:opacity-60"
                 >
                   {working === "start-tracking" ? "Starting..." : "Start tracking"}
@@ -1007,7 +1072,7 @@ export default function DriverJobDetailPage() {
 
                 <button
                   onClick={stopTracking}
-                  disabled={Boolean(working) || !trackingActive}
+                  disabled={Boolean(working) || !trackingActive || deliveryCompleted}
                   className="rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60"
                 >
                   {working === "stop-tracking" ? "Stopping..." : "Stop tracking"}

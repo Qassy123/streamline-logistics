@@ -68,6 +68,16 @@ async function getAssignedBooking(bookingId: string, driverId: string) {
   });
 }
 
+function deliveryAlreadyCompleted(
+  booking: NonNullable<Awaited<ReturnType<typeof getAssignedBooking>>>,
+) {
+  return Boolean(
+    booking.status === BookingStatus.COMPLETED ||
+      booking.pod?.status === PODStatus.COMPLETED ||
+      booking.pod?.deliveredAt,
+  );
+}
+
 async function uploadBufferToCloudinary(params: {
   buffer: Buffer;
   bookingId: string;
@@ -151,6 +161,12 @@ router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
       return res.status(404).json({ error: "Booking not found" });
     }
 
+    if (deliveryAlreadyCompleted(booking)) {
+      return res.status(409).json({
+        error: "Proof of delivery is already completed and cannot be changed",
+      });
+    }
+
     const cloudinaryUploadType: "signature" | "photo" =
       uploadType === "signature" ? "signature" : "photo";
 
@@ -224,6 +240,12 @@ router.post("/:bookingId", async (req, res) => {
       return res.status(404).json({ error: "Booking not found" });
     }
 
+    if (deliveryAlreadyCompleted(booking)) {
+      return res.status(409).json({
+        error: "Proof of delivery is already completed and cannot be changed",
+      });
+    }
+
     const pod = await prisma.pOD.upsert({
       where: {
         bookingId: booking.id,
@@ -276,6 +298,12 @@ router.post("/:bookingId/complete", async (req, res) => {
 
     if (!booking) {
       return res.status(404).json({ error: "Booking not found" });
+    }
+
+    if (deliveryAlreadyCompleted(booking)) {
+      return res.status(409).json({
+        error: "Proof of delivery is already completed and cannot be changed",
+      });
     }
 
     const completedAt = new Date();
