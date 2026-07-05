@@ -3,11 +3,11 @@ import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
+import { getReservationWindow } from "../lib/reservationWindow";
 
 const router = Router();
 
 const PAYMENT_RESERVATION_MINUTES = 30;
-const VEHICLE_BLOCK_HOURS = 6;
 
 function generateBookingReference() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -57,22 +57,6 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
   }
 
   return session.user;
-}
-
-function getReservationWindow(collectionDate: Date, collectionWindow: string) {
-  const windowStart = collectionWindow.split("-")[0];
-  const [hours, minutes] = windowStart.split(":").map(Number);
-
-  const reservedFrom = new Date(collectionDate);
-  reservedFrom.setHours(hours, minutes, 0, 0);
-
-  const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
-
-  return {
-    reservedFrom,
-    reservedUntil,
-  };
 }
 
 async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
@@ -418,7 +402,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     const { reservedFrom, reservedUntil } = getReservationWindow(
       quote.collectionDate,
-      quote.collectionWindow
+      quote.collectionWindow,
     );
 
     const vehicleAvailableAt = reservedUntil;
@@ -448,8 +432,41 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       },
     });
 
+    const overlappingBookings = await prisma.booking.findMany({
+      where: {
+        vehicleId: {
+          not: null,
+        },
+        status: {
+          in: [
+            BookingStatus.PENDING_PAYMENT,
+            BookingStatus.CONFIRMED,
+            BookingStatus.ASSIGNED,
+            BookingStatus.IN_PROGRESS,
+            BookingStatus.COMPLETED,
+          ],
+        },
+        estimatedStartTime: {
+          lt: reservedUntil,
+        },
+        estimatedEndTime: {
+          gt: reservedFrom,
+        },
+      },
+      select: {
+        vehicleId: true,
+      },
+    });
+
+    const blockedVehicleIds = new Set(
+      overlappingBookings
+        .map((booking) => booking.vehicleId)
+        .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
+    );
+
     const availableVehicle = vehicles.find(
-      (vehicle) => vehicle.reservations.length === 0
+      (vehicle) =>
+        vehicle.reservations.length === 0 && !blockedVehicleIds.has(vehicle.id),
     );
 
     if (!availableVehicle) {

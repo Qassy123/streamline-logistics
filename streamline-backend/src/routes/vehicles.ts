@@ -1,80 +1,12 @@
 import { BookingStatus, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
+import { getReservationWindow } from "../lib/reservationWindow";
 
 const router = Router();
 
-const VEHICLE_BLOCK_HOURS = 6;
-const UK_TIME_ZONE = "Europe/London";
-
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function getTimeZoneOffsetMs(timeZone: string, date: Date) {
-  const zonedDate = new Date(
-    date.toLocaleString("en-US", {
-      timeZone,
-    }),
-  );
-
-  const utcDate = new Date(
-    date.toLocaleString("en-US", {
-      timeZone: "UTC",
-    }),
-  );
-
-  return zonedDate.getTime() - utcDate.getTime();
-}
-
-function createUtcDateFromUkLocalTime(
-  collectionDate: string,
-  hours: number,
-  minutes: number,
-) {
-  const [year, month, day] = collectionDate.split("-").map(Number);
-
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day) ||
-    !Number.isFinite(hours) ||
-    !Number.isFinite(minutes)
-  ) {
-    return null;
-  }
-
-  const utcGuess = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
-  const offsetMs = getTimeZoneOffsetMs(UK_TIME_ZONE, utcGuess);
-
-  return new Date(utcGuess.getTime() - offsetMs);
-}
-
-function parseCollectionWindow(collectionDate: string, collectionWindow: string) {
-  const [start] = collectionWindow.split("-");
-  const [hours, minutes] = start.split(":").map(Number);
-
-  if (!collectionDate || !collectionWindow) {
-    return null;
-  }
-
-  const reservedFrom = createUtcDateFromUkLocalTime(
-    collectionDate,
-    hours,
-    minutes,
-  );
-
-  if (!reservedFrom || Number.isNaN(reservedFrom.getTime())) {
-    return null;
-  }
-
-  const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
-
-  return {
-    reservedFrom,
-    reservedUntil,
-  };
 }
 
 router.get("/", async (_, res) => {
@@ -100,18 +32,16 @@ router.get("/availability", async (req, res) => {
     const collectionDate = getString(req.query.collectionDate);
     const collectionWindow = getString(req.query.collectionWindow);
 
-    const reservationWindow = parseCollectionWindow(
-      collectionDate,
-      collectionWindow,
-    );
-
-    if (!reservationWindow) {
+    if (!collectionDate || !collectionWindow) {
       return res.status(400).json({
         error: "Valid collectionDate and collectionWindow are required.",
       });
     }
 
-    const { reservedFrom, reservedUntil } = reservationWindow;
+    const { reservedFrom, reservedUntil } = getReservationWindow(
+      collectionDate,
+      collectionWindow,
+    );
 
     const vehicles = await prisma.vehicle.findMany({
       where: {

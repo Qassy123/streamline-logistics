@@ -4,14 +4,12 @@ import Stripe from "stripe";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
+import { getReservationWindow } from "../lib/reservationWindow";
 
 const router = Router();
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-
-const PAYMENT_RESERVATION_MINUTES = 30;
-const VEHICLE_BLOCK_HOURS = 6;
 
 if (!stripeSecretKey) {
   throw new Error("STRIPE_SECRET_KEY is missing from environment variables");
@@ -74,22 +72,6 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
   }
 
   return session.user;
-}
-
-function getReservationWindow(collectionDate: Date, collectionWindow: string) {
-  const windowStart = collectionWindow.split("-")[0];
-  const [hours, minutes] = windowStart.split(":").map(Number);
-
-  const reservedFrom = new Date(collectionDate);
-  reservedFrom.setHours(hours, minutes, 0, 0);
-
-  const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
-
-  return {
-    reservedFrom,
-    reservedUntil,
-  };
 }
 
 async function createInvoiceIfMissing(booking: {
@@ -260,9 +242,46 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     },
   });
 
-  const availableVehicle = vehicles.find(
-    (vehicle) => vehicle.reservations.length === 0,
+  const overlappingBookings = await prisma.booking.findMany({
+    where: {
+      vehicleId: {
+        not: null,
+      },
+      status: {
+        in: [
+          BookingStatus.PENDING_PAYMENT,
+          BookingStatus.CONFIRMED,
+          BookingStatus.ASSIGNED,
+          BookingStatus.IN_PROGRESS,
+          BookingStatus.COMPLETED,
+        ],
+      },
+      estimatedStartTime: {
+        lt: reservedUntil,
+      },
+      estimatedEndTime: {
+        gt: reservedFrom,
+      },
+    },
+    select: {
+      vehicleId: true,
+    },
+  });
+
+  const blockedVehicleIds = new Set(
+    overlappingBookings
+      .map((booking) => booking.vehicleId)
+      .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
   );
+
+  const availableVehicle = vehicles.find(
+    (vehicle) =>
+      vehicle.reservations.length === 0 && !blockedVehicleIds.has(vehicle.id),
+  );
+
+  if (!availableVehicle) {
+    throw new Error("No vehicle available for this collection window.");
+  }
 
   const booking = await prisma.booking.create({
     data: {
@@ -285,15 +304,11 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
           }
         : {}),
 
-      ...(availableVehicle
-        ? {
-            vehicle: {
-              connect: {
-                id: availableVehicle.id,
-              },
-            },
-          }
-        : {}),
+      vehicle: {
+        connect: {
+          id: availableVehicle.id,
+        },
+      },
 
       collectionDate: quote.collectionDate,
       collectionWindow: quote.collectionWindow,
@@ -308,20 +323,16 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
 
       totalPrice: quote.totalPrice,
 
-      ...(availableVehicle
-        ? {
-            reservation: {
-              create: {
-                vehicleId: availableVehicle.id,
-                quoteId: quote.id,
-                status: ReservationStatus.CONFIRMED,
-                reservedFrom,
-                reservedUntil,
-                expiresAt: null,
-              },
-            },
-          }
-        : {}),
+      reservation: {
+        create: {
+          vehicleId: availableVehicle.id,
+          quoteId: quote.id,
+          status: ReservationStatus.CONFIRMED,
+          reservedFrom,
+          reservedUntil,
+          expiresAt: null,
+        },
+      },
 
       trackingEvents: {
         create: [
@@ -333,10 +344,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
           {
             status: BookingStatus.CONFIRMED,
             title: "Payment Confirmed",
-            description:
-              availableVehicle
-                ? "Your payment has been received and your booking is confirmed."
-                : "Your payment has been received. Operations will assign a vehicle.",
+            description: "Your payment has been received and your booking is confirmed.",
           },
         ],
       },
