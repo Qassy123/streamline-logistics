@@ -113,13 +113,102 @@ async function createInvoiceIfMissing(booking: {
   });
 }
 
+async function findAvailableVehicle(params: {
+  vehicleType: string;
+  reservedFrom: Date;
+  reservedUntil: Date;
+  excludeBookingId?: string;
+}) {
+  const vehicles = await prisma.vehicle.findMany({
+    where: {
+      vehicleType: params.vehicleType,
+      active: true,
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+    include: {
+      reservations: {
+        where: {
+          status: {
+            in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
+          },
+          reservedFrom: {
+            lt: params.reservedUntil,
+          },
+          reservedUntil: {
+            gt: params.reservedFrom,
+          },
+          ...(params.excludeBookingId
+            ? {
+                bookingId: {
+                  not: params.excludeBookingId,
+                },
+              }
+            : {}),
+        },
+      },
+    },
+  });
+
+  const overlappingBookings = await prisma.booking.findMany({
+    where: {
+      vehicleId: {
+        not: null,
+      },
+      ...(params.excludeBookingId
+        ? {
+            id: {
+              not: params.excludeBookingId,
+            },
+          }
+        : {}),
+      status: {
+        in: [
+          BookingStatus.PENDING_PAYMENT,
+          BookingStatus.CONFIRMED,
+          BookingStatus.ASSIGNED,
+          BookingStatus.IN_PROGRESS,
+          BookingStatus.COMPLETED,
+        ],
+      },
+      estimatedStartTime: {
+        lt: params.reservedUntil,
+      },
+      estimatedEndTime: {
+        gt: params.reservedFrom,
+      },
+    },
+    select: {
+      vehicleId: true,
+    },
+  });
+
+  const blockedVehicleIds = new Set(
+    overlappingBookings
+      .map((booking) => booking.vehicleId)
+      .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
+  );
+
+  return (
+    vehicles.find(
+      (vehicle) =>
+        vehicle.reservations.length === 0 && !blockedVehicleIds.has(vehicle.id),
+    ) || null
+  );
+}
+
 async function createConfirmedBookingFromQuote(quoteId: string, userId?: string) {
   const quote = await prisma.quote.findUnique({
     where: {
       id: quoteId,
     },
     include: {
-      booking: true,
+      booking: {
+        include: {
+          reservation: true,
+        },
+      },
     },
   });
 
@@ -137,6 +226,13 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
 
   const resolvedUserId = userId || quote.userId || undefined;
 
+  const { reservedFrom, reservedUntil } = getReservationWindow(
+    quote.collectionDate,
+    quote.collectionWindow,
+  );
+
+  const vehicleAvailableAt = reservedUntil;
+
   await prisma.quote.update({
     where: {
       id: quote.id,
@@ -148,15 +244,50 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
   });
 
   if (quote.booking) {
-    await prisma.vehicleReservation.updateMany({
-      where: {
-        bookingId: quote.booking.id,
-      },
-      data: {
-        status: ReservationStatus.CONFIRMED,
-        expiresAt: null,
-      },
-    });
+    let vehicleId = quote.booking.vehicleId;
+
+    if (!vehicleId) {
+      const availableVehicle = await findAvailableVehicle({
+        vehicleType: quote.vehicleSize,
+        reservedFrom,
+        reservedUntil,
+        excludeBookingId: quote.booking.id,
+      });
+
+      if (!availableVehicle) {
+        throw new Error("No vehicle available for this collection window.");
+      }
+
+      vehicleId = availableVehicle.id;
+    }
+
+    if (!quote.booking.reservation) {
+      await prisma.vehicleReservation.create({
+        data: {
+          bookingId: quote.booking.id,
+          vehicleId,
+          quoteId: quote.id,
+          status: ReservationStatus.CONFIRMED,
+          reservedFrom,
+          reservedUntil,
+          expiresAt: null,
+        },
+      });
+    } else {
+      await prisma.vehicleReservation.update({
+        where: {
+          bookingId: quote.booking.id,
+        },
+        data: {
+          vehicleId,
+          quoteId: quote.id,
+          status: ReservationStatus.CONFIRMED,
+          reservedFrom,
+          reservedUntil,
+          expiresAt: null,
+        },
+      });
+    }
 
     const booking = await prisma.booking.update({
       where: {
@@ -164,7 +295,11 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
       },
       data: {
         userId: resolvedUserId || quote.booking.userId || null,
+        vehicleId,
         status: BookingStatus.CONFIRMED,
+        estimatedStartTime: reservedFrom,
+        estimatedEndTime: reservedUntil,
+        vehicleAvailableAt,
         trackingEvents: {
           create: {
             status: BookingStatus.CONFIRMED,
@@ -210,74 +345,11 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     return assignedBooking || booking;
   }
 
-  const { reservedFrom, reservedUntil } = getReservationWindow(
-    quote.collectionDate,
-    quote.collectionWindow,
-  );
-
-  const vehicleAvailableAt = reservedUntil;
-
-  const vehicles = await prisma.vehicle.findMany({
-    where: {
-      vehicleType: quote.vehicleSize,
-      active: true,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
-    include: {
-      reservations: {
-        where: {
-          status: {
-            in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
-          },
-          reservedFrom: {
-            lt: reservedUntil,
-          },
-          reservedUntil: {
-            gt: reservedFrom,
-          },
-        },
-      },
-    },
+  const availableVehicle = await findAvailableVehicle({
+    vehicleType: quote.vehicleSize,
+    reservedFrom,
+    reservedUntil,
   });
-
-  const overlappingBookings = await prisma.booking.findMany({
-    where: {
-      vehicleId: {
-        not: null,
-      },
-      status: {
-        in: [
-          BookingStatus.PENDING_PAYMENT,
-          BookingStatus.CONFIRMED,
-          BookingStatus.ASSIGNED,
-          BookingStatus.IN_PROGRESS,
-          BookingStatus.COMPLETED,
-        ],
-      },
-      estimatedStartTime: {
-        lt: reservedUntil,
-      },
-      estimatedEndTime: {
-        gt: reservedFrom,
-      },
-    },
-    select: {
-      vehicleId: true,
-    },
-  });
-
-  const blockedVehicleIds = new Set(
-    overlappingBookings
-      .map((booking) => booking.vehicleId)
-      .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
-  );
-
-  const availableVehicle = vehicles.find(
-    (vehicle) =>
-      vehicle.reservations.length === 0 && !blockedVehicleIds.has(vehicle.id),
-  );
 
   if (!availableVehicle) {
     throw new Error("No vehicle available for this collection window.");
