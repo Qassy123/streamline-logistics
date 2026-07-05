@@ -4,6 +4,17 @@ import { PrismaClient, BookingStatus } from "@prisma/client";
 const router = express.Router();
 const prisma = new PrismaClient();
 
+type DriverStopType = "COLLECTION" | "DROP" | "DELIVERY" | "RETURN";
+
+type DriverStop = {
+  sequence: number;
+  type: DriverStopType;
+  label: string;
+  address: string;
+  notes?: string | null;
+  navigationUrl: string;
+};
+
 function getBearerToken(authHeader: string | undefined) {
   if (!authHeader?.startsWith("Bearer ")) return null;
   return authHeader.replace("Bearer ", "").trim();
@@ -37,6 +48,161 @@ function getTodayRange() {
   return { start, end };
 }
 
+function normaliseText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getNavigationUrl(address: string) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    address,
+  )}`;
+}
+
+function parseExtraDrops(value: unknown): unknown[] {
+  if (!value) return [];
+
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    if (Array.isArray(objectValue.drops)) return objectValue.drops;
+    if (Array.isArray(objectValue.extraDrops)) return objectValue.extraDrops;
+    if (Array.isArray(objectValue.items)) return objectValue.items;
+  }
+
+  return [];
+}
+
+function getDropAddress(drop: unknown) {
+  if (typeof drop === "string") return drop.trim();
+
+  if (!drop || typeof drop !== "object") return "";
+
+  const dropObject = drop as Record<string, unknown>;
+
+  return (
+    normaliseText(dropObject.address) ||
+    normaliseText(dropObject.fullAddress) ||
+    normaliseText(dropObject.dropAddress) ||
+    normaliseText(dropObject.deliveryAddress) ||
+    normaliseText(dropObject.location) ||
+    normaliseText(dropObject.formattedAddress) ||
+    normaliseText(dropObject.label)
+  );
+}
+
+function getDropNotes(drop: unknown) {
+  if (!drop || typeof drop !== "object") return null;
+
+  const dropObject = drop as Record<string, unknown>;
+
+  return (
+    normaliseText(dropObject.notes) ||
+    normaliseText(dropObject.instructions) ||
+    normaliseText(dropObject.specialInstructions) ||
+    normaliseText(dropObject.contactName) ||
+    null
+  );
+}
+
+function isReturnJourney(journeyType: unknown, returnAddress: unknown) {
+  const journey = normaliseText(journeyType).toLowerCase();
+
+  return Boolean(
+    normaliseText(returnAddress) ||
+      journey.includes("return") ||
+      journey.includes("round") ||
+      journey.includes("two way") ||
+      journey.includes("two-way"),
+  );
+}
+
+function buildDriverStops(booking: any): DriverStop[] {
+  const stops: DriverStop[] = [];
+
+  function addStop(type: DriverStopType, label: string, address: string, notes?: string | null) {
+    const cleanAddress = normaliseText(address);
+
+    if (!cleanAddress) return;
+
+    stops.push({
+      sequence: stops.length + 1,
+      type,
+      label,
+      address: cleanAddress,
+      notes: notes || null,
+      navigationUrl: getNavigationUrl(cleanAddress),
+    });
+  }
+
+  addStop("COLLECTION", "Collection", booking.collectionAddress);
+
+  const drops = parseExtraDrops(booking.extraDrops || booking.quote?.extraDrops);
+
+  drops.forEach((drop, index) => {
+    const address = getDropAddress(drop);
+
+    if (!address) return;
+
+    addStop("DROP", `Drop ${index + 1}`, address, getDropNotes(drop));
+  });
+
+  addStop(
+    "DELIVERY",
+    drops.length > 0 ? "Final delivery" : "Delivery",
+    booking.deliveryAddress,
+  );
+
+  if (isReturnJourney(booking.quote?.journeyType, booking.quote?.returnAddress)) {
+    addStop("RETURN", "Return", booking.quote?.returnAddress || booking.collectionAddress);
+  }
+
+  return stops;
+}
+
+function enrichJob<T extends any>(job: T): T & {
+  stops: DriverStop[];
+  stopSummary: {
+    totalStops: number;
+    extraDrops: number;
+    hasReturn: boolean;
+    description: string;
+  };
+  nextStop: DriverStop | null;
+} {
+  const stops = buildDriverStops(job);
+  const extraDrops = stops.filter((stop) => stop.type === "DROP").length;
+  const hasReturn = stops.some((stop) => stop.type === "RETURN");
+
+  const descriptionParts = [
+    `${stops.length} stop${stops.length === 1 ? "" : "s"}`,
+    extraDrops > 0 ? `${extraDrops} drop${extraDrops === 1 ? "" : "s"}` : "",
+    hasReturn ? "return journey" : "",
+  ].filter(Boolean);
+
+  return {
+    ...job,
+    stops,
+    stopSummary: {
+      totalStops: stops.length,
+      extraDrops,
+      hasReturn,
+      description: descriptionParts.join(" · "),
+    },
+    nextStop: stops[0] || null,
+  };
+}
+
 /**
  * DRIVER DASHBOARD SUMMARY
  */
@@ -66,6 +232,7 @@ router.get("/dashboard", async (req, res) => {
             collectionDate: "asc",
           },
           include: {
+            quote: true,
             vehicle: true,
             pod: true,
           },
@@ -86,6 +253,7 @@ router.get("/dashboard", async (req, res) => {
             collectionDate: "asc",
           },
           include: {
+            quote: true,
             vehicle: true,
             pod: true,
           },
@@ -100,6 +268,7 @@ router.get("/dashboard", async (req, res) => {
             collectionDate: "asc",
           },
           include: {
+            quote: true,
             vehicle: true,
             pod: true,
           },
@@ -115,6 +284,7 @@ router.get("/dashboard", async (req, res) => {
           },
           take: 10,
           include: {
+            quote: true,
             vehicle: true,
             pod: true,
           },
@@ -137,10 +307,10 @@ router.get("/dashboard", async (req, res) => {
         activeJobs: activeJobs.length,
         completedJobs: completedJobs.length,
       },
-      todayJobs,
-      assignedJobs,
-      activeJobs,
-      completedJobs,
+      todayJobs: todayJobs.map(enrichJob),
+      assignedJobs: assignedJobs.map(enrichJob),
+      activeJobs: activeJobs.map(enrichJob),
+      completedJobs: completedJobs.map(enrichJob),
     });
   } catch (error) {
     console.error("Driver dashboard error:", error);
@@ -178,6 +348,7 @@ router.get("/", async (req, res) => {
         collectionDate: "asc",
       },
       include: {
+        quote: true,
         vehicle: true,
         pod: true,
         trackingEvents: {
@@ -190,7 +361,7 @@ router.get("/", async (req, res) => {
     });
 
     return res.json({
-      jobs,
+      jobs: jobs.map(enrichJob),
     });
   } catch (error) {
     console.error("Driver jobs error:", error);
@@ -221,6 +392,7 @@ router.get("/:bookingId", async (req, res) => {
         driverId: driver.id,
       },
       include: {
+        quote: true,
         vehicle: true,
         pod: true,
         payments: true,
@@ -246,7 +418,7 @@ router.get("/:bookingId", async (req, res) => {
     }
 
     return res.json({
-      job,
+      job: enrichJob(job),
     });
   } catch (error) {
     console.error("Driver job detail error:", error);
@@ -284,6 +456,12 @@ router.patch("/:bookingId/accept", async (req, res) => {
       });
     }
 
+    if ([BookingStatus.COMPLETED, BookingStatus.CANCELLED, BookingStatus.EXPIRED].includes(booking.status)) {
+      return res.status(409).json({
+        error: "This job can no longer be accepted",
+      });
+    }
+
     const updatedBooking = await prisma.booking.update({
       where: {
         id: booking.id,
@@ -300,6 +478,7 @@ router.patch("/:bookingId/accept", async (req, res) => {
         },
       },
       include: {
+        quote: true,
         vehicle: true,
         pod: true,
         trackingEvents: {
@@ -312,7 +491,7 @@ router.patch("/:bookingId/accept", async (req, res) => {
 
     return res.json({
       message: "Job accepted",
-      job: updatedBooking,
+      job: enrichJob(updatedBooking),
     });
   } catch (error) {
     console.error("Driver accept job error:", error);
@@ -364,6 +543,12 @@ router.patch("/:bookingId/status", async (req, res) => {
       });
     }
 
+    if (booking.status === BookingStatus.COMPLETED) {
+      return res.status(409).json({
+        error: "Completed jobs cannot be changed",
+      });
+    }
+
     const updatedBooking = await prisma.booking.update({
       where: {
         id: booking.id,
@@ -380,6 +565,7 @@ router.patch("/:bookingId/status", async (req, res) => {
         },
       },
       include: {
+        quote: true,
         vehicle: true,
         pod: true,
         trackingEvents: {
@@ -392,7 +578,7 @@ router.patch("/:bookingId/status", async (req, res) => {
 
     return res.json({
       message: "Job status updated",
-      job: updatedBooking,
+      job: enrichJob(updatedBooking),
     });
   } catch (error) {
     console.error("Driver update job status error:", error);

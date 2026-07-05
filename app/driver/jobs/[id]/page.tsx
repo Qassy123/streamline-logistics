@@ -6,11 +6,13 @@ import {
   Camera,
   CheckCircle2,
   ClipboardCheck,
+  CornerDownLeft,
   Loader2,
   MapPin,
   Navigation,
   Phone,
   RefreshCw,
+  Route,
   Signature,
   Trash2,
   Truck,
@@ -56,6 +58,15 @@ type POD = {
   deliveredAt?: string | null;
 };
 
+type Stop = {
+  sequence: number;
+  type: "COLLECTION" | "DROP" | "DELIVERY" | "RETURN";
+  label: string;
+  address: string;
+  notes?: string | null;
+  navigationUrl: string;
+};
+
 type Job = {
   id: string;
   reference: string;
@@ -72,6 +83,14 @@ type Job = {
   pod?: POD | null;
   trackingEvents?: TrackingEvent[];
   driverLocations?: DriverLocation[];
+  stops?: Stop[];
+  stopSummary?: {
+    totalStops: number;
+    extraDrops: number;
+    hasReturn: boolean;
+    description: string;
+  };
+  nextStop?: Stop | null;
 };
 
 const STATUS_ACTIONS = [
@@ -113,6 +132,24 @@ const STATUS_ACTIONS = [
   },
 ];
 
+const STOP_ACTIONS = [
+  {
+    label: "En route",
+    titleSuffix: "en route",
+    descriptionSuffix: "The driver is travelling to this stop.",
+  },
+  {
+    label: "Arrived",
+    titleSuffix: "arrived",
+    descriptionSuffix: "The driver has arrived at this stop.",
+  },
+  {
+    label: "Completed",
+    titleSuffix: "completed",
+    descriptionSuffix: "This stop has been completed.",
+  },
+];
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
@@ -141,6 +178,28 @@ function formatDateTime(value: string) {
 
 function statusLabel(status: string) {
   return status.replaceAll("_", " ");
+}
+
+function stopBadgeClass(type: Stop["type"]) {
+  if (type === "COLLECTION") return "bg-blue-100 text-blue-700";
+  if (type === "DROP") return "bg-amber-100 text-amber-700";
+  if (type === "RETURN") return "bg-purple-100 text-purple-700";
+
+  return "bg-green-100 text-green-700";
+}
+
+function stopTypeLabel(type: Stop["type"]) {
+  return type.replaceAll("_", " ");
+}
+
+function isStopActionDone(events: TrackingEvent[] | undefined, stop: Stop, actionSuffix: string) {
+  const target = `${stop.label} ${actionSuffix}`.toLowerCase();
+
+  return Boolean(
+    events?.some((event) =>
+      `${event.title} ${event.description || ""}`.toLowerCase().includes(target),
+    ),
+  );
 }
 
 function getLocationPayload(position: GeolocationPosition) {
@@ -326,6 +385,35 @@ export default function DriverJobDetailPage() {
       setJob(payload.booking);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update status");
+    } finally {
+      setWorking("");
+    }
+  }
+
+  async function updateStopStatus(stop: Stop, action: (typeof STOP_ACTIONS)[number]) {
+    if (deliveryCompleted) {
+      setError("This job has already been completed and cannot be changed.");
+      return;
+    }
+
+    setError("");
+    setWorking(`${stop.sequence}-${action.label}`);
+
+    try {
+      const title = `${stop.label} ${action.titleSuffix}`;
+      const payload = await authedFetch(`/api/driver/tracking/${bookingId}/event`, {
+        method: "POST",
+        body: JSON.stringify({
+          status: action.titleSuffix === "completed" ? "IN_PROGRESS" : "IN_PROGRESS",
+          title,
+          description: `${action.descriptionSuffix} Address: ${stop.address}`,
+          userVisible: true,
+        }),
+      });
+
+      setJob(payload.booking);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update stop");
     } finally {
       setWorking("");
     }
@@ -817,6 +905,13 @@ export default function DriverJobDetailPage() {
               <p className="mt-3 text-blue-100">
                 {formatDate(job.collectionDate)} · {job.collectionWindow}
               </p>
+
+              {job.stopSummary && (
+                <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-bold text-blue-100">
+                  <Route className="h-4 w-4 text-[#18a8ff]" />
+                  {job.stopSummary.description}
+                </p>
+              )}
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
@@ -856,35 +951,117 @@ export default function DriverJobDetailPage() {
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <div className="space-y-6">
             <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-              <h2 className="text-xl font-bold">Route</h2>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">Route stops</h2>
+                  <p className="mt-2 text-sm font-semibold text-slate-500">
+                    {job.stopSummary?.description || `${job.stops?.length || 2} stops`}
+                  </p>
+                </div>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <AddressCard title="Collection" address={job.collectionAddress} />
-                <AddressCard title="Delivery" address={job.deliveryAddress} />
+                {job.stopSummary?.hasReturn && (
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full bg-purple-100 px-4 py-2 text-xs font-bold text-purple-700">
+                    <CornerDownLeft className="h-4 w-4" />
+                    Return journey
+                  </span>
+                )}
               </div>
 
-              <div className="mt-5 flex flex-wrap gap-3">
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                    job.collectionAddress,
-                  )}`}
-                  target="_blank"
-                  className="inline-flex items-center gap-2 rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white hover:bg-[#008fe6]"
-                >
-                  <Navigation className="h-4 w-4" />
-                  Navigate to collection
-                </a>
+              <div className="mt-5 grid gap-4">
+                {(job.stops && job.stops.length > 0
+                  ? job.stops
+                  : [
+                      {
+                        sequence: 1,
+                        type: "COLLECTION" as const,
+                        label: "Collection",
+                        address: job.collectionAddress,
+                        navigationUrl: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.collectionAddress)}`,
+                      },
+                      {
+                        sequence: 2,
+                        type: "DELIVERY" as const,
+                        label: "Delivery",
+                        address: job.deliveryAddress,
+                        navigationUrl: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.deliveryAddress)}`,
+                      },
+                    ]
+                ).map((stop) => (
+                  <div
+                    key={`${stop.sequence}-${stop.label}-${stop.address}`}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#07182f] text-sm font-bold text-white">
+                            {stop.sequence}
+                          </span>
 
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                    job.deliveryAddress,
-                  )}`}
-                  target="_blank"
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                >
-                  <Navigation className="h-4 w-4" />
-                  Navigate to delivery
-                </a>
+                          <h3 className="text-lg font-bold text-[#07182f]">
+                            {stop.label}
+                          </h3>
+
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-bold ${stopBadgeClass(stop.type)}`}
+                          >
+                            {stopTypeLabel(stop.type)}
+                          </span>
+                        </div>
+
+                        <p className="mt-3 flex items-start gap-2 text-sm font-semibold leading-6 text-slate-700">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#18a8ff]" />
+                          {stop.address}
+                        </p>
+
+                        {stop.notes && (
+                          <p className="mt-2 rounded-xl bg-white p-3 text-sm font-semibold text-slate-600">
+                            {stop.notes}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <a
+                          href={stop.navigationUrl}
+                          target="_blank"
+                          className="inline-flex items-center gap-2 rounded-full bg-[#18a8ff] px-4 py-2 text-xs font-bold text-white hover:bg-[#008fe6]"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          Navigate
+                        </a>
+
+                        {STOP_ACTIONS.map((action) => {
+                          const done = isStopActionDone(
+                            job.trackingEvents,
+                            stop,
+                            action.titleSuffix,
+                          );
+
+                          return (
+                            <button
+                              key={`${stop.sequence}-${action.label}`}
+                              type="button"
+                              onClick={() => updateStopStatus(stop, action)}
+                              disabled={Boolean(working) || deliveryCompleted}
+                              className={`rounded-full border px-4 py-2 text-xs font-bold disabled:opacity-50 ${
+                                done
+                                  ? "border-green-200 bg-green-50 text-green-700"
+                                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              {working === `${stop.sequence}-${action.label}`
+                                ? "Updating..."
+                                : done
+                                  ? `${action.label} ✓`
+                                  : action.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
 
