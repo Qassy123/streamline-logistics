@@ -78,6 +78,7 @@ function parseExtraDrops(value: unknown): unknown[] {
     if (Array.isArray(objectValue.drops)) return objectValue.drops;
     if (Array.isArray(objectValue.extraDrops)) return objectValue.extraDrops;
     if (Array.isArray(objectValue.items)) return objectValue.items;
+    if (Array.isArray(objectValue.addresses)) return objectValue.addresses;
   }
 
   return [];
@@ -127,10 +128,15 @@ function isReturnJourney(journeyType: unknown, returnAddress: unknown) {
   );
 }
 
-function buildDriverStops(booking: any): DriverStop[] {
+function buildDriverStops(booking: Record<string, any>): DriverStop[] {
   const stops: DriverStop[] = [];
 
-  function addStop(type: DriverStopType, label: string, address: string, notes?: string | null) {
+  function addStop(
+    type: DriverStopType,
+    label: string,
+    address: string,
+    notes?: string | null,
+  ) {
     const cleanAddress = normaliseText(address);
 
     if (!cleanAddress) return;
@@ -170,16 +176,7 @@ function buildDriverStops(booking: any): DriverStop[] {
   return stops;
 }
 
-function enrichJob<T extends any>(job: T): T & {
-  stops: DriverStop[];
-  stopSummary: {
-    totalStops: number;
-    extraDrops: number;
-    hasReturn: boolean;
-    description: string;
-  };
-  nextStop: DriverStop | null;
-} {
+function enrichJob(job: Record<string, any>) {
   const stops = buildDriverStops(job);
   const extraDrops = stops.filter((stop) => stop.type === "DROP").length;
   const hasReturn = stops.some((stop) => stop.type === "RETURN");
@@ -456,7 +453,11 @@ router.patch("/:bookingId/accept", async (req, res) => {
       });
     }
 
-    if ([BookingStatus.COMPLETED, BookingStatus.CANCELLED, BookingStatus.EXPIRED].includes(booking.status)) {
+    if (
+      booking.status === BookingStatus.COMPLETED ||
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.EXPIRED
+    ) {
       return res.status(409).json({
         error: "This job can no longer be accepted",
       });
@@ -517,14 +518,14 @@ router.patch("/:bookingId/status", async (req, res) => {
     const { bookingId } = req.params;
     const { status, title, description } = req.body;
 
-    const allowedStatuses = [
+    const allowedStatuses: BookingStatus[] = [
       BookingStatus.ASSIGNED,
       BookingStatus.IN_PROGRESS,
       BookingStatus.COMPLETED,
       BookingStatus.CANCELLED,
     ];
 
-    if (!allowedStatuses.includes(status)) {
+    if (!allowedStatuses.includes(status as BookingStatus)) {
       return res.status(400).json({
         error: "Invalid status",
       });
@@ -549,15 +550,17 @@ router.patch("/:bookingId/status", async (req, res) => {
       });
     }
 
+    const nextStatus = status as BookingStatus;
+
     const updatedBooking = await prisma.booking.update({
       where: {
         id: booking.id,
       },
       data: {
-        status,
+        status: nextStatus,
         trackingEvents: {
           create: {
-            status,
+            status: nextStatus,
             title: title || "Status updated",
             description: description || null,
             userVisible: true,
