@@ -1,3 +1,4 @@
+import { BookingStatus, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 
@@ -116,15 +117,20 @@ router.get("/availability", async (req, res) => {
       where: {
         active: true,
       },
-      orderBy: {
-        vehicleType: "asc",
-      },
+      orderBy: [
+        {
+          vehicleType: "asc",
+        },
+        {
+          createdAt: "asc",
+        },
+      ],
     });
 
     const overlappingReservations = await prisma.vehicleReservation.findMany({
       where: {
         status: {
-          in: ["ACTIVE", "CONFIRMED"],
+          in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
         },
         reservedFrom: {
           lt: reservedUntil,
@@ -138,36 +144,101 @@ router.get("/availability", async (req, res) => {
       },
     });
 
-    const reservationByVehicleId = new Map<
-      string,
-      (typeof overlappingReservations)[number]
-    >();
+    const overlappingBookings = await prisma.booking.findMany({
+      where: {
+        vehicleId: {
+          not: null,
+        },
+        status: {
+          in: [
+            BookingStatus.PENDING_PAYMENT,
+            BookingStatus.CONFIRMED,
+            BookingStatus.ASSIGNED,
+            BookingStatus.IN_PROGRESS,
+            BookingStatus.COMPLETED,
+          ],
+        },
+        estimatedStartTime: {
+          lt: reservedUntil,
+        },
+        estimatedEndTime: {
+          gt: reservedFrom,
+        },
+      },
+      orderBy: {
+        estimatedEndTime: "desc",
+      },
+    });
+
+    const blockedUntilByVehicleId = new Map<string, Date>();
 
     overlappingReservations.forEach((reservation) => {
-      const existing = reservationByVehicleId.get(reservation.vehicleId);
+      const existing = blockedUntilByVehicleId.get(reservation.vehicleId);
 
-      if (!existing || reservation.reservedUntil > existing.reservedUntil) {
-        reservationByVehicleId.set(reservation.vehicleId, reservation);
+      if (!existing || reservation.reservedUntil > existing) {
+        blockedUntilByVehicleId.set(reservation.vehicleId, reservation.reservedUntil);
       }
     });
 
-    const availability = vehicles.map((vehicle) => {
-      const reservation = reservationByVehicleId.get(vehicle.id);
+    overlappingBookings.forEach((booking) => {
+      if (!booking.vehicleId || !booking.estimatedEndTime) return;
 
-      return {
-        id: vehicle.id,
-        name: vehicle.name,
-        vehicleType: vehicle.vehicleType,
-        active: vehicle.active,
-        available: !reservation,
-        unavailableUntil: reservation
-          ? reservation.reservedUntil.toISOString()
-          : null,
-        reason: reservation
-          ? "Vehicle is already reserved for this collection window."
-          : null,
-      };
+      const existing = blockedUntilByVehicleId.get(booking.vehicleId);
+
+      if (!existing || booking.estimatedEndTime > existing) {
+        blockedUntilByVehicleId.set(booking.vehicleId, booking.estimatedEndTime);
+      }
     });
+
+    const vehiclesByType = new Map<string, typeof vehicles>();
+
+    vehicles.forEach((vehicle) => {
+      const current = vehiclesByType.get(vehicle.vehicleType) || [];
+      current.push(vehicle);
+      vehiclesByType.set(vehicle.vehicleType, current);
+    });
+
+    const availability = Array.from(vehiclesByType.entries()).map(
+      ([vehicleType, typeVehicles]) => {
+        const availableVehicle = typeVehicles.find(
+          (vehicle) => !blockedUntilByVehicleId.has(vehicle.id),
+        );
+
+        const latestBlockedUntil = typeVehicles.reduce<Date | null>(
+          (latest, vehicle) => {
+            const blockedUntil = blockedUntilByVehicleId.get(vehicle.id);
+
+            if (!blockedUntil) return latest;
+            if (!latest || blockedUntil > latest) return blockedUntil;
+
+            return latest;
+          },
+          null,
+        );
+
+        const representativeVehicle = availableVehicle || typeVehicles[0];
+
+        return {
+          id: representativeVehicle.id,
+          name: representativeVehicle.name,
+          vehicleType,
+          active: representativeVehicle.active,
+          available: Boolean(availableVehicle),
+          unavailableUntil: availableVehicle
+            ? null
+            : latestBlockedUntil
+              ? latestBlockedUntil.toISOString()
+              : null,
+          reason: availableVehicle
+            ? null
+            : "Vehicle is already reserved for this collection window.",
+          totalVehicles: typeVehicles.length,
+          availableVehicles: typeVehicles.filter(
+            (vehicle) => !blockedUntilByVehicleId.has(vehicle.id),
+          ).length,
+        };
+      },
+    );
 
     res.json({
       vehicles: availability,
