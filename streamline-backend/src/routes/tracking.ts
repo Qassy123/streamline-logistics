@@ -86,6 +86,12 @@ router.post("/driver/start", async (req, res) => {
       });
     }
 
+    if (booking.status === BookingStatus.COMPLETED) {
+      return res.status(409).json({
+        error: "Completed deliveries cannot restart tracking.",
+      });
+    }
+
     const token = createTrackingToken();
     const tokenHash = hashValue(token);
 
@@ -164,6 +170,12 @@ router.post("/driver/location", async (req, res) => {
       });
     }
 
+    if (booking.status === BookingStatus.COMPLETED) {
+      return res.status(409).json({
+        error: "Delivery has already been completed.",
+      });
+    }
+
     const location = await prisma.driverLocation.create({
       data: {
         bookingId: booking.id,
@@ -237,6 +249,12 @@ router.post("/driver/stop", async (req, res) => {
       });
     }
 
+    if (booking.status === BookingStatus.COMPLETED) {
+      return res.status(409).json({
+        error: "Delivery has already been completed.",
+      });
+    }
+
     const updatedBooking = await prisma.booking.update({
       where: {
         id: booking.id,
@@ -285,6 +303,7 @@ router.get("/customer/:bookingId", async (req, res) => {
       include: {
         quote: true,
         vehicle: true,
+        pod: true,
         trackingEvents: {
           where: {
             userVisible: true,
@@ -320,6 +339,7 @@ router.get("/customer/:bookingId", async (req, res) => {
         collectionAddress: booking.collectionAddress,
         deliveryAddress: booking.deliveryAddress,
         vehicle: booking.vehicle,
+        pod: booking.pod,
         trackingStartedAt: booking.trackingStartedAt,
         trackingEndedAt: booking.trackingEndedAt,
       },
