@@ -23,6 +23,37 @@ type QuoteDetails = {
 const BACKEND_API_URL =
   "https://streamline-logistics-production.up.railway.app/api";
 
+async function confirmCheckout(
+  quoteId?: string,
+  sessionId?: string,
+): Promise<void> {
+  if (!quoteId || !sessionId) return;
+
+  try {
+    const response = await fetch(
+      `${BACKEND_API_URL}/payments/confirm-checkout-session`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          quoteId,
+          sessionId,
+        }),
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Payment confirmation failed:", errorText);
+    }
+  } catch (error) {
+    console.error("Payment confirmation error:", error);
+  }
+}
+
 async function getQuote(id?: string): Promise<QuoteDetails | null> {
   if (!id) return null;
 
@@ -52,6 +83,8 @@ export default async function PaymentSuccessPage({
   }>;
 }) {
   const { quoteId, session_id } = await searchParams;
+
+  await confirmCheckout(quoteId, session_id);
 
   const quote = await getQuote(quoteId);
   const businessName =
