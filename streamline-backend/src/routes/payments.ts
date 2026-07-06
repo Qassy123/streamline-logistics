@@ -541,6 +541,12 @@ router.post("/confirm-checkout-session", async (req, res) => {
     const sessionId =
       typeof req.body.sessionId === "string" ? req.body.sessionId : "";
 
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated.",
+      });
+    }
+
     if (!quoteId || !sessionId) {
       return res.status(400).json({
         error: "quoteId and sessionId are required.",
@@ -561,28 +567,16 @@ router.post("/confirm-checkout-session", async (req, res) => {
       });
     }
 
-    const quote = user
-      ? await prisma.quote.update({
-          where: {
-            id: quoteId,
-          },
-          data: {
-            userId: user.id,
-          },
-        })
-      : await prisma.quote.findUnique({
-          where: {
-            id: quoteId,
-          },
-        });
+    const quote = await prisma.quote.update({
+      where: {
+        id: quoteId,
+      },
+      data: {
+        userId: user.id,
+      },
+    });
 
-    if (!quote) {
-      return res.status(404).json({
-        error: "Quote not found.",
-      });
-    }
-
-    const booking = await createConfirmedBookingFromQuote(quote.id, user?.id);
+    const booking = await createConfirmedBookingFromQuote(quote.id, user.id);
 
     const existingPayment = await prisma.payment.findFirst({
       where: {
@@ -595,7 +589,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
       await prisma.payment.create({
         data: {
           bookingId: booking.id,
-          userId: user?.id || booking.userId || null,
+          userId: user.id,
           provider: "stripe",
           providerPaymentId: session.id,
           status: PaymentStatus.PAID,
@@ -606,10 +600,28 @@ router.post("/confirm-checkout-session", async (req, res) => {
       });
     }
 
+    const emailBooking = await prisma.booking.findUnique({
+      where: {
+        id: booking.id,
+      },
+      include: {
+        quote: true,
+        vehicle: true,
+        user: true,
+        reservation: true,
+      },
+    });
+
     try {
-      await sendCustomerPaymentSuccessfulEmail(booking);
-      await sendCustomerBookingConfirmedEmail(booking);
-      await sendAdminNewPaidBookingEmail(booking);
+      if (emailBooking) {
+        await sendCustomerPaymentSuccessfulEmail(emailBooking);
+        await sendCustomerBookingConfirmedEmail(emailBooking);
+        await sendAdminNewPaidBookingEmail(emailBooking);
+      } else {
+        console.warn("Payment emails skipped: booking not found after confirmation", {
+          bookingId: booking.id,
+        });
+      }
     } catch (emailError) {
       console.error("Payment confirmation email error:", emailError);
     }
