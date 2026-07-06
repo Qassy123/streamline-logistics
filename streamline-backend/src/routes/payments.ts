@@ -567,7 +567,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
             id: quoteId,
           },
           data: {
-            userId: user?.id || booking.userId || null,
+            userId: user.id,
           },
         })
       : await prisma.quote.findUnique({
@@ -595,7 +595,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
       await prisma.payment.create({
         data: {
           bookingId: booking.id,
-          userId: user.id,
+          userId: user?.id || booking.userId || null,
           provider: "stripe",
           providerPaymentId: session.id,
           status: PaymentStatus.PAID,
