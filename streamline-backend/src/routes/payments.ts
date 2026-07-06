@@ -541,12 +541,6 @@ router.post("/confirm-checkout-session", async (req, res) => {
     const sessionId =
       typeof req.body.sessionId === "string" ? req.body.sessionId : "";
 
-    if (!user) {
-      return res.status(401).json({
-        error: "Not authenticated.",
-      });
-    }
-
     if (!quoteId || !sessionId) {
       return res.status(400).json({
         error: "quoteId and sessionId are required.",
@@ -567,16 +561,28 @@ router.post("/confirm-checkout-session", async (req, res) => {
       });
     }
 
-    const quote = await prisma.quote.update({
-      where: {
-        id: quoteId,
-      },
-      data: {
-        userId: user.id,
-      },
-    });
+    const quote = user
+      ? await prisma.quote.update({
+          where: {
+            id: quoteId,
+          },
+          data: {
+            userId: user?.id || booking.userId || null,
+          },
+        })
+      : await prisma.quote.findUnique({
+          where: {
+            id: quoteId,
+          },
+        });
 
-    const booking = await createConfirmedBookingFromQuote(quote.id, user.id);
+    if (!quote) {
+      return res.status(404).json({
+        error: "Quote not found.",
+      });
+    }
+
+    const booking = await createConfirmedBookingFromQuote(quote.id, user?.id);
 
     const existingPayment = await prisma.payment.findFirst({
       where: {
