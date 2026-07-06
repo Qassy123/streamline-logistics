@@ -5,6 +5,11 @@ import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
 import { getReservationWindow } from "../lib/reservationWindow";
+import {
+  sendAdminNewPaidBookingEmail,
+  sendCustomerBookingConfirmedEmail,
+  sendCustomerPaymentSuccessfulEmail,
+} from "../lib/notifications";
 
 const router = Router();
 
@@ -593,6 +598,10 @@ router.post("/confirm-checkout-session", async (req, res) => {
           paidAt: new Date(),
         },
       });
+
+      await sendCustomerPaymentSuccessfulEmail(booking);
+      await sendCustomerBookingConfirmedEmail(booking);
+      await sendAdminNewPaidBookingEmail(booking);
     }
 
     res.json({
