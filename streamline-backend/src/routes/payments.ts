@@ -598,10 +598,14 @@ router.post("/confirm-checkout-session", async (req, res) => {
           paidAt: new Date(),
         },
       });
+    }
 
+    try {
       await sendCustomerPaymentSuccessfulEmail(booking);
       await sendCustomerBookingConfirmedEmail(booking);
       await sendAdminNewPaidBookingEmail(booking);
+    } catch (emailError) {
+      console.error("Payment confirmation email error:", emailError);
     }
 
     res.json({
