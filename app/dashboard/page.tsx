@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   BadgeCheck,
+  CheckCircle,
   Clock,
   CreditCard,
   FileText,
@@ -13,6 +15,7 @@ import {
   ShieldCheck,
   TrendingUp,
   User,
+  XCircle,
 } from "lucide-react";
 
 const ACCOUNT_API_URL =
@@ -140,9 +143,27 @@ export default function DashboardPage() {
   const businessName =
     user?.legalEntity || user?.companyName || user?.name || "Your account";
 
+  const tradeStatusValue = isTradeAccount
+    ? "Approved"
+    : hasTradeApplication
+    ? formatStatus(user?.tradeAccount?.status)
+    : "Not applied";
+
+  const tradeStatusIcon = !hasTradeApplication && !isTradeAccount
+    ? <XCircle size={17} />
+    : <ShieldCheck size={17} />;
+
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
       <div className="mx-auto max-w-7xl">
+        <Link
+          href="/"
+          className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#D7E6FF] bg-white px-5 py-3 text-sm font-bold text-[#071D49] shadow-sm transition hover:border-[#006CFF] hover:text-[#006CFF]"
+        >
+          <ArrowLeft size={17} />
+          Back to Homepage
+        </Link>
+
         <section className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
           <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-8 text-white sm:p-10">
             <div className="grid gap-8 lg:grid-cols-[1fr_0.75fr] lg:items-end">
@@ -181,14 +202,13 @@ export default function DashboardPage() {
                   />
 
                   <StatusLine
-                    icon={<ShieldCheck size={17} />}
-                    label="Trade status"
-                    value={
-                      isTradeAccount
-                        ? "Approved"
-                        : hasTradeApplication
-                        ? formatStatus(user?.tradeAccount?.status)
-                        : "Not applied"
+                    icon={tradeStatusIcon}
+                    label="Trade status for credit account"
+                    value={tradeStatusValue}
+                    iconClassName={
+                      !hasTradeApplication && !isTradeAccount
+                        ? "text-red-300"
+                        : "text-[#2D8CFF]"
                     }
                   />
 
@@ -247,27 +267,39 @@ export default function DashboardPage() {
             )}
 
             {showUpgrade && (
-              <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <section className="relative overflow-hidden rounded-3xl border border-[#7FB5FF] bg-[linear-gradient(120deg,_#F4F8FF_0%,_#EAF2FF_45%,_#DDEBFF_100%)] p-5 shadow-lg shadow-[#006CFF]/10 animate-pulse">
+                <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#006CFF]/20 blur-2xl animate-ping" />
+                <div className="pointer-events-none absolute -bottom-12 left-1/3 h-28 w-28 rounded-full bg-[#2D8CFF]/20 blur-2xl animate-ping [animation-delay:1.5s]" />
+
+                <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#006CFF]">
-                      Business Account
+                      Upgrade for trade credit account
                     </p>
 
-                    <h2 className="mt-2 text-xl font-bold text-[#071D49]">
-                      Upgrade available
+                    <h2 className="mt-2 text-2xl font-black uppercase tracking-tight text-[#071D49]">
+                      WE DELIVER NOW; YOU PAY LATER.
                     </h2>
 
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      Apply for monthly invoicing, agreed credit terms and account-managed logistics.
-                    </p>
+                    <div className="mt-4 grid gap-2 text-sm font-semibold text-[#071D49] sm:grid-cols-3">
+                      {[
+                        "Monthly invoicing",
+                        "Agreed credit terms",
+                        "Account managed logistics",
+                      ].map((benefit) => (
+                        <div key={benefit} className="flex items-center gap-2">
+                          <CheckCircle size={17} className="shrink-0 text-[#006CFF]" />
+                          <span>{benefit}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <Link
                     href="/dashboard/upgrade-account"
-                    className="inline-flex items-center justify-center gap-2 rounded-full bg-[#006CFF] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-[#006CFF] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[#006CFF]/25 transition hover:bg-[#2D8CFF]"
                   >
-                    Upgrade To Trade
+                    Upgrade to trade credit account
                     <ArrowRight size={16} />
                   </Link>
                 </div>
@@ -315,14 +347,16 @@ function StatusLine({
   icon,
   label,
   value,
+  iconClassName = "text-[#2D8CFF]",
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  iconClassName?: string;
 }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="shrink-0 text-[#2D8CFF]">{icon}</span>
+      <span className={`shrink-0 ${iconClassName}`}>{icon}</span>
       <span>
         {label}: <span className="font-bold text-white capitalize">{value}</span>
       </span>
