@@ -492,8 +492,8 @@ function RegisterBusinessForm() {
                 <TextField
                   name="companyWebsite"
                   label="Company Website"
-                  type="url"
-                  placeholder="https://"
+                  type="text"
+                  placeholder="example.co.uk"
                   defaultValue={prefill.companyWebsite}
                   required
                 />
