@@ -71,6 +71,7 @@ const navigationGroups: NavigationGroup[] = [
         label: "Add New Customer",
         href: "/admin/customers/new",
         icon: UserPlus,
+        exact: true,
       },
       {
         label: "Customer Accounts",
@@ -181,6 +182,18 @@ function isNavigationItemActive(
   pathname: string,
   item: NavigationItem,
 ): boolean {
+  if (item.href === "/admin/customers/new") {
+    return pathname === "/admin/customers/new";
+  }
+
+  if (item.href === "/admin/customers") {
+    return (
+      pathname === "/admin/customers" ||
+      (pathname.startsWith("/admin/customers/") &&
+        pathname !== "/admin/customers/new")
+    );
+  }
+
   if (item.exact) {
     return pathname === item.href;
   }
