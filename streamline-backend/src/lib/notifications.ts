@@ -13,6 +13,9 @@ type BookingEmailInput = {
     customerEmail?: string | null;
     vehicleSize?: string | null;
     totalPrice?: unknown;
+    companyName?: string | null;
+    legalEntity?: string | null;
+    tradingName?: string | null;
   } | null;
   vehicle?: {
     vehicleType?: string | null;
@@ -54,6 +57,26 @@ function getCustomerName(booking: BookingEmailInput) {
   return booking.quote?.customerName || booking.user?.name || "Customer";
 }
 
+function getCustomerBusinessName(booking: BookingEmailInput) {
+  return (
+    booking.quote?.tradingName ||
+    booking.quote?.companyName ||
+    booking.quote?.legalEntity ||
+    ""
+  );
+}
+
+function getCustomerGreeting(booking: BookingEmailInput) {
+  const customerName = getCustomerName(booking);
+  const businessName = getCustomerBusinessName(booking);
+
+  if (businessName) {
+    return `${businessName} (contact: ${customerName})`;
+  }
+
+  return customerName;
+}
+
 function getVehicleName(booking: BookingEmailInput) {
   return (
     booking.vehicle?.vehicleType ||
@@ -78,7 +101,7 @@ export async function sendCustomerBookingConfirmedEmail(
     html: emailLayout(
       "Booking Confirmed",
       `
-        <p>Hi ${getCustomerName(booking)},</p>
+        <p>Hi ${getCustomerGreeting(booking)},</p>
 
         <p>Your booking has been confirmed successfully.</p>
 
@@ -114,7 +137,7 @@ export async function sendCustomerPaymentSuccessfulEmail(
     html: emailLayout(
       "Payment Received",
       `
-        <p>Hi ${getCustomerName(booking)},</p>
+        <p>Hi ${getCustomerGreeting(booking)},</p>
 
         <p>Your payment has been received successfully.</p>
 
@@ -137,7 +160,7 @@ export async function sendAdminNewPaidBookingEmail(booking: BookingEmailInput) {
       "New Paid Booking",
       `
         <p><strong>Booking reference:</strong> ${booking.reference}</p>
-        <p><strong>Customer:</strong> ${getCustomerName(booking)}</p>
+        <p><strong>Customer:</strong> ${getCustomerGreeting(booking)}</p>
         <p><strong>Email:</strong> ${getCustomerEmail(booking) || "Not provided"}</p>
         <p><strong>Vehicle:</strong> ${getVehicleName(booking)}</p>
         <p><strong>Collection date:</strong> ${formatDate(booking.collectionDate)}</p>

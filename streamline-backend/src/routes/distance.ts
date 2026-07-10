@@ -18,7 +18,13 @@ type GeocodeFeature = {
     region?: string;
     county?: string;
     locality?: string;
+    locality_gid?: string;
+    borough?: string;
+    neighbourhood?: string;
     postalcode?: string;
+    street?: string;
+    housenumber?: string;
+    name?: string;
   };
 };
 
@@ -48,6 +54,11 @@ type PostcodesIoResponse = {
   result?: {
     longitude: number;
     latitude: number;
+    postcode?: string;
+    admin_district?: string;
+    admin_county?: string;
+    parish?: string;
+    region?: string;
   };
 };
 
@@ -63,6 +74,15 @@ type RouteStop = {
   type: "collection" | "extraDrop" | "delivery";
 };
 
+type AddressLookupResult = {
+  label: string;
+  addressLine1: string;
+  addressLine2: string;
+  townCity: string;
+  county: string;
+  postcode: string;
+};
+
 function getOpenRouteServiceApiKey() {
   return (
     process.env.ORS_API_KEY ||
@@ -72,12 +92,22 @@ function getOpenRouteServiceApiKey() {
   );
 }
 
-function extractUkPostcode(address: string) {
-  const match = address.match(
-    /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i
-  );
+function normalisePostcode(postcode: string) {
+  const compact = postcode.toUpperCase().replace(/\s+/g, "");
 
-  return match ? match[1].toUpperCase().replace(/\s+/g, "") : null;
+  if (compact.length <= 3) return compact;
+
+  return `${compact.slice(0, -3)} ${compact.slice(-3)}`;
+}
+
+function extractUkPostcode(address: string) {
+  const match = address.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+
+  return match ? normalisePostcode(match[1]) : null;
+}
+
+function isValidUkPostcode(postcode: string) {
+  return /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(postcode.trim());
 }
 
 function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
@@ -89,7 +119,7 @@ function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
       .map((drop) => drop as ExtraDrop)
       .filter(
         (drop) =>
-          typeof drop.address === "string" && drop.address.trim() !== ""
+          typeof drop.address === "string" && drop.address.trim() !== "",
       )
       .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   }
@@ -108,7 +138,7 @@ function normaliseExtraDrops(extraDrops: unknown): ExtraDrop[] {
 function buildOriginalRouteAddresses(
   collectionAddress: string,
   deliveryAddress: string,
-  extraDrops: unknown
+  extraDrops: unknown,
 ) {
   const stops = normaliseExtraDrops(extraDrops);
 
@@ -121,42 +151,43 @@ function buildOriginalRouteAddresses(
 
 function calculateStraightLineDistanceMiles(
   start: Coordinates,
-  end: Coordinates
+  end: Coordinates,
 ) {
   const [lon1, lat1] = start;
   const [lon2, lat2] = end;
-
   const earthRadiusMiles = 3958.8;
   const degreesToRadians = Math.PI / 180;
-
   const deltaLat = (lat2 - lat1) * degreesToRadians;
   const deltaLon = (lon2 - lon1) * degreesToRadians;
-
   const a =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
     Math.cos(lat1 * degreesToRadians) *
       Math.cos(lat2 * degreesToRadians) *
       Math.sin(deltaLon / 2) *
       Math.sin(deltaLon / 2);
-
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return earthRadiusMiles * c;
 }
 
-async function getPostcodeCoordinates(address: string): Promise<Coordinates> {
-  const postcode = extractUkPostcode(address);
+async function getPostcodeData(postcodeOrAddress: string) {
+  const extractedPostcode = extractUkPostcode(postcodeOrAddress);
+  const postcode = extractedPostcode || normalisePostcode(postcodeOrAddress);
 
-  if (!postcode) {
-    throw new Error(`Postcode required for address: ${address}`);
+  if (!isValidUkPostcode(postcode)) {
+    throw new Error("Enter a valid UK postcode.");
   }
 
   const response = await fetch(
-    `https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`
+    `https://api.postcodes.io/postcodes/${encodeURIComponent(
+      postcode.replace(/\s+/g, ""),
+    )}`,
   );
 
   if (!response.ok) {
-    throw new Error(`Invalid or unresolved UK postcode for address: ${address}`);
+    throw new Error(
+      `The postcode ${postcode} could not be found. Please check and try again.`,
+    );
   }
 
   const data = (await response.json()) as PostcodesIoResponse;
@@ -166,32 +197,40 @@ async function getPostcodeCoordinates(address: string): Promise<Coordinates> {
     typeof data.result?.longitude !== "number" ||
     typeof data.result?.latitude !== "number"
   ) {
-    throw new Error(`Invalid or unresolved UK postcode for address: ${address}`);
+    throw new Error(
+      `The postcode ${postcode} could not be found. Please check and try again.`,
+    );
   }
 
-  return [data.result.longitude, data.result.latitude];
+  return data.result;
+}
+
+async function getPostcodeCoordinates(address: string): Promise<Coordinates> {
+  const result = await getPostcodeData(address);
+
+  return [result.longitude, result.latitude];
 }
 
 async function geocodeWithOpenRouteService(
   address: string,
-  apiKey: string
+  apiKey: string,
 ): Promise<Coordinates | null> {
   const response = await fetch(
     `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
-      `${address}, United Kingdom`
+      `${address}, United Kingdom`,
     )}&boundary.country=GB&size=1`,
     {
       headers: {
         Authorization: apiKey,
       },
-    }
+    },
   );
 
   if (!response.ok) {
     const errorText = await response.text();
 
     console.warn(
-      `ORS geocode failed for ${address}. Status: ${response.status}. Body: ${errorText}`
+      `ORS geocode failed for ${address}. Status: ${response.status}. Body: ${errorText}`,
     );
 
     return null;
@@ -212,7 +251,7 @@ async function geocodeWithOpenRouteService(
 }
 
 async function geocodeAddress(
-  address: string
+  address: string,
 ): Promise<{
   coordinates: Coordinates;
   coordinateSource: "ors-full-address" | "postcodes.io";
@@ -235,7 +274,7 @@ async function geocodeAddress(
 
   const milesFromPostcode = calculateStraightLineDistanceMiles(
     postcodeCoordinates,
-    orsCoordinates
+    orsCoordinates,
   );
 
   if (milesFromPostcode <= MAX_FULL_ADDRESS_DISTANCE_FROM_POSTCODE_MILES) {
@@ -247,10 +286,10 @@ async function geocodeAddress(
 
   console.warn(
     `ORS coordinate rejected for ${address}. ORS: ${orsCoordinates.join(
-      ","
+      ",",
     )}. Postcode: ${postcodeCoordinates.join(
-      ","
-    )}. Difference: ${milesFromPostcode.toFixed(2)} miles`
+      ",",
+    )}. Difference: ${milesFromPostcode.toFixed(2)} miles`,
   );
 
   return {
@@ -303,14 +342,12 @@ function optimiseExtraDropOrder(stops: RouteStop[]) {
     remainingDrops.forEach((drop, index) => {
       const distanceToDrop = calculateStraightLineDistanceMiles(
         currentStop.coordinates,
-        drop.coordinates
+        drop.coordinates,
       );
-
       const dropToDelivery = calculateStraightLineDistanceMiles(
         drop.coordinates,
-        delivery.coordinates
+        delivery.coordinates,
       );
-
       const score = distanceToDrop + dropToDelivery * 0.15;
 
       if (score < nearestDistance) {
@@ -330,10 +367,9 @@ function optimiseExtraDropOrder(stops: RouteStop[]) {
 async function buildRouteStops(
   collectionAddress: string,
   deliveryAddress: string,
-  extraDrops: unknown
+  extraDrops: unknown,
 ) {
   const drops = normaliseExtraDrops(extraDrops);
-
   const stopsToGeocode = [
     { address: collectionAddress, type: "collection" as const },
     ...drops.map((drop) => ({
@@ -352,7 +388,7 @@ async function buildRouteStops(
         coordinates: result.coordinates,
         coordinateSource: result.coordinateSource,
       };
-    })
+    }),
   );
 }
 
@@ -364,7 +400,6 @@ async function calculateRoute(stops: RouteStop[]) {
   }
 
   const coordinates = stops.map((stop) => stop.coordinates);
-
   const routeResponse = await fetch(
     "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
     {
@@ -373,17 +408,15 @@ async function calculateRoute(stops: RouteStop[]) {
         Authorization: apiKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        coordinates,
-      }),
-    }
+      body: JSON.stringify({ coordinates }),
+    },
   );
 
   if (!routeResponse.ok) {
     const errorText = await routeResponse.text();
 
     throw new Error(
-      `Failed to calculate route. Status: ${routeResponse.status}. Body: ${errorText}`
+      `Failed to calculate route. Status: ${routeResponse.status}. Body: ${errorText}`,
     );
   }
 
@@ -395,18 +428,138 @@ async function calculateRoute(stops: RouteStop[]) {
     throw new Error("No route distance returned");
   }
 
-  const distanceMiles = Number((distanceMeters / METERS_IN_MILE).toFixed(1));
-  const durationMinutes =
-    durationSeconds === null ? null : Math.round(durationSeconds / 60);
-
   return {
     coordinates,
     distanceMeters,
-    distanceMiles,
+    distanceMiles: Number((distanceMeters / METERS_IN_MILE).toFixed(1)),
     durationSeconds,
-    durationMinutes,
+    durationMinutes:
+      durationSeconds === null ? null : Math.round(durationSeconds / 60),
   };
 }
+
+function buildAddressLookupResult(
+  feature: GeocodeFeature,
+  fallbackPostcode: string,
+  fallbackTownCity: string,
+  fallbackCounty: string,
+): AddressLookupResult | null {
+  const properties = feature.properties;
+
+  if (!properties) return null;
+
+  const postcode = normalisePostcode(
+    properties.postalcode || fallbackPostcode,
+  );
+  const addressLine1 = [properties.housenumber, properties.street]
+    .filter(Boolean)
+    .join(" ")
+    .trim() || properties.name?.trim() || "";
+  const addressLine2 = properties.neighbourhood || properties.borough || "";
+  const townCity =
+    properties.locality || properties.region || fallbackTownCity || "";
+  const county = properties.county || fallbackCounty || "";
+  const label = properties.label?.trim();
+
+  if (!label || !postcode) return null;
+
+  return {
+    label,
+    addressLine1,
+    addressLine2,
+    townCity,
+    county,
+    postcode,
+  };
+}
+
+router.get("/address-lookup", async (req, res) => {
+  try {
+    const postcodeValue = String(req.query.postcode || "").trim();
+
+    if (!isValidUkPostcode(postcodeValue)) {
+      return res.status(400).json({
+        error: "Enter a valid UK postcode.",
+      });
+    }
+
+    const postcode = normalisePostcode(postcodeValue);
+    const postcodeData = await getPostcodeData(postcode);
+    const apiKey = getOpenRouteServiceApiKey();
+
+    if (!apiKey) {
+      throw new Error("OpenRouteService API key missing");
+    }
+
+    const response = await fetch(
+      `https://api.openrouteservice.org/geocode/search?text=${encodeURIComponent(
+        postcode,
+      )}&boundary.country=GB&size=20`,
+      {
+        headers: {
+          Authorization: apiKey,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      throw new Error(
+        `Address lookup failed. Status: ${response.status}. Body: ${errorText}`,
+      );
+    }
+
+    const data = (await response.json()) as GeocodeResponse;
+    const fallbackTownCity = postcodeData.parish || postcodeData.admin_district || "";
+    const fallbackCounty =
+      postcodeData.admin_county ||
+      postcodeData.admin_district ||
+      postcodeData.region ||
+      "";
+    const seen = new Set<string>();
+    const addresses = (data.features || [])
+      .map((feature) =>
+        buildAddressLookupResult(
+          feature,
+          postcode,
+          fallbackTownCity,
+          fallbackCounty,
+        ),
+      )
+      .filter((address): address is AddressLookupResult => Boolean(address))
+      .filter((address) => {
+        const key = address.label.toLowerCase();
+
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+      });
+
+    if (addresses.length === 0) {
+      addresses.push({
+        label: [fallbackTownCity, fallbackCounty, postcode]
+          .filter(Boolean)
+          .join(", "),
+        addressLine1: "",
+        addressLine2: "",
+        townCity: fallbackTownCity,
+        county: fallbackCounty,
+        postcode,
+      });
+    }
+
+    res.json({ postcode, addresses });
+  } catch (error) {
+    console.error("Address lookup error:", error);
+
+    res.status(400).json({
+      error:
+        error instanceof Error ? error.message : "Unable to find addresses.",
+    });
+  }
+});
 
 router.post("/", async (req, res) => {
   try {
@@ -421,25 +574,21 @@ router.post("/", async (req, res) => {
     const originalRouteAddresses = buildOriginalRouteAddresses(
       collectionAddress,
       deliveryAddress,
-      extraDrops
+      extraDrops,
     );
-
     const routeStops = await buildRouteStops(
       collectionAddress,
       deliveryAddress,
-      extraDrops
+      extraDrops,
     );
-
     const optimisedRouteStops = optimiseExtraDropOrder(routeStops);
     const route = await calculateRoute(optimisedRouteStops);
-
     const coordinateSources = optimisedRouteStops.map((stop) => ({
       address: stop.address,
       source: stop.coordinateSource,
     }));
-
     const usedFullAddressGeocoding = coordinateSources.some(
-      (stop) => stop.source === "ors-full-address"
+      (stop) => stop.source === "ors-full-address",
     );
 
     res.json({
@@ -458,11 +607,9 @@ router.post("/", async (req, res) => {
   } catch (error) {
     console.error("Distance calculation error:", error);
 
-    const message =
-      error instanceof Error ? error.message : "Failed to calculate distance";
-
     res.status(400).json({
-      error: message,
+      error:
+        error instanceof Error ? error.message : "Failed to calculate distance",
     });
   }
 });

@@ -67,6 +67,22 @@ type LiveVehicleAvailability = {
   unavailableUntil?: string | null;
 };
 
+type AddressLookupTarget = "collection" | "delivery" | `stop-${number}`;
+
+type AddressLookupResult = {
+  label: string;
+  addressLine1: string;
+  addressLine2: string;
+  townCity: string;
+  county: string;
+  postcode: string;
+};
+
+type AddressLookupResponse = {
+  addresses?: AddressLookupResult[];
+  error?: string;
+};
+
 type VehicleAvailabilityResponse = {
   vehicles?: {
     id: string;
@@ -85,6 +101,8 @@ const VEHICLE_AVAILABILITY_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/vehicles/availability";
 const ACCOUNT_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/me";
+const ADDRESS_LOOKUP_API_URL =
+  "https://streamline-logistics-production.up.railway.app/api/distance/address-lookup";
 const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
 const SAVED_ROUTE_STORAGE_KEY = "streamline_saved_route_prefill";
 const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
@@ -183,7 +201,6 @@ const collectingOptions = [
   "Small Item",
   "Medium Item",
   "Large Item",
-  "Fragile Item",
   "Pallet",
 ];
 
@@ -439,6 +456,13 @@ function QuotePageForm() {
 
   const [fragileGoods, setFragileGoods] = useState(false);
   const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
+  const [addressLookupTarget, setAddressLookupTarget] =
+    useState<AddressLookupTarget | null>(null);
+  const [addressLookupResults, setAddressLookupResults] = useState<
+    AddressLookupResult[]
+  >([]);
+  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
+  const [addressLookupError, setAddressLookupError] = useState("");
 
   useEffect(() => {
     try {
@@ -836,6 +860,125 @@ function QuotePageForm() {
     );
   }
 
+  async function findAddress(
+    target: AddressLookupTarget,
+    postcode: string,
+  ) {
+    setAddressLookupTarget(target);
+    setAddressLookupResults([]);
+    setAddressLookupError("");
+
+    if (!isValidUkPostcode(postcode)) {
+      setAddressLookupError("Enter a valid UK postcode before searching.");
+      return;
+    }
+
+    setAddressLookupLoading(true);
+
+    try {
+      const response = await fetch(
+        `${ADDRESS_LOOKUP_API_URL}?postcode=${encodeURIComponent(postcode.trim())}`,
+        { cache: "no-store" },
+      );
+      const data = (await response.json().catch(() => null)) as
+        | AddressLookupResponse
+        | null;
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Unable to find addresses.");
+      }
+
+      const addresses = Array.isArray(data?.addresses) ? data.addresses : [];
+
+      if (addresses.length === 0) {
+        throw new Error("No addresses were found for that postcode.");
+      }
+
+      setAddressLookupResults(addresses);
+    } catch (lookupError) {
+      setAddressLookupError(
+        lookupError instanceof Error
+          ? lookupError.message
+          : "Unable to find addresses.",
+      );
+    } finally {
+      setAddressLookupLoading(false);
+    }
+  }
+
+  function applyAddressLookupResult(
+    target: AddressLookupTarget,
+    result: AddressLookupResult,
+  ) {
+    const address: AddressFields = {
+      addressLine1: result.addressLine1,
+      addressLine2: result.addressLine2,
+      townCity: result.townCity,
+      county: result.county,
+      postcode: result.postcode,
+    };
+
+    if (target === "collection") {
+      setCollectionAddress(address);
+    } else if (target === "delivery") {
+      setDeliveryAddress(address);
+    } else {
+      const index = Number(target.replace("stop-", ""));
+
+      if (Number.isInteger(index)) {
+        setExtraStops((currentStops) =>
+          currentStops.map((stop, stopIndex) =>
+            stopIndex === index ? { ...stop, ...address } : stop,
+          ),
+        );
+      }
+    }
+
+    setAddressLookupTarget(null);
+    setAddressLookupResults([]);
+    setAddressLookupError("");
+  }
+
+  function renderAddressLookupResults(target: AddressLookupTarget) {
+    if (addressLookupTarget !== target) return null;
+
+    return (
+      <div className="mt-3 md:col-span-2">
+        {addressLookupLoading && (
+          <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm font-bold text-[#071D49]">
+            Finding addresses...
+          </div>
+        )}
+
+        {addressLookupError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+            {addressLookupError}
+          </div>
+        )}
+
+        {!addressLookupLoading && addressLookupResults.length > 0 && (
+          <div className="overflow-hidden rounded-2xl border border-[#D7E6FF] bg-white shadow-lg shadow-black/5">
+            <p className="border-b border-[#D7E6FF] bg-[#F4F8FF] px-4 py-3 text-sm font-bold text-[#071D49]">
+              Select an address
+            </p>
+            <div className="max-h-72 overflow-y-auto p-2">
+              {addressLookupResults.map((result, index) => (
+                <button
+                  key={`${result.label}-${index}`}
+                  type="button"
+                  onClick={() => applyAddressLookupResult(target, result)}
+                  className="block w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#071D49] transition hover:bg-[#EAF2FF] hover:text-[#006CFF]"
+                >
+                  {result.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function scrollToField(target?: string) {
     window.requestAnimationFrame(() => {
       const form = formRef.current;
@@ -873,9 +1016,23 @@ function QuotePageForm() {
   }
 
   function handleDeliveryTypeChange(value: string) {
+    const wasMultiDropDelivery = selectedDeliveryType === "Multi Drop Delivery";
+
     setSelectedDeliveryType(value);
     setError("");
     setCollectionWindow("");
+
+    if (value === "Multi Drop Delivery") {
+      setSelectedJourneyType("Multi Drop");
+      setCapacityPercent(null);
+      setReturnCapacityPercent(null);
+      return;
+    }
+
+    if (wasMultiDropDelivery && selectedJourneyType === "Multi Drop") {
+      setSelectedJourneyType("");
+      setExtraStops([]);
+    }
 
     if (value === "Full Day Booking" || value === "Half Day Booking") {
       setSelectedJourneyType("");
@@ -1380,6 +1537,21 @@ function QuotePageForm() {
                     ))}
                   </div>
 
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm font-bold text-[#071D49] transition hover:border-[#2D8CFF]">
+                    <input
+                      type="checkbox"
+                      checked={fragileGoods}
+                      onChange={(event) => setFragileGoods(event.target.checked)}
+                      className="mt-0.5 h-5 w-5 rounded border-[#9DBCE8] text-[#006CFF] focus:ring-[#006CFF]"
+                    />
+                    <span>
+                      Fragile Item
+                      <span className="mt-1 block text-xs font-semibold text-slate-500">
+                        Tick this box when any part of the load requires fragile handling.
+                      </span>
+                    </span>
+                  </label>
+
                   <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold leading-6 text-red-800">
                     Our couriers work in <span className="font-bold">1 man teams</span>; you may need to provide assistance lifting heavy or fragile items at the collection and delivery addresses.
                   </div>
@@ -1705,11 +1877,16 @@ function QuotePageForm() {
                         />
                         <button
                           type="button"
-                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                          onClick={() =>
+                            findAddress("collection", collectionAddress.postcode)
+                          }
+                          disabled={addressLookupLoading}
+                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Find Address
                         </button>
                       </div>
+                      {renderAddressLookupResults("collection")}
                     </div>
                   </div>
 
@@ -1784,11 +1961,16 @@ function QuotePageForm() {
                         />
                         <button
                           type="button"
-                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                          onClick={() =>
+                            findAddress("delivery", deliveryAddress.postcode)
+                          }
+                          disabled={addressLookupLoading}
+                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Find Address
                         </button>
                       </div>
+                      {renderAddressLookupResults("delivery")}
                     </div>
                   </div>
 
@@ -1920,11 +2102,16 @@ function QuotePageForm() {
                                 />
                                 <button
                                   type="button"
-                                  className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white"
+                                  onClick={() =>
+                                    findAddress(`stop-${index}`, stop.postcode)
+                                  }
+                                  disabled={addressLookupLoading}
+                                  className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                   Find Address
                                 </button>
                               </div>
+                              {renderAddressLookupResults(`stop-${index}`)}
                             </div>
                           </div>
                         ))}
