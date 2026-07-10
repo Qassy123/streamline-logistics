@@ -1,21 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import {
   ArrowLeft,
-  ArrowRight,
   Building2,
-  ChevronLeft,
-  ChevronRight,
+  CheckCircle2,
   CircleAlert,
-  Filter,
   Loader2,
-  RefreshCw,
-  Search,
+  Save,
   ShieldCheck,
-  UserPlus,
-  Users,
+  UserRound,
 } from "lucide-react";
 
 const API_BASE =
@@ -23,765 +19,739 @@ const API_BASE =
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
-const DEFAULT_PAGE_SIZE = 25;
 
 type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
-type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
 
-type CustomerCounts = {
-  quotes: number;
-  bookings: number;
-  invoices: number;
-  payments: number;
-  savedRoutes: number;
-  notes: number;
-  documents: number;
-};
-
-type TradeAccountSummary = {
-  id: string;
-  status: string;
-  creditLimit: string | number | null;
-  currentBalance: string | number | null;
-  paymentTermsDays: number;
-  approvedAt?: string | null;
-  rejectedAt?: string | null;
-  suspendedAt?: string | null;
-  reactivatedAt?: string | null;
-};
-
-type Customer = {
-  id: string;
-  accountNumber?: string | null;
+type FormState = {
   accountType: AccountType;
-  accountStatus: AccountStatus;
-  companyName?: string | null;
-  legalEntity?: string | null;
-  tradingName?: string | null;
   name: string;
+  firstName: string;
+  lastName: string;
+  companyName: string;
+  legalEntity: string;
+  tradingName: string;
   email: string;
-  phone?: string | null;
-  accountsEmail?: string | null;
-  mainContactName?: string | null;
-  vatNumber?: string | null;
-  companyRegistrationNumber?: string | null;
-  registeredTownCity?: string | null;
-  registeredPostcode?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  adminCreated: boolean;
-  tradeAccount?: TradeAccountSummary | null;
-  _count: CustomerCounts;
+  accountsEmail: string;
+  phone: string;
+  alternativeContactNumber: string;
+  mainContactName: string;
+  jobTitle: string;
+  companyRegistrationNumber: string;
+  vatNumber: string;
+  businessType: string;
+  industry: string;
+  companyWebsite: string;
+  registeredAddressLine1: string;
+  registeredAddressLine2: string;
+  registeredTownCity: string;
+  registeredCounty: string;
+  registeredPostcode: string;
+  registeredCountry: string;
+  tradingAddressDifferent: boolean;
+  tradingAddressLine1: string;
+  tradingAddressLine2: string;
+  tradingTownCity: string;
+  tradingCounty: string;
+  tradingPostcode: string;
+  tradingCountry: string;
+  estimatedShipmentsPerMonth: string;
+  typicalShipmentType: string;
+  internalNote: string;
+  username: string;
+  password: string;
 };
 
-type Pagination = {
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
+const initialState: FormState = {
+  accountType: "BUSINESS",
+  name: "",
+  firstName: "",
+  lastName: "",
+  companyName: "",
+  legalEntity: "",
+  tradingName: "",
+  email: "",
+  accountsEmail: "",
+  phone: "",
+  alternativeContactNumber: "",
+  mainContactName: "",
+  jobTitle: "",
+  companyRegistrationNumber: "",
+  vatNumber: "",
+  businessType: "",
+  industry: "",
+  companyWebsite: "",
+  registeredAddressLine1: "",
+  registeredAddressLine2: "",
+  registeredTownCity: "",
+  registeredCounty: "",
+  registeredPostcode: "",
+  registeredCountry: "United Kingdom",
+  tradingAddressDifferent: false,
+  tradingAddressLine1: "",
+  tradingAddressLine2: "",
+  tradingTownCity: "",
+  tradingCounty: "",
+  tradingPostcode: "",
+  tradingCountry: "United Kingdom",
+  estimatedShipmentsPerMonth: "",
+  typicalShipmentType: "",
+  internalNote: "",
+  username: "",
+  password: "",
 };
 
-type Summary = {
-  byAccountType?: Partial<Record<AccountType, number>>;
-  byAccountStatus?: Partial<Record<AccountStatus, number>>;
-};
-
-type CustomersResponse = {
-  customers?: Customer[];
-  pagination?: Pagination;
-  summary?: Summary;
-  error?: string;
-};
-
-function formatDate(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-function getDisplayName(customer: Customer) {
-  return (
-    customer.companyName ||
-    customer.legalEntity ||
-    customer.tradingName ||
-    customer.name
-  );
-}
-
-function getContactName(customer: Customer) {
-  return customer.mainContactName || customer.name;
-}
-
-function accountTypeClasses(accountType: AccountType) {
-  switch (accountType) {
-    case "PRIVATE":
-      return "bg-sky-50 text-sky-700 ring-sky-200";
-    case "TRADE":
-      return "bg-violet-50 text-violet-700 ring-violet-200";
-    default:
-      return "bg-amber-50 text-amber-700 ring-amber-200";
-  }
-}
-
-function accountStatusClasses(accountStatus: AccountStatus) {
-  switch (accountStatus) {
-    case "ACTIVE":
-      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-    case "SUSPENDED":
-      return "bg-red-50 text-red-700 ring-red-200";
-    default:
-      return "bg-slate-100 text-slate-600 ring-slate-200";
-  }
-}
-
-export default function CustomersPage() {
-  const [adminKey, setAdminKey] = useState("");
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({
-    page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
-    total: 0,
-    totalPages: 1,
-  });
-  const [summary, setSummary] = useState<Summary>({});
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [accountType, setAccountType] = useState("ALL");
-  const [accountStatus, setAccountStatus] = useState("ALL");
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+export default function NewCustomerPage() {
+  const router = useRouter();
+  const [form, setForm] = useState<FormState>(initialState);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+  const isPrivate = form.accountType === "PRIVATE";
+  const isTrade = form.accountType === "TRADE";
 
-    setAdminKey(storedAdminKey);
-  }, []);
+  const resolvedCustomerName = useMemo(() => {
+    if (form.name.trim()) return form.name.trim();
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
-    }, 350);
+    const personalName = `${form.firstName} ${form.lastName}`.trim();
 
-    return () => window.clearTimeout(timeout);
-  }, [searchInput]);
+    if (personalName) return personalName;
 
-  const loadCustomers = useCallback(
-    async (showRefreshState = false) => {
-      if (!adminKey) {
-        setCustomers([]);
-        setLoading(false);
-        setError(
-          "Admin access is locked. Open Driver Management and enter the admin key first.",
-        );
-        return;
-      }
+    return form.companyName.trim();
+  }, [form.companyName, form.firstName, form.lastName, form.name]);
 
-      if (showRefreshState) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
-      setError("");
-
-      try {
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: String(DEFAULT_PAGE_SIZE),
-          accountType,
-          accountStatus,
-        });
-
-        if (search) {
-          params.set("search", search);
-        }
-
-        const response = await fetch(
-          `${API_BASE}/api/admin/customers?${params.toString()}`,
-          {
-            headers: {
-              "x-admin-key": adminKey,
-            },
-            cache: "no-store",
-          },
-        );
-
-        const payload = (await response.json()) as CustomersResponse;
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
-            setAdminKey("");
-          }
-
-          throw new Error(payload.error || "Unable to load customer accounts.");
-        }
-
-        setCustomers(payload.customers || []);
-        setPagination(
-          payload.pagination || {
-            page,
-            pageSize: DEFAULT_PAGE_SIZE,
-            total: 0,
-            totalPages: 1,
-          },
-        );
-        setSummary(payload.summary || {});
-      } catch (requestError) {
-        setCustomers([]);
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "Unable to load customer accounts.",
-        );
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [accountStatus, accountType, adminKey, page, search],
-  );
-
-  useEffect(() => {
-    if (adminKey) {
-      void loadCustomers();
-    } else {
-      setLoading(false);
-    }
-  }, [adminKey, loadCustomers]);
-
-  const activeFilters = useMemo(() => {
-    let count = 0;
-
-    if (search) count += 1;
-    if (accountType !== "ALL") count += 1;
-    if (accountStatus !== "ALL") count += 1;
-
-    return count;
-  }, [accountStatus, accountType, search]);
-
-  function clearFilters() {
-    setSearchInput("");
-    setSearch("");
-    setAccountType("ALL");
-    setAccountStatus("ALL");
-    setPage(1);
+  function updateField<K extends keyof FormState>(
+    field: K,
+    value: FormState[K],
+  ) {
+    setForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
   }
 
-  const privateCount = summary.byAccountType?.PRIVATE || 0;
-  const businessCount = summary.byAccountType?.BUSINESS || 0;
-  const tradeCount = summary.byAccountType?.TRADE || 0;
-  const activeCount = summary.byAccountStatus?.ACTIVE || 0;
+  function copyRegisteredAddress() {
+    setForm((current) => ({
+      ...current,
+      tradingAddressDifferent: false,
+      tradingAddressLine1: "",
+      tradingAddressLine2: "",
+      tradingTownCity: "",
+      tradingCounty: "",
+      tradingPostcode: "",
+      tradingCountry: "United Kingdom",
+    }));
+  }
+
+  async function submitForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const adminKey =
+      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+
+    if (!adminKey) {
+      setError(
+        "Admin key is missing. Open Driver Management and unlock the admin area first.",
+      );
+      return;
+    }
+
+    if (!resolvedCustomerName) {
+      setError("Customer name is required.");
+      return;
+    }
+
+    if (!form.email.trim() || !form.phone.trim()) {
+      setError("General email address and contact number are required.");
+      return;
+    }
+
+    if (!isPrivate && !form.companyName.trim()) {
+      setError("Business name is required for business and trade accounts.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/customers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
+        },
+        body: JSON.stringify({
+          ...form,
+          name: resolvedCustomerName,
+          legalEntity:
+            form.legalEntity.trim() ||
+            (!isPrivate ? form.companyName.trim() : ""),
+        }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+        }
+
+        throw new Error(payload?.error || "Unable to create customer account.");
+      }
+
+      const customerId = payload?.customer?.id as string | undefined;
+
+      setSuccess("Customer account created successfully.");
+
+      window.setTimeout(() => {
+        if (customerId) {
+          router.push(`/admin/customers/${customerId}`);
+        } else {
+          router.push("/admin/customers");
+        }
+      }, 700);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to create customer account.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="mx-auto w-full max-w-[1600px]">
+    <div className="mx-auto w-full max-w-[1450px]">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <Link
-            href="/admin"
+            href="/admin/customers"
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-950"
           >
             <ArrowLeft size={16} />
-            Admin dashboard
+            Customer accounts
           </Link>
 
           <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Customer database
+            Customer management
           </p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Existing customer accounts
+            Add new customer account
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            Search and manage private customers, business customers and trade
-            accounts from one customer database.
+            Create a private customer, business customer or trade account for
+            office-managed quotes, bookings and invoicing.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => void loadCustomers(true)}
-            disabled={refreshing || loading || !adminKey}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RefreshCw
-              size={17}
-              className={refreshing ? "animate-spin" : ""}
-            />
-            Refresh
-          </button>
-
-          <Link
-            href="/admin/customers/new"
-            className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#E55300]"
-          >
-            <UserPlus size={18} />
-            Add new customer
-          </Link>
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
+            Account preview
+          </p>
+          <p className="mt-1 font-bold text-slate-950">
+            {resolvedCustomerName || "New customer"}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">{form.accountType}</p>
         </div>
       </div>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
-          label="All customers"
-          value={pagination.total}
-          icon={Users}
-        />
-        <SummaryCard
-          label="Active accounts"
-          value={activeCount}
-          icon={ShieldCheck}
-        />
-        <SummaryCard
-          label="Business accounts"
-          value={businessCount}
-          icon={Building2}
-        />
-        <SummaryCard
-          label="Private / Trade"
-          value={`${privateCount} / ${tradeCount}`}
-          icon={Users}
-        />
-      </section>
-
-      {!adminKey ? (
-        <section className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-          <div className="flex items-start gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-              <CircleAlert size={22} />
-            </span>
-            <div>
-              <h2 className="text-lg font-bold text-amber-950">
-                Admin key required
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-amber-900">
-                Open Driver Management, unlock the admin area with the existing
-                admin key, then return to this page.
-              </p>
-              <Link
-                href="/admin/drivers"
-                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-950"
-              >
-                Open Driver Management
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </div>
-        </section>
+      {error ? (
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+          <CircleAlert size={19} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
       ) : null}
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
-          <label className="relative flex-1">
-            <span className="sr-only">Search customer accounts</span>
-            <Search
-              size={18}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+      {success ? (
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 size={19} className="mt-0.5 shrink-0" />
+          <span>{success}</span>
+        </div>
+      ) : null}
+
+      <form onSubmit={submitForm} className="mt-6 space-y-6">
+        <Section
+          title="Account type"
+          description="Choose the customer account type required by the office."
+          icon={ShieldCheck}
+        >
+          <div className="grid gap-3 md:grid-cols-3">
+            {(["PRIVATE", "BUSINESS", "TRADE"] as AccountType[]).map(
+              (type) => {
+                const active = form.accountType === type;
+                const Icon = type === "PRIVATE" ? UserRound : Building2;
+
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => updateField("accountType", type)}
+                    className={[
+                      "flex items-center gap-3 rounded-2xl border p-4 text-left transition",
+                      active
+                        ? "border-[#FF6A00] bg-orange-50 ring-2 ring-orange-100"
+                        : "border-slate-200 bg-white hover:border-slate-300",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={[
+                        "flex h-11 w-11 items-center justify-center rounded-xl",
+                        active
+                          ? "bg-[#FF6A00] text-white"
+                          : "bg-slate-100 text-slate-600",
+                      ].join(" ")}
+                    >
+                      <Icon size={21} />
+                    </span>
+                    <span>
+                      <span className="block font-bold text-slate-950">
+                        {type === "PRIVATE"
+                          ? "Private customer"
+                          : type === "BUSINESS"
+                            ? "Business account"
+                            : "Trade account"}
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">
+                        {type === "PRIVATE"
+                          ? "Individual customer"
+                          : type === "BUSINESS"
+                            ? "Business paying normally"
+                            : "Business with credit terms"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              },
+            )}
+          </div>
+        </Section>
+
+        <Section
+          title="Customer identity"
+          description="Core customer and contact information."
+          icon={UserRound}
+        >
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <Field
+              label="Customer display name"
+              value={form.name}
+              onChange={(value) => updateField("name", value)}
+              placeholder="Customer or account name"
             />
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search name, company, email, phone, account number, VAT or company number"
-              className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+            <Field
+              label="First name"
+              value={form.firstName}
+              onChange={(value) => updateField("firstName", value)}
+            />
+            <Field
+              label="Last name"
+              value={form.lastName}
+              onChange={(value) => updateField("lastName", value)}
+            />
+            {!isPrivate ? (
+              <>
+                <Field
+                  label="Business name"
+                  value={form.companyName}
+                  onChange={(value) => updateField("companyName", value)}
+                  required
+                />
+                <Field
+                  label="Legal entity"
+                  value={form.legalEntity}
+                  onChange={(value) => updateField("legalEntity", value)}
+                />
+                <Field
+                  label="Trading name"
+                  value={form.tradingName}
+                  onChange={(value) => updateField("tradingName", value)}
+                />
+              </>
+            ) : null}
+            <Field
+              label="Main person to contact"
+              value={form.mainContactName}
+              onChange={(value) => updateField("mainContactName", value)}
+              required
+            />
+            <Field
+              label="Job title"
+              value={form.jobTitle}
+              onChange={(value) => updateField("jobTitle", value)}
+            />
+          </div>
+        </Section>
+
+        <Section
+          title="Contact details"
+          description="General and accounts contact information."
+          icon={UserRound}
+        >
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <Field
+              label="General email address"
+              type="email"
+              value={form.email}
+              onChange={(value) => updateField("email", value)}
+              required
+            />
+            <Field
+              label="Accounts email address"
+              type="email"
+              value={form.accountsEmail}
+              onChange={(value) => updateField("accountsEmail", value)}
+            />
+            <Field
+              label="Contact number"
+              value={form.phone}
+              onChange={(value) => updateField("phone", value)}
+              required
+            />
+            <Field
+              label="Alternative contact number"
+              value={form.alternativeContactNumber}
+              onChange={(value) =>
+                updateField("alternativeContactNumber", value)
+              }
+            />
+            <Field
+              label="Username"
+              value={form.username}
+              onChange={(value) => updateField("username", value)}
+              hint="Optional customer portal username"
+            />
+            <Field
+              label="Temporary password"
+              type="password"
+              value={form.password}
+              onChange={(value) => updateField("password", value)}
+              hint="Optional. Leave blank if portal access is not required yet."
+            />
+          </div>
+        </Section>
+
+        {!isPrivate ? (
+          <Section
+            title="Business details"
+            description="Company registration, VAT and trading details."
+            icon={Building2}
+          >
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              <Field
+                label="Companies House number"
+                value={form.companyRegistrationNumber}
+                onChange={(value) =>
+                  updateField("companyRegistrationNumber", value)
+                }
+              />
+              <Field
+                label="VAT number"
+                value={form.vatNumber}
+                onChange={(value) => updateField("vatNumber", value)}
+              />
+              <Field
+                label="Business type"
+                value={form.businessType}
+                onChange={(value) => updateField("businessType", value)}
+              />
+              <Field
+                label="Industry"
+                value={form.industry}
+                onChange={(value) => updateField("industry", value)}
+              />
+              <Field
+                label="Company website"
+                value={form.companyWebsite}
+                onChange={(value) => updateField("companyWebsite", value)}
+                placeholder="example.co.uk"
+              />
+              <Field
+                label="Estimated shipments per month"
+                value={form.estimatedShipmentsPerMonth}
+                onChange={(value) =>
+                  updateField("estimatedShipmentsPerMonth", value)
+                }
+              />
+              <Field
+                label="Typical shipment type"
+                value={form.typicalShipmentType}
+                onChange={(value) =>
+                  updateField("typicalShipmentType", value)
+                }
+              />
+            </div>
+
+            {isTrade ? (
+              <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-800">
+                A trade-account record will be created automatically with
+                pending approval status. Credit limit and payment terms can be
+                managed from Trade Accounts.
+              </div>
+            ) : null}
+          </Section>
+        ) : null}
+
+        <Section
+          title="Registered office address"
+          description={
+            isPrivate
+              ? "Primary customer address."
+              : "Registered office address for the business."
+          }
+          icon={Building2}
+        >
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <Field
+              label="Address line 1"
+              value={form.registeredAddressLine1}
+              onChange={(value) =>
+                updateField("registeredAddressLine1", value)
+              }
+              required
+            />
+            <Field
+              label="Address line 2"
+              value={form.registeredAddressLine2}
+              onChange={(value) =>
+                updateField("registeredAddressLine2", value)
+              }
+            />
+            <Field
+              label="Town / City"
+              value={form.registeredTownCity}
+              onChange={(value) =>
+                updateField("registeredTownCity", value)
+              }
+              required
+            />
+            <Field
+              label="County"
+              value={form.registeredCounty}
+              onChange={(value) => updateField("registeredCounty", value)}
+            />
+            <Field
+              label="Postcode"
+              value={form.registeredPostcode}
+              onChange={(value) => updateField("registeredPostcode", value)}
+              required
+            />
+            <Field
+              label="Country"
+              value={form.registeredCountry}
+              onChange={(value) => updateField("registeredCountry", value)}
+            />
+          </div>
+        </Section>
+
+        {!isPrivate ? (
+          <Section
+            title="Trading address"
+            description="Use a separate trading address when required."
+            icon={Building2}
+          >
+            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <input
+                type="checkbox"
+                checked={form.tradingAddressDifferent}
+                onChange={(event) => {
+                  if (event.target.checked) {
+                    updateField("tradingAddressDifferent", true);
+                  } else {
+                    copyRegisteredAddress();
+                  }
+                }}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#FF6A00] focus:ring-orange-200"
+              />
+              <span>
+                <span className="block font-bold text-slate-950">
+                  Trading address is different
+                </span>
+                <span className="mt-1 block text-sm text-slate-500">
+                  Tick this box to enter a separate trading address.
+                </span>
+              </span>
+            </label>
+
+            {form.tradingAddressDifferent ? (
+              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                <Field
+                  label="Address line 1"
+                  value={form.tradingAddressLine1}
+                  onChange={(value) =>
+                    updateField("tradingAddressLine1", value)
+                  }
+                  required
+                />
+                <Field
+                  label="Address line 2"
+                  value={form.tradingAddressLine2}
+                  onChange={(value) =>
+                    updateField("tradingAddressLine2", value)
+                  }
+                />
+                <Field
+                  label="Town / City"
+                  value={form.tradingTownCity}
+                  onChange={(value) =>
+                    updateField("tradingTownCity", value)
+                  }
+                  required
+                />
+                <Field
+                  label="County"
+                  value={form.tradingCounty}
+                  onChange={(value) =>
+                    updateField("tradingCounty", value)
+                  }
+                />
+                <Field
+                  label="Postcode"
+                  value={form.tradingPostcode}
+                  onChange={(value) =>
+                    updateField("tradingPostcode", value)
+                  }
+                  required
+                />
+                <Field
+                  label="Country"
+                  value={form.tradingCountry}
+                  onChange={(value) =>
+                    updateField("tradingCountry", value)
+                  }
+                />
+              </div>
+            ) : null}
+          </Section>
+        ) : null}
+
+        <Section
+          title="Internal office notes"
+          description="Optional information visible to office staff."
+          icon={ShieldCheck}
+        >
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-slate-700">
+              Notes about the customer
+            </span>
+            <textarea
+              value={form.internalNote}
+              onChange={(event) =>
+                updateField("internalNote", event.target.value)
+              }
+              rows={6}
+              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+              placeholder="Account preferences, billing instructions, operational requirements or other office notes"
             />
           </label>
+        </Section>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:flex">
-            <label className="block">
-              <span className="sr-only">Filter by account type</span>
-              <select
-                value={accountType}
-                onChange={(event) => {
-                  setAccountType(event.target.value);
-                  setPage(1);
-                }}
-                className="w-full min-w-[185px] rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-              >
-                <option value="ALL">All account types</option>
-                <option value="PRIVATE">Private</option>
-                <option value="BUSINESS">Business</option>
-                <option value="TRADE">Trade</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="sr-only">Filter by account status</span>
-              <select
-                value={accountStatus}
-                onChange={(event) => {
-                  setAccountStatus(event.target.value);
-                  setPage(1);
-                }}
-                className="w-full min-w-[185px] rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-              >
-                <option value="ALL">All account statuses</option>
-                <option value="ACTIVE">Active</option>
-                <option value="SUSPENDED">Suspended</option>
-                <option value="INACTIVE">Inactive</option>
-              </select>
-            </label>
-          </div>
-
-          {activeFilters > 0 ? (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-            >
-              <Filter size={17} />
-              Clear {activeFilters}
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {error && adminKey ? (
-        <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <h2 className="text-lg font-bold text-slate-950">
-              Customer accounts
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {pagination.total} matching account
-              {pagination.total === 1 ? "" : "s"}
-            </p>
-          </div>
-
+        <div className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500">
-            Page {pagination.page} of {pagination.totalPages}
+            This creates a permanent customer record linked to future quotes,
+            bookings, invoices and payments.
           </p>
+
+          <div className="flex gap-3">
+            <Link
+              href="/admin/customers"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Saving customer
+                </>
+              ) : (
+                <>
+                  <Save size={18} />
+                  Save customer account
+                </>
+              )}
+            </button>
+          </div>
         </div>
-
-        {loading ? (
-          <div className="flex min-h-[360px] items-center justify-center">
-            <div className="text-center">
-              <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#FF6A00]" />
-              <p className="mt-3 text-sm font-semibold text-slate-600">
-                Loading customer accounts
-              </p>
-            </div>
-          </div>
-        ) : customers.length === 0 ? (
-          <div className="flex min-h-[360px] items-center justify-center px-6 py-12 text-center">
-            <div className="max-w-md">
-              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                <Users size={26} />
-              </span>
-              <h3 className="mt-5 text-lg font-bold text-slate-950">
-                No customer accounts found
-              </h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                Change the filters or create the first office-managed customer
-                account.
-              </p>
-              <Link
-                href="/admin/customers/new"
-                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#E55300]"
-              >
-                <UserPlus size={17} />
-                Add customer
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    {[
-                      "Customer",
-                      "Account",
-                      "Contact",
-                      "Status",
-                      "Activity",
-                      "Created",
-                      "",
-                    ].map((heading) => (
-                      <th
-                        key={heading}
-                        className="px-6 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {customers.map((customer) => (
-                    <tr
-                      key={customer.id}
-                      className="transition hover:bg-slate-50"
-                    >
-                      <td className="px-6 py-5 align-top">
-                        <p className="font-bold text-slate-950">
-                          {getDisplayName(customer)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Contact: {getContactName(customer)}
-                        </p>
-                        {customer.registeredPostcode ? (
-                          <p className="mt-1 text-xs text-slate-400">
-                            {customer.registeredTownCity
-                              ? `${customer.registeredTownCity}, `
-                              : ""}
-                            {customer.registeredPostcode}
-                          </p>
-                        ) : null}
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <div className="flex flex-wrap gap-2">
-                          <Badge
-                            className={accountTypeClasses(
-                              customer.accountType,
-                            )}
-                          >
-                            {customer.accountType}
-                          </Badge>
-                          {customer.adminCreated ? (
-                            <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
-                              OFFICE CREATED
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-2 text-xs font-semibold text-slate-500">
-                          {customer.accountNumber || "No account number"}
-                        </p>
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {customer.email}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {customer.phone || "No phone"}
-                        </p>
-                        {customer.accountsEmail ? (
-                          <p className="mt-1 text-xs text-slate-400">
-                            Accounts: {customer.accountsEmail}
-                          </p>
-                        ) : null}
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <Badge
-                          className={accountStatusClasses(
-                            customer.accountStatus,
-                          )}
-                        >
-                          {customer.accountStatus}
-                        </Badge>
-                        {customer.tradeAccount ? (
-                          <p className="mt-2 text-xs font-semibold text-violet-600">
-                            Trade: {customer.tradeAccount.status}
-                          </p>
-                        ) : null}
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span>{customer._count.quotes} quotes</span>
-                          <span>{customer._count.bookings} bookings</span>
-                          <span>{customer._count.invoices} invoices</span>
-                          <span>{customer._count.payments} payments</span>
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-5 align-top text-sm text-slate-500">
-                        {formatDate(customer.createdAt)}
-                      </td>
-
-                      <td className="px-6 py-5 text-right align-top">
-                        <Link
-                          href={`/admin/customers/${customer.id}`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-[#E55300]"
-                        >
-                          Open
-                          <ArrowRight size={15} />
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="divide-y divide-slate-200 lg:hidden">
-              {customers.map((customer) => (
-                <article key={customer.id} className="p-5 sm:p-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-bold text-slate-950">
-                        {getDisplayName(customer)}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Contact: {getContactName(customer)}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Badge
-                        className={accountTypeClasses(customer.accountType)}
-                      >
-                        {customer.accountType}
-                      </Badge>
-                      <Badge
-                        className={accountStatusClasses(
-                          customer.accountStatus,
-                        )}
-                      >
-                        {customer.accountStatus}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <InfoItem
-                      label="Account number"
-                      value={customer.accountNumber || "Not assigned"}
-                    />
-                    <InfoItem label="Email" value={customer.email} />
-                    <InfoItem
-                      label="Phone"
-                      value={customer.phone || "Not provided"}
-                    />
-                    <InfoItem
-                      label="Activity"
-                      value={`${customer._count.bookings} bookings · ${customer._count.invoices} invoices`}
-                    />
-                  </dl>
-
-                  <Link
-                    href={`/admin/customers/${customer.id}`}
-                    className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
-                  >
-                    Open customer profile
-                    <ArrowRight size={16} />
-                  </Link>
-                </article>
-              ))}
-            </div>
-          </>
-        )}
-
-        {!loading && customers.length > 0 ? (
-          <div className="flex flex-col gap-4 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-sm text-slate-500">
-              Showing {(pagination.page - 1) * pagination.pageSize + 1}–
-              {Math.min(
-                pagination.page * pagination.pageSize,
-                pagination.total,
-              )}{" "}
-              of {pagination.total}
-            </p>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ChevronLeft size={17} />
-                Previous
-              </button>
-
-              <button
-                type="button"
-                disabled={page >= pagination.totalPages}
-                onClick={() =>
-                  setPage((current) =>
-                    Math.min(pagination.totalPages, current + 1),
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-                <ChevronRight size={17} />
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </section>
+      </form>
     </div>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
+function Section({
+  title,
+  description,
   icon: Icon,
+  children,
 }: {
-  label: string;
-  value: number | string;
-  icon: typeof Users;
+  title: string;
+  description: string;
+  icon: typeof UserRound;
+  children: React.ReactNode;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-            {value}
-          </p>
-        </div>
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4 border-b border-slate-200 pb-5">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
           <Icon size={21} />
         </span>
+        <div>
+          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-500">
+            {description}
+          </p>
+        </div>
       </div>
-    </article>
+
+      <div className="mt-5">{children}</div>
+    </section>
   );
 }
 
-function Badge({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className: string;
-}) {
-  return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 ring-inset ${className}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function InfoItem({
+function Field({
   label,
   value,
+  onChange,
+  type = "text",
+  placeholder,
+  hint,
+  required = false,
 }: {
   label: string;
   value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+  hint?: string;
+  required?: boolean;
 }) {
   return (
-    <div>
-      <dt className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+    <label className="block">
+      <span className="mb-2 block text-sm font-bold text-slate-700">
         {label}
-      </dt>
-      <dd className="mt-1 break-words font-semibold text-slate-700">{value}</dd>
-    </div>
+        {required ? <span className="ml-1 text-red-500">*</span> : null}
+      </span>
+      <input
+        type={type}
+        value={value}
+        required={required}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+      />
+      {hint ? (
+        <span className="mt-1.5 block text-xs leading-5 text-slate-400">
+          {hint}
+        </span>
+      ) : null}
+    </label>
   );
-}
+} 
+
