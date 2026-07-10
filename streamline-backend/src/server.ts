@@ -22,6 +22,7 @@ import driverPodRoutes from "./routes/driverPod";
 
 // Admin Routes
 import adminDriverRoutes from "./routes/adminDrivers";
+import adminCustomerRoutes from "./routes/adminCustomers";
 
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
@@ -61,6 +62,7 @@ app.use("/api/driver/pod", driverPodRoutes);
 ---------------------------------- */
 
 app.use("/api/admin/drivers", adminDriverRoutes);
+app.use("/api/admin/customers", adminCustomerRoutes);
 
 /* ---------------------------------
    Health Check
