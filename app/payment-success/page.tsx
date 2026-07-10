@@ -20,14 +20,31 @@ type QuoteDetails = {
   legalEntity?: string | null;
 };
 
+type ConfirmedBookingDetails = {
+  id: string;
+  reference?: string | null;
+  user?: {
+    name?: string | null;
+  } | null;
+  quote?: {
+    customerName?: string | null;
+  } | null;
+};
+
+type ConfirmCheckoutResponse = {
+  success?: boolean;
+  booking?: ConfirmedBookingDetails | null;
+  error?: string;
+};
+
 const BACKEND_API_URL =
   "https://streamline-logistics-production.up.railway.app/api";
 
 async function confirmCheckout(
   quoteId?: string,
   sessionId?: string,
-): Promise<void> {
-  if (!quoteId || !sessionId) return;
+): Promise<ConfirmedBookingDetails | null> {
+  if (!quoteId || !sessionId) return null;
 
   try {
     const response = await fetch(
@@ -45,12 +62,22 @@ async function confirmCheckout(
       },
     );
 
+    const data = (await response.json().catch(() => null)) as
+      | ConfirmCheckoutResponse
+      | null;
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Payment confirmation failed:", errorText);
+      console.error(
+        "Payment confirmation failed:",
+        data?.error || "Unknown payment confirmation error",
+      );
+      return null;
     }
+
+    return data?.booking || null;
   } catch (error) {
     console.error("Payment confirmation error:", error);
+    return null;
   }
 }
 
@@ -84,11 +111,17 @@ export default async function PaymentSuccessPage({
 }) {
   const { quoteId, session_id } = await searchParams;
 
-  await confirmCheckout(quoteId, session_id);
-
+  const confirmedBooking = await confirmCheckout(quoteId, session_id);
   const quote = await getQuote(quoteId);
-  const businessName =
-    quote?.legalEntity || quote?.companyName || quote?.customerName || null;
+
+  const bookingReference =
+    confirmedBooking?.reference || "Booking reference unavailable";
+
+  const customerName =
+    confirmedBooking?.quote?.customerName ||
+    quote?.customerName ||
+    confirmedBooking?.user?.name ||
+    "Customer name unavailable";
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 sm:py-12">
@@ -145,13 +178,13 @@ export default async function PaymentSuccessPage({
 
               <div className="grid gap-4 rounded-2xl border border-[#D7E6FF] bg-white p-5 sm:grid-cols-2">
                 <ReferenceItem
-                  label="Quote Reference"
-                  value={quoteId || "Reference unavailable"}
+                  label="Booking Reference"
+                  value={bookingReference}
                 />
 
                 <ReferenceItem
-                  label="Account"
-                  value={businessName || "Guest checkout"}
+                  label="Customer Name"
+                  value={customerName}
                 />
               </div>
             </section>
