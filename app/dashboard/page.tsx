@@ -274,7 +274,7 @@ export default function DashboardPage() {
                 <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#006CFF]">
-                      Upgrade for trade credit account
+                      Upgrade to trade credit account
                     </p>
 
                     <h2 className="mt-2 text-2xl font-black uppercase tracking-tight text-[#071D49]">
