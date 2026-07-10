@@ -8,8 +8,10 @@ datasource db {
 }
 
 model User {
-  id          String      @id @default(cuid())
-  accountType AccountType @default(BUSINESS)
+  id            String        @id @default(cuid())
+  accountNumber String?       @unique
+  accountType   AccountType   @default(BUSINESS)
+  accountStatus AccountStatus @default(ACTIVE)
 
   companyName String?
   name        String
@@ -32,6 +34,7 @@ model User {
   jobTitle                 String?
   accountsEmail            String?
   alternativeContactNumber String?
+  mainContactName          String?
 
   registeredAddressLine1 String?
   registeredAddressLine2 String?
@@ -57,6 +60,9 @@ model User {
   acceptedTerms             Boolean @default(false)
   acceptedPrivacy           Boolean @default(false)
 
+  adminCreated Boolean @default(false)
+  internalNote String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -68,6 +74,16 @@ model User {
   sessions            UserSession[]
   passwordResetTokens PasswordResetToken[]
   tradeAccount        TradeAccount?
+  notes               CustomerNote[]
+  documents           Document[]
+  emailLogs           EmailLog[]
+
+  @@index([accountType])
+  @@index([accountStatus])
+  @@index([companyName])
+  @@index([name])
+  @@index([phone])
+  @@index([vatNumber])
 }
 
 model UserSession {
@@ -133,9 +149,9 @@ model SavedRoute {
 }
 
 model TradeAccount {
-  id                        String             @id @default(cuid())
-  userId                    String             @unique
-  status                    TradeAccountStatus @default(PENDING)
+  id     String             @id @default(cuid())
+  userId String             @unique
+  status TradeAccountStatus @default(PENDING)
 
   companyName               String
   tradingName               String?
@@ -146,75 +162,109 @@ model TradeAccount {
   companyWebsite            String?
   annualTurnover            String?
 
-  registeredAddressLine1    String?
-  registeredAddressLine2    String?
-  registeredTownCity        String?
-  registeredCounty          String?
-  registeredPostcode        String?
-  registeredCountry         String?
+  registeredAddressLine1 String?
+  registeredAddressLine2 String?
+  registeredTownCity     String?
+  registeredCounty       String?
+  registeredPostcode     String?
+  registeredCountry      String?
 
-  tradingAddressDifferent   Boolean            @default(false)
-  tradingAddressLine1       String?
-  tradingAddressLine2       String?
-  tradingTownCity           String?
-  tradingCounty             String?
-  tradingPostcode           String?
-  tradingCountry            String?
+  tradingAddressDifferent Boolean @default(false)
+  tradingAddressLine1     String?
+  tradingAddressLine2     String?
+  tradingTownCity         String?
+  tradingCounty           String?
+  tradingPostcode         String?
+  tradingCountry          String?
 
-  accountsContactName       String?
-  accountsJobTitle          String?
-  accountsEmail             String?
-  accountsPhone             String?
-  invoiceDeliveryEmail      String?
+  accountsContactName  String?
+  accountsJobTitle     String?
+  accountsEmail        String?
+  accountsPhone        String?
+  invoiceDeliveryEmail String?
 
-  primaryFirstName          String?
-  primaryLastName           String?
-  primaryPosition           String?
-  primaryEmail              String?
-  primaryMobile             String?
+  primaryFirstName String?
+  primaryLastName  String?
+  primaryPosition  String?
+  primaryEmail     String?
+  primaryMobile    String?
 
   requestedCreditLimit       Decimal?
   expectedMonthlySpend       String?
   estimatedShipmentsPerMonth String?
   preferredPaymentTerms      String?
 
-  serviceNextDayDelivery    Boolean            @default(false)
-  serviceMultiDrop          Boolean            @default(false)
-  serviceDedicatedVehicles  Boolean            @default(false)
+  serviceNextDayDelivery   Boolean @default(false)
+  serviceMultiDrop         Boolean @default(false)
+  serviceDedicatedVehicles Boolean @default(false)
 
-  creditCheckConsent        Boolean            @default(false)
-  authorisedToApply         Boolean            @default(false)
-  creditSubjectToApproval   Boolean            @default(false)
-  termsAccepted             Boolean            @default(false)
-  privacyAccepted           Boolean            @default(false)
+  creditCheckConsent      Boolean @default(false)
+  authorisedToApply       Boolean @default(false)
+  creditSubjectToApproval Boolean @default(false)
+  termsAccepted           Boolean @default(false)
+  privacyAccepted         Boolean @default(false)
 
-  creditLimit               Decimal            @default(2500)
-  currentBalance            Decimal            @default(0)
-  paymentTermsDays          Int                @default(30)
+  creditLimit      Decimal @default(2500)
+  currentBalance   Decimal @default(0)
+  paymentTermsDays Int     @default(30)
 
-  approvedAt                DateTime?
-  rejectedAt                DateTime?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  billingContactName String?
+  suspensionReason   String?
+  rejectionReason    String?
+  approvedByAdminId  String?
+  rejectedByAdminId  String?
+  suspendedByAdminId String?
 
-  user                      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  suspendedAt   DateTime?
+  reactivatedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 model Vehicle {
-  id              String               @id @default(cuid())
-  name            String               @unique
+  id              String        @id @default(cuid())
+  name            String        @unique
   vehicleType     String
-  active          Boolean              @default(true)
-  registration    String?
-  motExpiry       DateTime?
-  insuranceExpiry DateTime?
-  serviceDueDate  DateTime?
-  gpsDeviceId     String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  bookings        Booking[]
-  reservations    VehicleReservation[]
-  drivers         Driver[]
+  vehicleCategory String?
+  status          VehicleStatus @default(AVAILABLE)
+  active          Boolean       @default(true)
+
+  registration            String?   @unique
+  make                    String?
+  model                   String?
+  colour                  String?
+  fuelType                String?
+  engineCapacity          String?
+  co2Emissions            String?
+  dateOfFirstRegistration DateTime?
+  taxDueDate              DateTime?
+  motExpiry               DateTime?
+  euroEmissionsStatus     String?
+  mileage                 Int?
+  insuranceProvider       String?
+  insurancePolicyNumber   String?
+  insuranceExpiry         DateTime?
+  serviceDueDate          DateTime?
+  maintenanceNotes        String?
+  gpsDeviceId             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings     Booking[]
+  reservations VehicleReservation[]
+  drivers      Driver[]
+  documents    Document[]
+
+  @@index([vehicleType])
+  @@index([status])
+  @@index([active])
 }
 
 model Quote {
@@ -235,6 +285,8 @@ model Quote {
   basePrice                Decimal?
   fuelSurcharge            Decimal?
   adminPrice               Decimal?
+  discountAmount           Decimal?
+  discountReason           String?
   vatAmount                Decimal?
   totalPrice               Decimal?
   createdAt                DateTime             @default(now())
@@ -258,44 +310,82 @@ model Quote {
   legalEntity              String?
   returnAddress            String?
   tradingName              String?
+  customerReference        String?
+  purchaseOrderNumber      String?
+  sentAt                   DateTime?
+  viewedAt                 DateTime?
+  acceptedAt               DateTime?
+  cancelledAt              DateTime?
+  convertedAt              DateTime?
+  createdByAdminId         String?
   booking                  Booking?
   user                     User?                @relation(fields: [userId], references: [id])
   reservations             VehicleReservation[]
+  documents                Document[]
+  emailLogs                EmailLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([collectionDate])
 }
 
 model Booking {
-  id                 String              @id @default(cuid())
-  reference          String              @unique
-  status             BookingStatus       @default(PENDING_PAYMENT)
-  quoteId            String?             @unique
-  userId             String?
-  vehicleId          String?
+  id        String        @id @default(cuid())
+  reference String        @unique
+  status    BookingStatus @default(PENDING_PAYMENT)
+  quoteId   String?       @unique
+  userId    String?
+  vehicleId String?
+  driverId  String?
+
   collectionDate     DateTime
   collectionWindow   String
   collectionAddress  String
   deliveryAddress    String
+  returnAddress      String?
   extraDrops         Json?
+  journeyType        String?
+  vehicleType        String?
   estimatedStartTime DateTime?
   estimatedEndTime   DateTime?
   vehicleAvailableAt DateTime?
   totalPrice         Decimal
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  quote              Quote?              @relation(fields: [quoteId], references: [id])
-  user               User?               @relation(fields: [userId], references: [id])
-  vehicle            Vehicle?            @relation(fields: [vehicleId], references: [id])
-  driver             Driver?             @relation(fields: [driverId], references: [id])
-  invoices           Invoice[]
-  pod                POD?
-  payments           Payment[]
-  reservation        VehicleReservation?
-  driverId               String?
+
+  customerReference   String?
+  purchaseOrderNumber String?
+  internalNotes       String?
+  dispatchNotes       String?
+  createdByAdminId    String?
+  assignedByAdminId   String?
+  vehicleAssignedAt   DateTime?
+  driverAssignedAt    DateTime?
+
   trackingShareTokenHash String?
   trackingStartedAt      DateTime?
   trackingEndedAt        DateTime?
 
-  trackingEvents     BookingTrackingEvent[]
-  driverLocations    DriverLocation[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote       Quote?              @relation(fields: [quoteId], references: [id])
+  user        User?               @relation(fields: [userId], references: [id])
+  vehicle     Vehicle?            @relation(fields: [vehicleId], references: [id])
+  driver      Driver?             @relation(fields: [driverId], references: [id])
+  invoices    Invoice[]
+  pod         POD?
+  payments    Payment[]
+  reservation VehicleReservation?
+
+  trackingEvents  BookingTrackingEvent[]
+  driverLocations DriverLocation[]
+  documents       Document[]
+  emailLogs       EmailLog[]
+
+  @@index([userId])
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([status])
+  @@index([collectionDate])
 }
 
 model BookingTrackingEvent {
@@ -324,32 +414,49 @@ model VehicleReservation {
   expiresAt     DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
-  booking       Booking?          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  quote         Quote?            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  quote   Quote?   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  vehicle Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([reservedFrom, reservedUntil])
+  @@index([status])
 }
 
 model Driver {
-  id           String    @id @default(cuid())
+  id           String       @id @default(cuid())
   name         String
-  username     String    @unique
-  email        String    @unique
+  username     String       @unique
+  email        String       @unique
   password     String
   phone        String?
-  active       Boolean   @default(true)
-  availability String    @default("AVAILABLE")
+  active       Boolean      @default(true)
+  availability String       @default("AVAILABLE")
+  status       DriverStatus @default(ACTIVE)
   sessionToken String?
   lastLoginAt  DateTime?
   vehicleId    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+
+  licenceNumber     String?
+  licenceType       String?
+  licenceExpiryDate DateTime?
+  address           String?
+  emergencyContact  String?
+  notes             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   vehicle   Vehicle?         @relation(fields: [vehicleId], references: [id])
   bookings  Booking[]
   locations DriverLocation[]
+  documents Document[]
 
   @@index([vehicleId])
   @@index([sessionToken])
+  @@index([status])
+  @@index([availability])
 }
 
 model DriverLocation {
@@ -374,36 +481,80 @@ model DriverLocation {
 model Payment {
   id                String        @id @default(cuid())
   bookingId         String?
+  invoiceId         String?
   userId            String?
   provider          String
+  paymentMethod     PaymentMethod @default(CARD)
   providerPaymentId String?
   status            PaymentStatus @default(PENDING)
   amount            Decimal
   currency          String        @default("GBP")
+  reference         String?
+  notes             String?
   paidAt            DateTime?
   refundedAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  booking           Booking?      @relation(fields: [bookingId], references: [id])
-  user              User?         @relation(fields: [userId], references: [id])
+
+  booking Booking? @relation(fields: [bookingId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([bookingId])
+  @@index([invoiceId])
+  @@index([userId])
+  @@index([status])
 }
 
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique
-  bookingId     String
-  userId        String?
-  status        InvoiceStatus @default(ISSUED)
-  subtotal      Decimal
-  vatAmount     Decimal
-  total         Decimal
-  dueDate       DateTime?
-  paidAt        DateTime?
-  pdfUrl        String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  user          User?         @relation(fields: [userId], references: [id])
+  id                  String        @id @default(cuid())
+  invoiceNumber       String        @unique
+  bookingId           String
+  userId              String?
+  status              InvoiceStatus @default(ISSUED)
+  subtotal            Decimal
+  vatAmount           Decimal
+  total               Decimal
+  dueDate             DateTime?
+  issuedAt            DateTime?
+  finalisedAt         DateTime?
+  paidAt              DateTime?
+  pdfUrl              String?
+  paymentTerms        String?
+  customerReference   String?
+  purchaseOrderNumber String?
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  booking     Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [userId], references: [id])
+  payments    Payment[]
+  documents   Document[]
+  emailLogs   EmailLog[]
+  creditNotes CreditNote[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model CreditNote {
+  id               String           @id @default(cuid())
+  creditNoteNumber String           @unique
+  invoiceId        String
+  status           CreditNoteStatus @default(ISSUED)
+  amount           Decimal
+  reason           String?
+  pdfUrl           String?
+  issuedAt         DateTime         @default(now())
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([status])
 }
 
 model POD {
@@ -417,12 +568,240 @@ model POD {
   deliveredAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model CustomerNote {
+  id               String   @id @default(cuid())
+  userId           String
+  body             String
+  createdByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Document {
+  id       String       @id @default(cuid())
+  type     DocumentType
+  name     String
+  fileUrl  String
+  mimeType String?
+  fileSize Int?
+  notes    String?
+
+  userId    String?
+  driverId  String?
+  vehicleId String?
+  bookingId String?
+  quoteId   String?
+  invoiceId String?
+
+  uploadedByAdminId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driver  Driver?  @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  quote   Quote?   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([driverId])
+  @@index([vehicleId])
+  @@index([bookingId])
+  @@index([quoteId])
+  @@index([invoiceId])
+  @@index([type])
+}
+
+model EmailLog {
+  id                String      @id @default(cuid())
+  type              EmailType
+  status            EmailStatus @default(PENDING)
+  recipient         String
+  subject           String
+  providerMessageId String?
+  errorMessage      String?
+  sentAt            DateTime?
+  createdAt         DateTime    @default(now())
+
+  userId    String?
+  quoteId   String?
+  bookingId String?
+  invoiceId String?
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  quote   Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([quoteId])
+  @@index([bookingId])
+  @@index([invoiceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model CompanySettings {
+  id                        String   @id @default(cuid())
+  companyName               String
+  companyAddress            String?
+  telephone                 String?
+  email                     String?
+  website                   String?
+  companyRegistrationNumber String?
+  vatNumber                 String?
+  bankName                  String?
+  bankAccountName           String?
+  sortCode                  String?
+  accountNumber             String?
+  invoicePrefix             String   @default("INV")
+  nextInvoiceNumber         Int      @default(1)
+  paymentTermsDays          Int      @default(30)
+  vatRate                   Decimal  @default(20)
+  currency                  String   @default("GBP")
+  footerMessage             String?
+  logoUrl                   String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model Tariff {
+  id            String   @id @default(cuid())
+  name          String
+  vehicleType   String
+  baseFare      Decimal
+  active        Boolean  @default(true)
+  vatApplicable Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  mileageBands MileageBand[]
+  charges      TariffCharge[]
+
+  @@unique([name, vehicleType])
+  @@index([vehicleType])
+  @@index([active])
+}
+
+model MileageBand {
+  id           String   @id @default(cuid())
+  tariffId     String
+  minimumMiles Decimal
+  maximumMiles Decimal?
+  ratePerMile  Decimal
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tariff Tariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+}
+
+model TariffCharge {
+  id            String            @id @default(cuid())
+  tariffId      String
+  type          ChargeType
+  name          String
+  calculation   ChargeCalculation
+  amount        Decimal
+  active        Boolean           @default(true)
+  vatApplicable Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tariff Tariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@index([tariffId])
+  @@index([type])
+  @@index([active])
+}
+
+model DiscountRule {
+  id         String       @id @default(cuid())
+  name       String
+  type       DiscountType
+  value      Decimal
+  active     Boolean      @default(true)
+  customerId String?
+  startsAt   DateTime?
+  endsAt     DateTime?
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([active])
+  @@index([customerId])
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         AdminRole @default(READ_ONLY)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions  AdminSession[]
+  auditLogs AuditLog[]
+
+  @@index([role])
+  @@index([active])
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  adminId   String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String?
+  action     String
+  entityType String
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  admin AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 enum AccountType {
+  PRIVATE
   BUSINESS
   TRADE
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
 }
 
 enum TradeAccountStatus {
@@ -430,6 +809,20 @@ enum TradeAccountStatus {
   UNDER_REVIEW
   APPROVED
   REJECTED
+  SUSPENDED
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  BOOKED
+  OUT_ON_JOB
+  MAINTENANCE
+  INACTIVE
+}
+
+enum DriverStatus {
+  ACTIVE
+  INACTIVE
   SUSPENDED
 }
 
@@ -450,6 +843,14 @@ enum ReservationStatus {
   CANCELLED
 }
 
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+  CASH
+  CREDIT_ACCOUNT
+  OTHER
+}
+
 enum PaymentStatus {
   PENDING
   PAID
@@ -459,13 +860,94 @@ enum PaymentStatus {
 }
 
 enum InvoiceStatus {
+  DRAFT
   ISSUED
   PAID
   OVERDUE
   CANCELLED
 }
 
+enum CreditNoteStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
 enum PODStatus {
   PENDING
   COMPLETED
+}
+
+enum DocumentType {
+  CUSTOMER
+  DRIVER
+  VEHICLE
+  INSURANCE
+  MOT
+  INVOICE
+  PROOF_OF_DELIVERY
+  PHOTO
+  SIGNATURE
+  OTHER
+}
+
+enum EmailType {
+  QUOTE_SENT
+  BOOKING_CONFIRMATION
+  PAYMENT_RECEIVED
+  INVOICE
+  DRIVER_ASSIGNED
+  DELIVERY_COMPLETED
+  ADMIN_NOTIFICATION
+  OTHER
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum ChargeType {
+  STOP
+  WAITING
+  NIGHT
+  SAME_DAY
+  FUEL_SURCHARGE
+  CONGESTION
+  ULEZ_CAZ
+  FERRY
+  AIRPORT_HANDLING
+  TWO_PERSON_CREW
+  WEEKEND
+  OUT_OF_HOURS
+  PARKING
+  CLEANING
+  TOLL
+  SPECIALIST_ESCORT
+  MISCELLANEOUS
+}
+
+enum ChargeCalculation {
+  FIXED
+  PER_MILE
+  PER_STOP
+  PER_HOUR
+  PERCENTAGE
+}
+
+enum DiscountType {
+  FIXED_AMOUNT
+  PERCENTAGE
+  CUSTOMER_LOYALTY
+  MONTHLY
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  OFFICE_MANAGER
+  DISPATCHER
+  ACCOUNTS
+  DRIVER
+  READ_ONLY
 }

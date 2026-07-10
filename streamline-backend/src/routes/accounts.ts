@@ -73,7 +73,7 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
 
 function publicUser(user: {
   id: string;
-  accountType: "BUSINESS" | "TRADE";
+  accountType: "PRIVATE" | "BUSINESS" | "TRADE";
   companyName: string | null;
   name: string;
   email: string;
