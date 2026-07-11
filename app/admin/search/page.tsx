@@ -17,7 +17,13 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -288,7 +294,7 @@ function secondaryText(group: keyof SearchResults, item: SearchItem): string {
   }
 }
 
-export default function AdminSearchPage() {
+function AdminSearchContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q") || "";
 
@@ -615,5 +621,23 @@ export default function AdminSearchPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SearchPageFallback() {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white py-20 text-center shadow-sm">
+      <p className="text-sm font-medium text-slate-500">
+        Loading admin search...
+      </p>
+    </div>
+  );
+}
+
+export default function AdminSearchPage() {
+  return (
+    <Suspense fallback={<SearchPageFallback />}>
+      <AdminSearchContent />
+    </Suspense>
   );
 }
