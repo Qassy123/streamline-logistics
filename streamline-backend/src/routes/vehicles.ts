@@ -1,13 +1,660 @@
-import { BookingStatus, ReservationStatus } from "@prisma/client";
+import {
+  BookingStatus,
+  Prisma,
+  ReservationStatus,
+} from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { getReservationWindow } from "../lib/reservationWindow";
 
 const router = Router();
 
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
+
+function getOptionalString(value: unknown) {
+  const cleanValue = getString(value);
+  return cleanValue || null;
+}
+
+function getBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  return false;
+}
+
+function getPositiveInteger(value: unknown, fallback: number) {
+  const parsedValue = Number.parseInt(String(value ?? ""), 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
+function getOptionalDate(value: unknown) {
+  const cleanValue = getString(value);
+
+  if (!cleanValue) return null;
+
+  const parsedDate = new Date(cleanValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+}
+
+function requireAdmin(req: { headers: { [key: string]: unknown } }) {
+  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
+  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
+
+  if (!configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 503,
+      error: "Admin API key is not configured.",
+    };
+  }
+
+  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 401,
+      error: "Admin access denied.",
+    };
+  }
+
+  return {
+    authorised: true,
+    status: 200,
+    error: "",
+  };
+}
+
+function getVehicleOperationalState(vehicle: {
+  active: boolean;
+  motExpiry: Date | null;
+  insuranceExpiry: Date | null;
+  serviceDueDate: Date | null;
+  bookings: {
+    status: BookingStatus;
+  }[];
+  reservations: {
+    status: ReservationStatus;
+  }[];
+}) {
+  if (!vehicle.active) return "INACTIVE";
+
+  const now = new Date();
+
+  if (
+    (vehicle.motExpiry && vehicle.motExpiry < now) ||
+    (vehicle.insuranceExpiry && vehicle.insuranceExpiry < now)
+  ) {
+    return "COMPLIANCE_EXPIRED";
+  }
+
+  if (vehicle.serviceDueDate && vehicle.serviceDueDate < now) {
+    return "SERVICE_DUE";
+  }
+
+  if (
+    vehicle.bookings.some(
+      (booking) =>
+        booking.status === BookingStatus.ASSIGNED ||
+        booking.status === BookingStatus.IN_PROGRESS,
+    )
+  ) {
+    return "IN_USE";
+  }
+
+  if (
+    vehicle.reservations.some(
+      (reservation) =>
+        reservation.status === ReservationStatus.ACTIVE ||
+        reservation.status === ReservationStatus.CONFIRMED,
+    )
+  ) {
+    return "RESERVED";
+  }
+
+  return "AVAILABLE";
+}
+
+function adminVehicleInclude() {
+  return {
+    bookings: {
+      where: {
+        status: {
+          in: [
+            BookingStatus.PENDING_PAYMENT,
+            BookingStatus.CONFIRMED,
+            BookingStatus.ASSIGNED,
+            BookingStatus.IN_PROGRESS,
+          ],
+        },
+      },
+      orderBy: {
+        collectionDate: "asc",
+      },
+      take: 10,
+      include: {
+        user: true,
+        driver: true,
+      },
+    },
+    reservations: {
+      where: {
+        status: {
+          in: [
+            ReservationStatus.ACTIVE,
+            ReservationStatus.CONFIRMED,
+          ],
+        },
+      },
+      orderBy: {
+        reservedFrom: "asc",
+      },
+      take: 10,
+    },
+  } satisfies Prisma.VehicleInclude;
+}
+
+/* ---------------------------------
+   Admin Fleet Management
+---------------------------------- */
+
+router.get("/admin/list", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(
+      getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
+
+    const search = getString(req.query.search);
+    const vehicleType = getString(req.query.vehicleType);
+    const active = getString(req.query.active).toUpperCase();
+    const state = getString(req.query.state).toUpperCase();
+
+    const where: Prisma.VehicleWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          registration: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          vehicleType: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          gpsDeviceId: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
+
+    if (vehicleType && vehicleType !== "ALL") {
+      where.vehicleType = vehicleType;
+    }
+
+    if (active === "ACTIVE") {
+      where.active = true;
+    }
+
+    if (active === "INACTIVE") {
+      where.active = false;
+    }
+
+    const [vehicles, total, allTypes, drivers] = await Promise.all([
+      prisma.vehicle.findMany({
+        where,
+        orderBy: [
+          {
+            vehicleType: "asc",
+          },
+          {
+            name: "asc",
+          },
+        ],
+        include: adminVehicleInclude(),
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.vehicle.count({
+        where,
+      }),
+      prisma.vehicle.findMany({
+        select: {
+          vehicleType: true,
+        },
+        distinct: ["vehicleType"],
+        orderBy: {
+          vehicleType: "asc",
+        },
+      }),
+      prisma.driver.findMany({
+        where: {
+          active: true,
+        },
+        orderBy: {
+          name: "asc",
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          availability: true,
+          vehicleId: true,
+        },
+      }),
+    ]);
+
+    const vehicleIds = vehicles.map((vehicle) => vehicle.id);
+
+    const assignedDrivers =
+      vehicleIds.length > 0
+        ? await prisma.driver.findMany({
+            where: {
+              vehicleId: {
+                in: vehicleIds,
+              },
+            },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              availability: true,
+              vehicleId: true,
+            },
+          })
+        : [];
+
+    const assignedDriversByVehicleId = new Map(
+      assignedDrivers.map((driver) => [driver.vehicleId, driver]),
+    );
+
+    const enrichedVehicles = vehicles
+      .map((vehicle) => ({
+        ...vehicle,
+        operationalState: getVehicleOperationalState(vehicle),
+        assignedDriver:
+          assignedDriversByVehicleId.get(vehicle.id) || null,
+      }))
+      .filter((vehicle) => {
+        if (!state || state === "ALL") return true;
+        return vehicle.operationalState === state;
+      });
+
+    const allVehiclesForSummary = await prisma.vehicle.findMany({
+      include: adminVehicleInclude(),
+    });
+
+    const summary = allVehiclesForSummary.reduce(
+      (totals, vehicle) => {
+        const operationalState = getVehicleOperationalState(vehicle);
+
+        totals.total += 1;
+
+        if (vehicle.active) {
+          totals.active += 1;
+        } else {
+          totals.inactive += 1;
+        }
+
+        totals.byState[operationalState] =
+          (totals.byState[operationalState] || 0) + 1;
+
+        return totals;
+      },
+      {
+        total: 0,
+        active: 0,
+        inactive: 0,
+        byState: {} as Record<string, number>,
+      },
+    );
+
+    res.json({
+      vehicles: enrichedVehicles,
+      drivers,
+      vehicleTypes: allTypes.map((item) => item.vehicleType),
+      pagination: {
+        page,
+        pageSize,
+        total:
+          state && state !== "ALL"
+            ? enrichedVehicles.length
+            : total,
+        totalPages:
+          state && state !== "ALL"
+            ? 1
+            : Math.max(1, Math.ceil(total / pageSize)),
+      },
+      summary,
+    });
+  } catch (error) {
+    console.error("Admin fleet list error:", error);
+
+    res.status(500).json({
+      error: "Unable to load fleet.",
+    });
+  }
+});
+
+router.get("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const vehicle = await prisma.vehicle.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      include: {
+        bookings: {
+          orderBy: {
+            collectionDate: "desc",
+          },
+          take: 25,
+          include: {
+            user: true,
+            driver: true,
+            payments: true,
+            invoices: true,
+          },
+        },
+        reservations: {
+          orderBy: {
+            reservedFrom: "desc",
+          },
+          take: 25,
+        },
+      },
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({
+        error: "Vehicle not found.",
+      });
+    }
+
+    const assignedDriver = await prisma.driver.findFirst({
+      where: {
+        vehicleId: vehicle.id,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        availability: true,
+        vehicleId: true,
+      },
+    });
+
+    res.json({
+      vehicle: {
+        ...vehicle,
+        operationalState: getVehicleOperationalState(vehicle),
+        assignedDriver,
+      },
+    });
+  } catch (error) {
+    console.error("Admin fleet detail error:", error);
+
+    res.status(500).json({
+      error: "Unable to load vehicle.",
+    });
+  }
+});
+
+router.post("/admin", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const name = getString(req.body.name);
+    const vehicleType = getString(req.body.vehicleType);
+    const registration = getOptionalString(req.body.registration);
+
+    if (!name || !vehicleType) {
+      return res.status(400).json({
+        error: "Vehicle name and type are required.",
+      });
+    }
+
+    if (registration) {
+      const existingRegistration = await prisma.vehicle.findUnique({
+        where: {
+          registration,
+        },
+      });
+
+      if (existingRegistration) {
+        return res.status(409).json({
+          error: "A vehicle already exists with this registration.",
+        });
+      }
+    }
+
+    const vehicle = await prisma.vehicle.create({
+      data: {
+        name,
+        vehicleType,
+        registration,
+        active:
+          req.body.active === undefined
+            ? true
+            : getBoolean(req.body.active),
+        motExpiry: getOptionalDate(req.body.motExpiry),
+        insuranceExpiry: getOptionalDate(req.body.insuranceExpiry),
+        serviceDueDate: getOptionalDate(req.body.serviceDueDate),
+        gpsDeviceId: getOptionalString(req.body.gpsDeviceId),
+      },
+    });
+
+    const driverId = getOptionalString(req.body.driverId);
+
+    if (driverId) {
+      await prisma.driver.update({
+        where: {
+          id: driverId,
+        },
+        data: {
+          vehicleId: vehicle.id,
+        },
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      vehicle,
+    });
+  } catch (error) {
+    console.error("Admin vehicle creation error:", error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return res.status(409).json({
+        error: "A vehicle already exists with this unique value.",
+      });
+    }
+
+    res.status(500).json({
+      error: "Unable to create vehicle.",
+    });
+  }
+});
+
+router.patch("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const existingVehicle = await prisma.vehicle.findUnique({
+      where: {
+        id: req.params.id,
+      },
+    });
+
+    if (!existingVehicle) {
+      return res.status(404).json({
+        error: "Vehicle not found.",
+      });
+    }
+
+    const registration =
+      req.body.registration !== undefined
+        ? getOptionalString(req.body.registration)
+        : undefined;
+
+    if (registration) {
+      const duplicateRegistration = await prisma.vehicle.findFirst({
+        where: {
+          registration,
+          id: {
+            not: req.params.id,
+          },
+        },
+      });
+
+      if (duplicateRegistration) {
+        return res.status(409).json({
+          error: "Another vehicle already uses this registration.",
+        });
+      }
+    }
+
+    const vehicle = await prisma.$transaction(async (transaction) => {
+      const updatedVehicle = await transaction.vehicle.update({
+        where: {
+          id: req.params.id,
+        },
+        data: {
+          name:
+            req.body.name !== undefined
+              ? getString(req.body.name)
+              : undefined,
+          vehicleType:
+            req.body.vehicleType !== undefined
+              ? getString(req.body.vehicleType)
+              : undefined,
+          active:
+            req.body.active !== undefined
+              ? getBoolean(req.body.active)
+              : undefined,
+          registration,
+          motExpiry:
+            req.body.motExpiry !== undefined
+              ? getOptionalDate(req.body.motExpiry)
+              : undefined,
+          insuranceExpiry:
+            req.body.insuranceExpiry !== undefined
+              ? getOptionalDate(req.body.insuranceExpiry)
+              : undefined,
+          serviceDueDate:
+            req.body.serviceDueDate !== undefined
+              ? getOptionalDate(req.body.serviceDueDate)
+              : undefined,
+          gpsDeviceId:
+            req.body.gpsDeviceId !== undefined
+              ? getOptionalString(req.body.gpsDeviceId)
+              : undefined,
+        },
+      });
+
+      if (req.body.driverId !== undefined) {
+        await transaction.driver.updateMany({
+          where: {
+            vehicleId: req.params.id,
+          },
+          data: {
+            vehicleId: null,
+          },
+        });
+
+        const driverId = getOptionalString(req.body.driverId);
+
+        if (driverId) {
+          await transaction.driver.update({
+            where: {
+              id: driverId,
+            },
+            data: {
+              vehicleId: req.params.id,
+            },
+          });
+        }
+      }
+
+      return updatedVehicle;
+    });
+
+    res.json({
+      success: true,
+      vehicle,
+    });
+  } catch (error) {
+    console.error("Admin vehicle update error:", error);
+
+    res.status(500).json({
+      error: "Unable to update vehicle.",
+    });
+  }
+});
+
+/* ---------------------------------
+   Existing Public Vehicle Routes
+---------------------------------- */
 
 router.get("/", async (_, res) => {
   try {
@@ -106,7 +753,10 @@ router.get("/availability", async (req, res) => {
       const existing = blockedUntilByVehicleId.get(reservation.vehicleId);
 
       if (!existing || reservation.reservedUntil > existing) {
-        blockedUntilByVehicleId.set(reservation.vehicleId, reservation.reservedUntil);
+        blockedUntilByVehicleId.set(
+          reservation.vehicleId,
+          reservation.reservedUntil,
+        );
       }
     });
 
@@ -116,7 +766,10 @@ router.get("/availability", async (req, res) => {
       const existing = blockedUntilByVehicleId.get(booking.vehicleId);
 
       if (!existing || booking.estimatedEndTime > existing) {
-        blockedUntilByVehicleId.set(booking.vehicleId, booking.estimatedEndTime);
+        blockedUntilByVehicleId.set(
+          booking.vehicleId,
+          booking.estimatedEndTime,
+        );
       }
     });
 
@@ -221,7 +874,9 @@ router.patch("/:id", async (req, res) => {
         vehicleType: req.body.vehicleType,
         active: req.body.active,
         registration: req.body.registration,
-        motExpiry: req.body.motExpiry ? new Date(req.body.motExpiry) : undefined,
+        motExpiry: req.body.motExpiry
+          ? new Date(req.body.motExpiry)
+          : undefined,
         insuranceExpiry: req.body.insuranceExpiry
           ? new Date(req.body.insuranceExpiry)
           : undefined,

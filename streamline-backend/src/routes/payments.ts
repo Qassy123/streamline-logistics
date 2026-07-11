@@ -13,6 +13,54 @@ import {
 
 const router = Router();
 
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getPositiveInteger(value: unknown, fallback: number) {
+  const parsedValue = Number.parseInt(String(value ?? ""), 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
+function requireAdmin(req: { headers: { [key: string]: unknown } }) {
+  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
+  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
+
+  if (!configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 503,
+      error: "Admin API key is not configured.",
+    };
+  }
+
+  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 401,
+      error: "Admin access denied.",
+    };
+  }
+
+  return {
+    authorised: true,
+    status: 200,
+    error: "",
+  };
+}
+
+function isPaymentStatus(value: string): value is PaymentStatus {
+  return Object.values(PaymentStatus).includes(value as PaymentStatus);
+}
+
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 
@@ -629,5 +677,277 @@ router.post("/confirm-checkout-session", async (req, res) => {
     });
   }
 });
+
+/* ---------------------------------
+   Admin Payment Management
+---------------------------------- */
+
+router.get("/admin/list", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(
+      getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
+    const search = getString(req.query.search);
+    const status = getString(req.query.status).toUpperCase();
+    const provider = getString(req.query.provider);
+    const dateFrom = getString(req.query.dateFrom);
+    const dateTo = getString(req.query.dateTo);
+
+    const where: Prisma.PaymentWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          providerPaymentId: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          booking: {
+            is: {
+              reference: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              name: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              companyName: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              email: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    if (status && status !== "ALL") {
+      if (!isPaymentStatus(status)) {
+        return res.status(400).json({
+          error: "Invalid payment status filter.",
+        });
+      }
+
+      where.status = status;
+    }
+
+    if (provider && provider !== "ALL") {
+      where.provider = provider;
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+
+      if (dateFrom) {
+        where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+
+      if (dateTo) {
+        where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
+
+    const [payments, total, statusTotals, providerTotals] = await Promise.all([
+      prisma.payment.findMany({
+        where,
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          user: true,
+          booking: {
+            include: {
+              quote: true,
+              invoices: true,
+            },
+          },
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.payment.count({
+        where,
+      }),
+      prisma.payment.groupBy({
+        by: ["status"],
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.payment.groupBy({
+        by: ["provider"],
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
+
+    res.json({
+      payments,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+      summary: {
+        byStatus: Object.fromEntries(
+          statusTotals.map((item) => [
+            item.status,
+            item._count._all,
+          ]),
+        ),
+        byProvider: Object.fromEntries(
+          providerTotals.map((item) => [
+            item.provider,
+            item._count._all,
+          ]),
+        ),
+      },
+    });
+  } catch (error) {
+    console.error("Admin payment list error:", error);
+
+    res.status(500).json({
+      error: "Unable to load payments.",
+    });
+  }
+});
+
+router.get("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      include: {
+        user: true,
+        booking: {
+          include: {
+            quote: true,
+            invoices: true,
+            vehicle: true,
+            driver: true,
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        error: "Payment not found.",
+      });
+    }
+
+    res.json({
+      payment,
+    });
+  } catch (error) {
+    console.error("Admin payment detail error:", error);
+
+    res.status(500).json({
+      error: "Unable to load payment.",
+    });
+  }
+});
+
+router.patch("/admin/:id/status", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const statusValue = getString(req.body.status).toUpperCase();
+
+    if (!statusValue || !isPaymentStatus(statusValue)) {
+      return res.status(400).json({
+        error: "A valid payment status is required.",
+      });
+    }
+
+    const payment = await prisma.payment.update({
+      where: {
+        id: req.params.id,
+      },
+      data: {
+        status: statusValue,
+        paidAt:
+          statusValue === PaymentStatus.PAID
+            ? new Date()
+            : undefined,
+      },
+      include: {
+        user: true,
+        booking: {
+          include: {
+            quote: true,
+            invoices: true,
+            vehicle: true,
+            driver: true,
+          },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      payment,
+    });
+  } catch (error) {
+    console.error("Admin payment status update error:", error);
+
+    res.status(500).json({
+      error: "Unable to update payment status.",
+    });
+  }
+});
+
 
 export default router;

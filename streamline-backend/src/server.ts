@@ -19,6 +19,7 @@ import driverAuthRoutes from "./routes/driverAuth";
 import driverJobsRoutes from "./routes/driverJobs";
 import driverTrackingRoutes from "./routes/driverTracking";
 import driverPodRoutes from "./routes/driverPod";
+import invoiceRoutes from "./routes/invoices";
 
 // Admin Routes
 import adminDriverRoutes from "./routes/adminDrivers";
@@ -47,6 +48,7 @@ app.use("/api/trade-accounts", tradeAccountRoutes);
 app.use("/api/saved-routes", savedRouteRoutes);
 app.use("/api/tracking", trackingRoutes);
 app.use("/api/contact", contactRoutes);
+app.use("/api/invoices", invoiceRoutes);
 
 /* ---------------------------------
    Driver Routes
