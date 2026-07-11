@@ -1,4 +1,8 @@
-import { BookingStatus, Prisma, ReservationStatus } from "@prisma/client";
+import {
+  BookingStatus,
+  Prisma,
+  ReservationStatus,
+} from "@prisma/client";
 import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
@@ -8,12 +12,33 @@ import { getReservationWindow } from "../lib/reservationWindow";
 const router = Router();
 
 const PAYMENT_RESERVATION_MINUTES = 30;
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
 
 function generateBookingReference() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const randomPart = Math.floor(100000 + Math.random() * 900000);
 
   return `SL-${datePart}-${randomPart}`;
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getOptionalString(value: unknown) {
+  const cleanValue = getString(value);
+  return cleanValue || null;
+}
+
+function getPositiveInteger(value: unknown, fallback: number) {
+  const parsedValue = Number.parseInt(String(value ?? ""), 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
 }
 
 function getAuthToken(req: { headers: { authorization?: string } }) {
@@ -30,7 +55,36 @@ function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-async function getAuthenticatedUser(req: { headers: { authorization?: string } }) {
+function requireAdmin(req: { headers: { [key: string]: unknown } }) {
+  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
+  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
+
+  if (!configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 503,
+      error: "Admin API key is not configured.",
+    };
+  }
+
+  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 401,
+      error: "Admin access denied.",
+    };
+  }
+
+  return {
+    authorised: true,
+    status: 200,
+    error: "",
+  };
+}
+
+async function getAuthenticatedUser(req: {
+  headers: { authorization?: string };
+}) {
   const token = getAuthToken(req);
 
   if (!token) return null;
@@ -89,37 +143,441 @@ async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
   await prisma.savedRoute.create({
     data: {
       userId: booking.userId,
-
       name: `${quote.collectionAddress} to ${quote.deliveryAddress}`,
-
       deliveryType: quote.deliveryType,
       journeyType: quote.journeyType,
       capacityPercent: quote.capacityPercent,
       vehicleSize: quote.vehicleSize,
-
       collectionAddress: quote.collectionAddress,
       collectionAddressDetails:
         quote.collectionAddressDetails === null
           ? Prisma.JsonNull
           : quote.collectionAddressDetails,
-
       deliveryAddress: quote.deliveryAddress,
       deliveryAddressDetails:
         quote.deliveryAddressDetails === null
           ? Prisma.JsonNull
           : quote.deliveryAddressDetails,
-
       returnAddress: quote.returnAddress,
-      extraDrops: quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
-
+      extraDrops:
+        quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
       whatAreWeCollecting: quote.whatAreWeCollecting,
       loadDescription: quote.loadDescription,
       specialInstructions: quote.specialInstructions,
-
       contactPreference: quote.contactPreference,
     },
   });
 }
+
+function adminBookingInclude() {
+  return {
+    quote: true,
+    user: true,
+    vehicle: true,
+    driver: true,
+    payments: true,
+    invoices: true,
+    pod: true,
+    reservation: true,
+    trackingEvents: {
+      orderBy: {
+        createdAt: "asc",
+      },
+    },
+  } satisfies Prisma.BookingInclude;
+}
+
+/* ---------------------------------
+   Admin Booking Management
+---------------------------------- */
+
+router.get("/admin/list", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(
+      getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
+    const search = getString(req.query.search);
+    const status = getString(req.query.status).toUpperCase();
+    const dateFrom = getString(req.query.dateFrom);
+    const dateTo = getString(req.query.dateTo);
+    const vehicleId = getString(req.query.vehicleId);
+    const driverId = getString(req.query.driverId);
+
+    const where: Prisma.BookingWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          reference: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          collectionAddress: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          deliveryAddress: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerReference: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          purchaseOrderNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          user: {
+            is: {
+              name: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              companyName: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              email: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    if (status && status !== "ALL") {
+      if (!Object.values(BookingStatus).includes(status as BookingStatus)) {
+        return res.status(400).json({
+          error: "Invalid booking status filter.",
+        });
+      }
+
+      where.status = status as BookingStatus;
+    }
+
+    if (dateFrom || dateTo) {
+      where.collectionDate = {};
+
+      if (dateFrom) {
+        where.collectionDate.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+
+      if (dateTo) {
+        where.collectionDate.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
+
+    if (vehicleId && vehicleId !== "ALL") {
+      where.vehicleId = vehicleId;
+    }
+
+    if (driverId && driverId !== "ALL") {
+      where.driverId = driverId;
+    }
+
+    const [bookings, total, statusTotals, vehicles, drivers] =
+      await Promise.all([
+        prisma.booking.findMany({
+          where,
+          orderBy: {
+            collectionDate: "desc",
+          },
+          include: adminBookingInclude(),
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.booking.count({
+          where,
+        }),
+        prisma.booking.groupBy({
+          by: ["status"],
+          _count: {
+            _all: true,
+          },
+        }),
+        prisma.vehicle.findMany({
+          where: {
+            active: true,
+          },
+          orderBy: {
+            name: "asc",
+          },
+        }),
+        prisma.driver.findMany({
+          where: {
+            active: true,
+          },
+          orderBy: {
+            name: "asc",
+          },
+          include: {
+            vehicle: true,
+          },
+        }),
+      ]);
+
+    res.json({
+      bookings,
+      vehicles,
+      drivers,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+      summary: {
+        byStatus: Object.fromEntries(
+          statusTotals.map((item) => [
+            item.status,
+            item._count._all,
+          ]),
+        ),
+      },
+    });
+  } catch (error) {
+    console.error("Admin booking list error:", error);
+
+    res.status(500).json({
+      error: "Unable to load bookings.",
+    });
+  }
+});
+
+router.get("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      include: adminBookingInclude(),
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        error: "Booking not found.",
+      });
+    }
+
+    res.json({
+      booking,
+    });
+  } catch (error) {
+    console.error("Admin booking detail error:", error);
+
+    res.status(500).json({
+      error: "Unable to load booking.",
+    });
+  }
+});
+
+router.patch("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const current = await prisma.booking.findUnique({
+      where: {
+        id: req.params.id,
+      },
+    });
+
+    if (!current) {
+      return res.status(404).json({
+        error: "Booking not found.",
+      });
+    }
+
+    const statusValue = getString(req.body.status).toUpperCase();
+
+    if (
+      statusValue &&
+      !Object.values(BookingStatus).includes(statusValue as BookingStatus)
+    ) {
+      return res.status(400).json({
+        error: "Invalid booking status.",
+      });
+    }
+
+    const nextStatus = statusValue
+      ? (statusValue as BookingStatus)
+      : undefined;
+
+    const booking = await prisma.$transaction(async (transaction) => {
+      const updated = await transaction.booking.update({
+        where: {
+          id: req.params.id,
+        },
+        data: {
+          status: nextStatus,
+          vehicleId:
+            req.body.vehicleId !== undefined
+              ? getOptionalString(req.body.vehicleId)
+              : undefined,
+          driverId:
+            req.body.driverId !== undefined
+              ? getOptionalString(req.body.driverId)
+              : undefined,
+          collectionDate:
+            req.body.collectionDate !== undefined
+              ? new Date(req.body.collectionDate)
+              : undefined,
+          collectionWindow:
+            req.body.collectionWindow !== undefined
+              ? getString(req.body.collectionWindow)
+              : undefined,
+          collectionAddress:
+            req.body.collectionAddress !== undefined
+              ? getString(req.body.collectionAddress)
+              : undefined,
+          deliveryAddress:
+            req.body.deliveryAddress !== undefined
+              ? getString(req.body.deliveryAddress)
+              : undefined,
+          returnAddress:
+            req.body.returnAddress !== undefined
+              ? getOptionalString(req.body.returnAddress)
+              : undefined,
+          customerReference:
+            req.body.customerReference !== undefined
+              ? getOptionalString(req.body.customerReference)
+              : undefined,
+          purchaseOrderNumber:
+            req.body.purchaseOrderNumber !== undefined
+              ? getOptionalString(req.body.purchaseOrderNumber)
+              : undefined,
+          internalNotes:
+            req.body.internalNotes !== undefined
+              ? getOptionalString(req.body.internalNotes)
+              : undefined,
+          dispatchNotes:
+            req.body.dispatchNotes !== undefined
+              ? getOptionalString(req.body.dispatchNotes)
+              : undefined,
+          totalPrice:
+            req.body.totalPrice !== undefined
+              ? req.body.totalPrice
+              : undefined,
+          vehicleAssignedAt:
+            req.body.vehicleId !== undefined
+              ? new Date()
+              : undefined,
+          driverAssignedAt:
+            req.body.driverId !== undefined
+              ? new Date()
+              : undefined,
+          trackingEvents:
+            nextStatus && nextStatus !== current.status
+              ? {
+                  create: {
+                    status: nextStatus,
+                    title: `Booking ${String(nextStatus)
+                      .replace(/_/g, " ")
+                      .toLowerCase()}`,
+                    description:
+                      "Booking status updated by the administration team.",
+                  },
+                }
+              : undefined,
+        },
+        include: adminBookingInclude(),
+      });
+
+      if (
+        req.body.driverId !== undefined &&
+        getOptionalString(req.body.driverId)
+      ) {
+        await transaction.driver.update({
+          where: {
+            id: getString(req.body.driverId),
+          },
+          data: {
+            availability: "BUSY",
+          },
+        });
+      }
+
+      if (
+        req.body.vehicleId !== undefined &&
+        getOptionalString(req.body.vehicleId)
+      ) {
+        await transaction.vehicle.update({
+          where: {
+            id: getString(req.body.vehicleId),
+          },
+          data: {
+            status: "BOOKED",
+          },
+        });
+      }
+
+      return updated;
+    });
+
+    res.json({
+      success: true,
+      booking,
+    });
+  } catch (error) {
+    console.error("Admin booking update error:", error);
+
+    res.status(500).json({
+      error: "Unable to update booking.",
+    });
+  }
+});
+
+/* ---------------------------------
+   Existing Booking Routes
+---------------------------------- */
 
 router.get("/", async (_, res) => {
   try {
@@ -131,6 +589,7 @@ router.get("/", async (_, res) => {
         quote: true,
         user: true,
         vehicle: true,
+        driver: true,
         payments: true,
         invoices: true,
         pod: true,
@@ -283,6 +742,7 @@ router.get("/:id", async (req, res) => {
         quote: true,
         user: true,
         vehicle: true,
+        driver: true,
         payments: true,
         invoices: true,
         pod: true,
@@ -466,7 +926,8 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     const availableVehicle = vehicles.find(
       (vehicle) =>
-        vehicle.reservations.length === 0 && !blockedVehicleIds.has(vehicle.id),
+        vehicle.reservations.length === 0 &&
+        !blockedVehicleIds.has(vehicle.id),
     );
 
     if (!availableVehicle) {
@@ -482,26 +943,19 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       data: {
         reference: generateBookingReference(),
         status: BookingStatus.PENDING_PAYMENT,
-
         quoteId: quote.id,
         userId: quote.userId,
-
         vehicleId: availableVehicle.id,
-
         collectionDate: quote.collectionDate,
         collectionWindow: quote.collectionWindow,
-
         collectionAddress: quote.collectionAddress,
         deliveryAddress: quote.deliveryAddress,
         extraDrops:
           quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
-
         estimatedStartTime: reservedFrom,
         estimatedEndTime: reservedUntil,
         vehicleAvailableAt,
-
         totalPrice: quote.totalPrice,
-
         reservation: {
           create: {
             vehicleId: availableVehicle.id,
@@ -512,12 +966,12 @@ router.post("/from-quote/:quoteId", async (req, res) => {
             expiresAt,
           },
         },
-
         trackingEvents: {
           create: {
             status: BookingStatus.PENDING_PAYMENT,
             title: "Booking Created",
-            description: "Your booking has been created and is pending payment.",
+            description:
+              "Your booking has been created and is pending payment.",
           },
         },
       },
@@ -597,7 +1051,8 @@ router.post("/:id/confirm-payment", async (req, res) => {
           create: {
             status: BookingStatus.CONFIRMED,
             title: "Payment Confirmed",
-            description: "Your payment has been received and your booking is confirmed.",
+            description:
+              "Your payment has been received and your booking is confirmed.",
           },
         },
       },
@@ -658,7 +1113,9 @@ router.patch("/:id/status", async (req, res) => {
         trackingEvents: {
           create: {
             status,
-            title: `Booking ${String(status).replace(/_/g, " ").toLowerCase()}`,
+            title: `Booking ${String(status)
+              .replace(/_/g, " ")
+              .toLowerCase()}`,
             description: "Your booking status has been updated.",
           },
         },

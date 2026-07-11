@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { calculateQuotePrice } from "../lib/pricing";
 
@@ -7,6 +8,8 @@ const router = Router();
 
 const METERS_IN_MILE = 1609.344;
 const MAX_FULL_ADDRESS_DISTANCE_FROM_POSTCODE_MILES = 2;
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
 
 type Coordinates = [number, number];
 
@@ -57,6 +60,25 @@ type RouteStop = {
   type: "collection" | "delivery" | "extraDrop" | "return";
 };
 
+function getString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getOptionalString(value: unknown) {
+  const cleanValue = getString(value);
+  return cleanValue || null;
+}
+
+function getPositiveInteger(value: unknown, fallback: number) {
+  const parsedValue = Number.parseInt(String(value ?? ""), 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
 function getOpenRouteServiceApiKey() {
   return (
     process.env.ORS_API_KEY ||
@@ -78,6 +100,33 @@ function getAuthToken(req: { headers: { authorization?: string } }) {
 
 function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function requireAdmin(req: { headers: { [key: string]: unknown } }) {
+  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
+  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
+
+  if (!configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 503,
+      error: "Admin API key is not configured.",
+    };
+  }
+
+  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
+    return {
+      authorised: false,
+      status: 401,
+      error: "Admin access denied.",
+    };
+  }
+
+  return {
+    authorised: true,
+    status: 200,
+    error: "",
+  };
 }
 
 async function getAuthenticatedUser(req: {
@@ -425,6 +474,366 @@ async function calculateRouteDistance(stops: RouteStop[]) {
   };
 }
 
+function adminQuoteSelect() {
+  return {
+    id: true,
+    status: true,
+    deliveryType: true,
+    journeyType: true,
+    collectionDate: true,
+    collectionWindow: true,
+    vehicleSize: true,
+    collectionAddress: true,
+    deliveryAddress: true,
+    returnAddress: true,
+    extraDrops: true,
+    customerName: true,
+    customerEmail: true,
+    customerPhone: true,
+    companyName: true,
+    customerReference: true,
+    purchaseOrderNumber: true,
+    distanceMiles: true,
+    basePrice: true,
+    fuelSurcharge: true,
+    adminPrice: true,
+    discountAmount: true,
+    discountReason: true,
+    vatAmount: true,
+    totalPrice: true,
+    sentAt: true,
+    viewedAt: true,
+    acceptedAt: true,
+    cancelledAt: true,
+    convertedAt: true,
+    expiresAt: true,
+    specialInstructions: true,
+    handoverNotes: true,
+    createdAt: true,
+    updatedAt: true,
+    user: {
+      select: {
+        id: true,
+        accountNumber: true,
+        name: true,
+        companyName: true,
+        email: true,
+        phone: true,
+      },
+    },
+    booking: {
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+      },
+    },
+  } satisfies Prisma.QuoteSelect;
+}
+
+/* ---------------------------------
+   Admin Quote Management
+---------------------------------- */
+
+router.get("/admin/list", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(
+      getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
+    const search = getString(req.query.search);
+    const status = getString(req.query.status);
+    const dateFrom = getString(req.query.dateFrom);
+    const dateTo = getString(req.query.dateTo);
+
+    const where: Prisma.QuoteWhereInput = {};
+
+    if (search) {
+      where.OR = [
+        {
+          id: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerEmail: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerPhone: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          companyName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerReference: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          purchaseOrderNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
+
+    if (status && status !== "ALL") {
+      where.status = status;
+    }
+
+    if (dateFrom || dateTo) {
+      where.collectionDate = {};
+
+      if (dateFrom) {
+        where.collectionDate.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+
+      if (dateTo) {
+        where.collectionDate.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
+
+    const [quotes, total, statusTotals] = await Promise.all([
+      prisma.quote.findMany({
+        where,
+        select: adminQuoteSelect(),
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.quote.count({
+        where,
+      }),
+      prisma.quote.groupBy({
+        by: ["status"],
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
+
+    res.json({
+      quotes,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+      summary: {
+        byStatus: Object.fromEntries(
+          statusTotals.map((item) => [
+            item.status,
+            item._count._all,
+          ]),
+        ),
+      },
+    });
+  } catch (error) {
+    console.error("Admin quote list error:", error);
+
+    res.status(500).json({
+      error: "Unable to load quotes.",
+    });
+  }
+});
+
+router.get("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      select: adminQuoteSelect(),
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        error: "Quote not found.",
+      });
+    }
+
+    res.json({
+      quote,
+    });
+  } catch (error) {
+    console.error("Admin quote detail error:", error);
+
+    res.status(500).json({
+      error: "Unable to load quote.",
+    });
+  }
+});
+
+router.patch("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const status = getOptionalString(req.body.status);
+    const now = new Date();
+
+    const quote = await prisma.quote.update({
+      where: {
+        id: req.params.id,
+      },
+      data: {
+        status: status || undefined,
+        collectionDate:
+          req.body.collectionDate !== undefined
+            ? new Date(req.body.collectionDate)
+            : undefined,
+        collectionWindow:
+          req.body.collectionWindow !== undefined
+            ? getString(req.body.collectionWindow)
+            : undefined,
+        vehicleSize:
+          req.body.vehicleSize !== undefined
+            ? getString(req.body.vehicleSize)
+            : undefined,
+        collectionAddress:
+          req.body.collectionAddress !== undefined
+            ? getString(req.body.collectionAddress)
+            : undefined,
+        deliveryAddress:
+          req.body.deliveryAddress !== undefined
+            ? getString(req.body.deliveryAddress)
+            : undefined,
+        returnAddress:
+          req.body.returnAddress !== undefined
+            ? getOptionalString(req.body.returnAddress)
+            : undefined,
+        customerReference:
+          req.body.customerReference !== undefined
+            ? getOptionalString(req.body.customerReference)
+            : undefined,
+        purchaseOrderNumber:
+          req.body.purchaseOrderNumber !== undefined
+            ? getOptionalString(req.body.purchaseOrderNumber)
+            : undefined,
+        specialInstructions:
+          req.body.specialInstructions !== undefined
+            ? getOptionalString(req.body.specialInstructions)
+            : undefined,
+        handoverNotes:
+          req.body.handoverNotes !== undefined
+            ? getOptionalString(req.body.handoverNotes)
+            : undefined,
+        distanceMiles:
+          req.body.distanceMiles !== undefined
+            ? req.body.distanceMiles
+            : undefined,
+        basePrice:
+          req.body.basePrice !== undefined
+            ? req.body.basePrice
+            : undefined,
+        fuelSurcharge:
+          req.body.fuelSurcharge !== undefined
+            ? req.body.fuelSurcharge
+            : undefined,
+        adminPrice:
+          req.body.adminPrice !== undefined
+            ? req.body.adminPrice
+            : undefined,
+        discountAmount:
+          req.body.discountAmount !== undefined
+            ? req.body.discountAmount
+            : undefined,
+        discountReason:
+          req.body.discountReason !== undefined
+            ? getOptionalString(req.body.discountReason)
+            : undefined,
+        vatAmount:
+          req.body.vatAmount !== undefined
+            ? req.body.vatAmount
+            : undefined,
+        totalPrice:
+          req.body.totalPrice !== undefined
+            ? req.body.totalPrice
+            : undefined,
+        sentAt:
+          status === "Sent"
+            ? now
+            : undefined,
+        viewedAt:
+          status === "Viewed"
+            ? now
+            : undefined,
+        acceptedAt:
+          status === "Accepted"
+            ? now
+            : undefined,
+        cancelledAt:
+          status === "Cancelled"
+            ? now
+            : undefined,
+        convertedAt:
+          status === "Converted to Booking"
+            ? now
+            : undefined,
+      },
+      select: adminQuoteSelect(),
+    });
+
+    res.json({
+      success: true,
+      quote,
+    });
+  } catch (error) {
+    console.error("Admin quote update error:", error);
+
+    res.status(500).json({
+      error: "Unable to update quote.",
+    });
+  }
+});
+
+/* ---------------------------------
+   Existing Public Quote Routes
+---------------------------------- */
+
 router.get("/", async (_, res) => {
   try {
     const quotes = await prisma.quote.findMany({
@@ -495,21 +904,6 @@ router.post("/", async (req, res) => {
         req.body.returnAddress,
       );
 
-      /*
-       * Route order is intentional and must match the quote form:
-       *
-       * One Way:
-       * Collection -> Delivery
-       *
-       * Return:
-       * Collection -> Delivery -> Collection
-       *
-       * Multi Drop:
-       * Collection -> Delivery Address (Stop 1) -> Stop 2 -> Stop 3 -> ...
-       *
-       * Extra stops are already sorted by their order value in
-       * normaliseExtraDrops(), so they must not be re-optimised here.
-       */
       const finalRouteStops = routeStops;
 
       optimisedRouteAddresses = finalRouteStops.map((stop) => stop.address);
@@ -559,26 +953,20 @@ router.post("/", async (req, res) => {
       data: {
         status: "priced",
         userId: user?.id || null,
-
         deliveryType: req.body.deliveryType,
         journeyType: req.body.journeyType || null,
         capacityPercent: req.body.capacityPercent
           ? Number(req.body.capacityPercent)
           : null,
-
         collectionDate: req.body.collectionDate,
         collectionWindow: req.body.collectionWindow,
         vehicleSize: req.body.vehicleSize,
-
         collectionAddress: req.body.collectionAddress,
         collectionAddressDetails: req.body.collectionAddressDetails || null,
-
         deliveryAddress: req.body.deliveryAddress,
         deliveryAddressDetails: req.body.deliveryAddressDetails || null,
-
         returnAddress: req.body.returnAddress || null,
         extraDrops: req.body.extraDrops || null,
-
         whatAreWeCollecting: req.body.whatAreWeCollecting || null,
         loadDescription: req.body.loadDescription || null,
         specialInstructions: req.body.specialInstructions || null,
@@ -589,15 +977,14 @@ router.post("/", async (req, res) => {
         fragileGoods: Boolean(req.body.fragileGoods),
         contactPreference: req.body.contactPreference || null,
         accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
-
         customerName: req.body.customerName,
         customerEmail: req.body.customerEmail,
         customerPhone: req.body.customerPhone,
-
         companyName: req.body.companyName || req.body.legalEntity || null,
         legalEntity: req.body.legalEntity || req.body.companyName || null,
         tradingName: req.body.tradingName || null,
-
+        customerReference: req.body.customerReference || null,
+        purchaseOrderNumber: req.body.purchaseOrderNumber || null,
         distanceMiles: price.distanceMiles,
         basePrice: price.basePrice,
         fuelSurcharge: price.fuelSurcharge,
