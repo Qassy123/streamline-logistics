@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
@@ -59,6 +60,7 @@ type FormState = {
   internalNote: string;
   username: string;
   password: string;
+  confirmPassword: string;
 };
 
 const initialState: FormState = {
@@ -98,6 +100,7 @@ const initialState: FormState = {
   internalNote: "",
   username: "",
   password: "",
+  confirmPassword: "",
 };
 
 export default function NewCustomerPage() {
@@ -161,13 +164,70 @@ export default function NewCustomerPage() {
       return;
     }
 
-    if (!form.email.trim() || !form.phone.trim()) {
+    const email = form.email.trim().toLowerCase();
+    const accountsEmail = form.accountsEmail.trim().toLowerCase();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!email || !form.phone.trim()) {
       setError("General email address and contact number are required.");
+      return;
+    }
+
+    if (!emailPattern.test(email)) {
+      setError("Enter a valid general email address.");
       return;
     }
 
     if (!isPrivate && !form.companyName.trim()) {
       setError("Business name is required for business and trade accounts.");
+      return;
+    }
+
+    if (!isPrivate && !form.mainContactName.trim()) {
+      setError("Main person to contact is required for business and trade accounts.");
+      return;
+    }
+
+    if (!isPrivate && !accountsEmail) {
+      setError("Accounts email address is required for business and trade accounts.");
+      return;
+    }
+
+    if (accountsEmail && !emailPattern.test(accountsEmail)) {
+      setError("Enter a valid accounts email address.");
+      return;
+    }
+
+    if (
+      !form.registeredAddressLine1.trim() ||
+      !form.registeredTownCity.trim() ||
+      !form.registeredPostcode.trim() ||
+      !form.registeredCountry.trim()
+    ) {
+      setError("Complete the primary or registered office address.");
+      return;
+    }
+
+    if (
+      form.tradingAddressDifferent &&
+      (
+        !form.tradingAddressLine1.trim() ||
+        !form.tradingTownCity.trim() ||
+        !form.tradingPostcode.trim() ||
+        !form.tradingCountry.trim()
+      )
+    ) {
+      setError("Complete the separate trading address.");
+      return;
+    }
+
+    if (form.password && form.password.length < 10) {
+      setError("Temporary password must contain at least 10 characters.");
+      return;
+    }
+
+    if (form.password !== form.confirmPassword) {
+      setError("Temporary password and confirmation do not match.");
       return;
     }
 
@@ -183,11 +243,76 @@ export default function NewCustomerPage() {
           "x-admin-key": adminKey,
         },
         body: JSON.stringify({
-          ...form,
+          accountType: form.accountType,
           name: resolvedCustomerName,
-          legalEntity:
-            form.legalEntity.trim() ||
-            (!isPrivate ? form.companyName.trim() : ""),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          companyName: isPrivate ? null : form.companyName.trim(),
+          legalEntity: isPrivate
+            ? null
+            : form.legalEntity.trim() || form.companyName.trim(),
+          tradingName: isPrivate ? null : form.tradingName.trim(),
+          email: form.email.trim().toLowerCase(),
+          accountsEmail: isPrivate
+            ? null
+            : form.accountsEmail.trim().toLowerCase(),
+          phone: form.phone.trim(),
+          alternativeContactNumber:
+            form.alternativeContactNumber.trim() || null,
+          mainContactName:
+            form.mainContactName.trim() || resolvedCustomerName,
+          jobTitle: form.jobTitle.trim() || null,
+          companyRegistrationNumber: isPrivate
+            ? null
+            : form.companyRegistrationNumber.trim() || null,
+          vatNumber: isPrivate ? null : form.vatNumber.trim() || null,
+          businessType: isPrivate ? null : form.businessType.trim() || null,
+          industry: isPrivate ? null : form.industry.trim() || null,
+          companyWebsite: isPrivate
+            ? null
+            : form.companyWebsite.trim() || null,
+          registeredAddressLine1: form.registeredAddressLine1.trim(),
+          registeredAddressLine2:
+            form.registeredAddressLine2.trim() || null,
+          registeredTownCity: form.registeredTownCity.trim(),
+          registeredCounty: form.registeredCounty.trim() || null,
+          registeredPostcode: form.registeredPostcode.trim().toUpperCase(),
+          registeredCountry: form.registeredCountry.trim(),
+          tradingAddressDifferent:
+            !isPrivate && form.tradingAddressDifferent,
+          tradingAddressLine1:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingAddressLine1.trim()
+              : null,
+          tradingAddressLine2:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingAddressLine2.trim() || null
+              : null,
+          tradingTownCity:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingTownCity.trim()
+              : null,
+          tradingCounty:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingCounty.trim() || null
+              : null,
+          tradingPostcode:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingPostcode.trim().toUpperCase()
+              : null,
+          tradingCountry:
+            !isPrivate && form.tradingAddressDifferent
+              ? form.tradingCountry.trim()
+              : null,
+          estimatedShipmentsPerMonth: isPrivate
+            ? null
+            : form.estimatedShipmentsPerMonth.trim() || null,
+          typicalShipmentType: isPrivate
+            ? null
+            : form.typicalShipmentType.trim() || null,
+          internalNote: form.internalNote.trim() || null,
+          username: form.username.trim().toLowerCase() || null,
+          password: form.password || undefined,
         }),
       });
 
@@ -428,7 +553,14 @@ export default function NewCustomerPage() {
               type="password"
               value={form.password}
               onChange={(value) => updateField("password", value)}
-              hint="Optional. Leave blank if portal access is not required yet."
+              hint="Optional. Minimum 10 characters when supplied."
+            />
+            <Field
+              label="Confirm temporary password"
+              type="password"
+              value={form.confirmPassword}
+              onChange={(value) => updateField("confirmPassword", value)}
+              hint="Must match the temporary password."
             />
           </div>
         </Section>
@@ -754,4 +886,3 @@ function Field({
     </label>
   );
 } 
-

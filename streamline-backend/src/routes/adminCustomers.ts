@@ -18,6 +18,19 @@ function getOptionalString(value: unknown) {
   return cleanValue || null;
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function requireAddressFields(
+  addressLine1: string,
+  townCity: string,
+  postcode: string,
+  country: string,
+) {
+  return Boolean(addressLine1 && townCity && postcode && country);
+}
+
 function getBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
@@ -375,10 +388,39 @@ router.post("/", async (req, res) => {
     const phone =
       getOptionalString(req.body.phone) ||
       getOptionalString(req.body.contactNumber);
+    const mainContactName =
+      getOptionalString(req.body.mainContactName) || name;
+
+    const registeredAddressLine1 = getString(
+      req.body.registeredAddressLine1,
+    );
+    const registeredTownCity = getString(req.body.registeredTownCity);
+    const registeredPostcode = getString(
+      req.body.registeredPostcode,
+    ).toUpperCase();
+    const registeredCountry =
+      getString(req.body.registeredCountry) || "United Kingdom";
+
+    const tradingAddressDifferent =
+      accountTypeValue !== AccountType.PRIVATE &&
+      getBoolean(req.body.tradingAddressDifferent);
+    const tradingAddressLine1 = getString(req.body.tradingAddressLine1);
+    const tradingTownCity = getString(req.body.tradingTownCity);
+    const tradingPostcode = getString(
+      req.body.tradingPostcode,
+    ).toUpperCase();
+    const tradingCountry =
+      getString(req.body.tradingCountry) || "United Kingdom";
 
     if (!name || !email || !phone) {
       return res.status(400).json({
         error: "Customer name, email address and contact number are required.",
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        error: "Enter a valid general email address.",
       });
     }
 
@@ -388,6 +430,59 @@ router.post("/", async (req, res) => {
     ) {
       return res.status(400).json({
         error: "Business name is required for business and trade accounts.",
+      });
+    }
+
+    if (
+      accountTypeValue !== AccountType.PRIVATE &&
+      !mainContactName
+    ) {
+      return res.status(400).json({
+        error: "Main person to contact is required for business and trade accounts.",
+      });
+    }
+
+    if (
+      accountTypeValue !== AccountType.PRIVATE &&
+      !accountsEmail
+    ) {
+      return res.status(400).json({
+        error: "Accounts email address is required for business and trade accounts.",
+      });
+    }
+
+    if (accountsEmail && !isValidEmail(accountsEmail)) {
+      return res.status(400).json({
+        error: "Enter a valid accounts email address.",
+      });
+    }
+
+    if (
+      !requireAddressFields(
+        registeredAddressLine1,
+        registeredTownCity,
+        registeredPostcode,
+        registeredCountry,
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          "Address line 1, town or city, postcode and country are required.",
+      });
+    }
+
+    if (
+      tradingAddressDifferent &&
+      !requireAddressFields(
+        tradingAddressLine1,
+        tradingTownCity,
+        tradingPostcode,
+        tradingCountry,
+      )
+    ) {
+      return res.status(400).json({
+        error:
+          "Complete the separate trading address before saving the account.",
       });
     }
 
@@ -426,6 +521,13 @@ router.post("/", async (req, res) => {
     }
 
     const password = getString(req.body.password);
+
+    if (password && password.length < 10) {
+      return res.status(400).json({
+        error: "Temporary password must contain at least 10 characters.",
+      });
+    }
+
     const passwordHash = password
       ? await bcrypt.hash(password, 12)
       : null;
@@ -462,35 +564,30 @@ router.post("/", async (req, res) => {
         alternativeContactNumber: getOptionalString(
           req.body.alternativeContactNumber,
         ),
-        mainContactName:
-          getOptionalString(req.body.mainContactName) ||
-          name,
+        mainContactName,
 
-        registeredAddressLine1: getOptionalString(
-          req.body.registeredAddressLine1,
-        ),
+        registeredAddressLine1,
         registeredAddressLine2: getOptionalString(
           req.body.registeredAddressLine2,
         ),
-        registeredTownCity: getOptionalString(req.body.registeredTownCity),
+        registeredTownCity,
         registeredCounty: getOptionalString(req.body.registeredCounty),
-        registeredPostcode: getOptionalString(req.body.registeredPostcode),
-        registeredCountry:
-          getOptionalString(req.body.registeredCountry) || "United Kingdom",
+        registeredPostcode,
+        registeredCountry,
 
-        tradingAddressDifferent: getBoolean(
-          req.body.tradingAddressDifferent,
-        ),
-        tradingAddressLine1: getOptionalString(
-          req.body.tradingAddressLine1,
-        ),
+        tradingAddressDifferent,
+        tradingAddressLine1:
+          tradingAddressDifferent ? tradingAddressLine1 : null,
         tradingAddressLine2: getOptionalString(
           req.body.tradingAddressLine2,
         ),
-        tradingTownCity: getOptionalString(req.body.tradingTownCity),
+        tradingTownCity:
+          tradingAddressDifferent ? tradingTownCity : null,
         tradingCounty: getOptionalString(req.body.tradingCounty),
-        tradingPostcode: getOptionalString(req.body.tradingPostcode),
-        tradingCountry: getOptionalString(req.body.tradingCountry),
+        tradingPostcode:
+          tradingAddressDifferent ? tradingPostcode : null,
+        tradingCountry:
+          tradingAddressDifferent ? tradingCountry : null,
 
         estimatedShipmentsPerMonth: getOptionalString(
           req.body.estimatedShipmentsPerMonth,
@@ -519,47 +616,32 @@ router.post("/", async (req, res) => {
                     req.body.companyRegistrationNumber,
                   ),
                   vatNumber: getOptionalString(req.body.vatNumber),
-                  registeredAddressLine1: getOptionalString(
-                    req.body.registeredAddressLine1,
-                  ),
+                  registeredAddressLine1,
                   registeredAddressLine2: getOptionalString(
                     req.body.registeredAddressLine2,
                   ),
-                  registeredTownCity: getOptionalString(
-                    req.body.registeredTownCity,
-                  ),
+                  registeredTownCity,
                   registeredCounty: getOptionalString(
                     req.body.registeredCounty,
                   ),
-                  registeredPostcode: getOptionalString(
-                    req.body.registeredPostcode,
-                  ),
-                  registeredCountry:
-                    getOptionalString(req.body.registeredCountry) ||
-                    "United Kingdom",
-                  tradingAddressDifferent: getBoolean(
-                    req.body.tradingAddressDifferent,
-                  ),
-                  tradingAddressLine1: getOptionalString(
-                    req.body.tradingAddressLine1,
-                  ),
+                  registeredPostcode,
+                  registeredCountry,
+                  tradingAddressDifferent,
+                  tradingAddressLine1:
+                    tradingAddressDifferent ? tradingAddressLine1 : null,
                   tradingAddressLine2: getOptionalString(
                     req.body.tradingAddressLine2,
                   ),
-                  tradingTownCity: getOptionalString(
-                    req.body.tradingTownCity,
-                  ),
+                  tradingTownCity:
+                    tradingAddressDifferent ? tradingTownCity : null,
                   tradingCounty: getOptionalString(
                     req.body.tradingCounty,
                   ),
-                  tradingPostcode: getOptionalString(
-                    req.body.tradingPostcode,
-                  ),
-                  tradingCountry: getOptionalString(
-                    req.body.tradingCountry,
-                  ),
-                  accountsContactName:
-                    getOptionalString(req.body.mainContactName) || name,
+                  tradingPostcode:
+                    tradingAddressDifferent ? tradingPostcode : null,
+                  tradingCountry:
+                    tradingAddressDifferent ? tradingCountry : null,
+                  accountsContactName: mainContactName,
                   accountsEmail,
                   accountsPhone: phone,
                   primaryFirstName: firstName || null,
@@ -665,6 +747,7 @@ router.get("/:id", async (req, res) => {
     }
 
     res.json({
+      success: true,
       customer,
     });
   } catch (error) {
@@ -713,6 +796,56 @@ router.patch("/:id", async (req, res) => {
     if (accountStatusValue && !isAccountStatus(accountStatusValue)) {
       return res.status(400).json({
         error: "Invalid account status.",
+      });
+    }
+
+    const nextAccountType =
+      accountTypeValue
+        ? (accountTypeValue as AccountType)
+        : existingCustomer.accountType;
+
+    const nextCompanyName =
+      req.body.companyName !== undefined
+        ? getOptionalString(req.body.companyName)
+        : existingCustomer.companyName;
+    const nextName =
+      req.body.name !== undefined
+        ? getString(req.body.name)
+        : existingCustomer.name;
+    const nextAccountsEmail =
+      req.body.accountsEmail !== undefined
+        ? getOptionalString(req.body.accountsEmail)?.toLowerCase() || null
+        : existingCustomer.accountsEmail;
+    const nextPhone =
+      req.body.phone !== undefined
+        ? getOptionalString(req.body.phone)
+        : existingCustomer.phone;
+    const nextMainContactName =
+      req.body.mainContactName !== undefined
+        ? getOptionalString(req.body.mainContactName)
+        : existingCustomer.mainContactName;
+
+    if (
+      nextAccountType !== AccountType.PRIVATE &&
+      !nextCompanyName
+    ) {
+      return res.status(400).json({
+        error: "Business name is required for business and trade accounts.",
+      });
+    }
+
+    if (
+      nextAccountType !== AccountType.PRIVATE &&
+      !nextAccountsEmail
+    ) {
+      return res.status(400).json({
+        error: "Accounts email address is required for business and trade accounts.",
+      });
+    }
+
+    if (nextAccountsEmail && !isValidEmail(nextAccountsEmail)) {
+      return res.status(400).json({
+        error: "Enter a valid accounts email address.",
       });
     }
 
@@ -862,6 +995,125 @@ router.patch("/:id", async (req, res) => {
         internalNote:
           req.body.internalNote !== undefined
             ? getOptionalString(req.body.internalNote)
+            : undefined,
+        tradeAccount:
+          nextAccountType === AccountType.TRADE
+            ? {
+                upsert: {
+                  create: {
+                    companyName: nextCompanyName || nextName,
+                    tradingName:
+                      req.body.tradingName !== undefined
+                        ? getOptionalString(req.body.tradingName)
+                        : existingCustomer.tradingName,
+                    companyRegistrationNumber:
+                      req.body.companyRegistrationNumber !== undefined
+                        ? getOptionalString(
+                            req.body.companyRegistrationNumber,
+                          )
+                        : existingCustomer.companyRegistrationNumber,
+                    vatNumber:
+                      req.body.vatNumber !== undefined
+                        ? getOptionalString(req.body.vatNumber)
+                        : existingCustomer.vatNumber,
+                    registeredAddressLine1:
+                      req.body.registeredAddressLine1 !== undefined
+                        ? getOptionalString(req.body.registeredAddressLine1)
+                        : existingCustomer.registeredAddressLine1,
+                    registeredAddressLine2:
+                      req.body.registeredAddressLine2 !== undefined
+                        ? getOptionalString(req.body.registeredAddressLine2)
+                        : existingCustomer.registeredAddressLine2,
+                    registeredTownCity:
+                      req.body.registeredTownCity !== undefined
+                        ? getOptionalString(req.body.registeredTownCity)
+                        : existingCustomer.registeredTownCity,
+                    registeredCounty:
+                      req.body.registeredCounty !== undefined
+                        ? getOptionalString(req.body.registeredCounty)
+                        : existingCustomer.registeredCounty,
+                    registeredPostcode:
+                      req.body.registeredPostcode !== undefined
+                        ? getOptionalString(req.body.registeredPostcode)
+                        : existingCustomer.registeredPostcode,
+                    registeredCountry:
+                      req.body.registeredCountry !== undefined
+                        ? getOptionalString(req.body.registeredCountry)
+                        : existingCustomer.registeredCountry,
+                    tradingAddressDifferent:
+                      req.body.tradingAddressDifferent !== undefined
+                        ? getBoolean(req.body.tradingAddressDifferent)
+                        : existingCustomer.tradingAddressDifferent,
+                    tradingAddressLine1:
+                      req.body.tradingAddressLine1 !== undefined
+                        ? getOptionalString(req.body.tradingAddressLine1)
+                        : existingCustomer.tradingAddressLine1,
+                    tradingAddressLine2:
+                      req.body.tradingAddressLine2 !== undefined
+                        ? getOptionalString(req.body.tradingAddressLine2)
+                        : existingCustomer.tradingAddressLine2,
+                    tradingTownCity:
+                      req.body.tradingTownCity !== undefined
+                        ? getOptionalString(req.body.tradingTownCity)
+                        : existingCustomer.tradingTownCity,
+                    tradingCounty:
+                      req.body.tradingCounty !== undefined
+                        ? getOptionalString(req.body.tradingCounty)
+                        : existingCustomer.tradingCounty,
+                    tradingPostcode:
+                      req.body.tradingPostcode !== undefined
+                        ? getOptionalString(req.body.tradingPostcode)
+                        : existingCustomer.tradingPostcode,
+                    tradingCountry:
+                      req.body.tradingCountry !== undefined
+                        ? getOptionalString(req.body.tradingCountry)
+                        : existingCustomer.tradingCountry,
+                    accountsContactName:
+                      nextMainContactName || nextName,
+                    accountsEmail: nextAccountsEmail,
+                    accountsPhone: nextPhone,
+                    primaryFirstName:
+                      req.body.firstName !== undefined
+                        ? getOptionalString(req.body.firstName)
+                        : existingCustomer.firstName,
+                    primaryLastName:
+                      req.body.lastName !== undefined
+                        ? getOptionalString(req.body.lastName)
+                        : existingCustomer.lastName,
+                    primaryEmail:
+                      req.body.email !== undefined
+                        ? getString(req.body.email).toLowerCase()
+                        : existingCustomer.email,
+                    primaryMobile: nextPhone,
+                  },
+                  update: {
+                    companyName: nextCompanyName || nextName,
+                    tradingName:
+                      req.body.tradingName !== undefined
+                        ? getOptionalString(req.body.tradingName)
+                        : undefined,
+                    companyRegistrationNumber:
+                      req.body.companyRegistrationNumber !== undefined
+                        ? getOptionalString(
+                            req.body.companyRegistrationNumber,
+                          )
+                        : undefined,
+                    vatNumber:
+                      req.body.vatNumber !== undefined
+                        ? getOptionalString(req.body.vatNumber)
+                        : undefined,
+                    accountsContactName:
+                      nextMainContactName || nextName,
+                    accountsEmail: nextAccountsEmail,
+                    accountsPhone: nextPhone,
+                    primaryEmail:
+                      req.body.email !== undefined
+                        ? getString(req.body.email).toLowerCase()
+                        : undefined,
+                    primaryMobile: nextPhone,
+                  },
+                },
+              }
             : undefined,
       },
       select: customerSelect(),
