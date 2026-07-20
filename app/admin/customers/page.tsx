@@ -1,16 +1,24 @@
-"use client"; 
+"use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Building2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
+  FileText,
   Filter,
   Loader2,
+  MapPin,
+  MessageSquareText,
+  Pencil,
+  ReceiptText,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -19,7 +27,8 @@ import {
 } from "lucide-react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
@@ -50,6 +59,48 @@ type TradeAccountSummary = {
   reactivatedAt?: string | null;
 };
 
+type QuoteSummary = {
+  id: string;
+  status: string;
+  collectionAddress: string;
+  deliveryAddress: string;
+  totalPrice?: string | number | null;
+  createdAt: string;
+};
+
+type BookingSummary = {
+  id: string;
+  reference: string;
+  status: string;
+  collectionAddress: string;
+  deliveryAddress: string;
+  collectionDate: string;
+  totalPrice: string | number;
+};
+
+type InvoiceSummary = {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  total: string | number;
+  dueDate?: string | null;
+  createdAt: string;
+};
+
+type SavedRouteSummary = {
+  id: string;
+  name?: string | null;
+  collectionAddress: string;
+  deliveryAddress: string;
+  createdAt: string;
+};
+
+type NoteSummary = {
+  id: string;
+  body: string;
+  createdAt: string;
+};
+
 type Customer = {
   id: string;
   accountNumber?: string | null;
@@ -72,6 +123,11 @@ type Customer = {
   adminCreated: boolean;
   tradeAccount?: TradeAccountSummary | null;
   _count: CustomerCounts;
+  quotes?: QuoteSummary[];
+  bookings?: BookingSummary[];
+  invoices?: InvoiceSummary[];
+  savedRoutes?: SavedRouteSummary[];
+  notes?: NoteSummary[];
 };
 
 type Pagination = {
@@ -93,7 +149,14 @@ type CustomersResponse = {
   error?: string;
 };
 
-function formatDate(value: string) {
+type CustomerDetailResponse = {
+  customer?: Customer;
+  error?: string;
+};
+
+function formatDate(value?: string | null) {
+  if (!value) return "Not recorded";
+
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -105,6 +168,15 @@ function formatDate(value: string) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function money(value: string | number | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 function getDisplayName(customer: Customer) {
@@ -142,6 +214,24 @@ function accountStatusClasses(accountStatus: AccountStatus) {
   }
 }
 
+function recordStatusClasses(status: string) {
+  const normalized = status.toUpperCase();
+
+  if (["PAID", "COMPLETED", "ACCEPTED", "CONFIRMED"].includes(normalized)) {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+
+  if (["OVERDUE", "CANCELLED", "REJECTED", "FAILED"].includes(normalized)) {
+    return "bg-red-50 text-red-700 ring-red-200";
+  }
+
+  if (["ISSUED", "PENDING", "PENDING_PAYMENT", "SENT", "VIEWED"].includes(normalized)) {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+
+  return "bg-slate-100 text-slate-600 ring-slate-200";
+}
+
 export default function CustomersPage() {
   const [adminKey, setAdminKey] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -160,10 +250,14 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [customerDetails, setCustomerDetails] = useState<Record<string, Customer>>({});
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
 
     setAdminKey(storedAdminKey);
   }, []);
@@ -239,6 +333,7 @@ export default function CustomersPage() {
           },
         );
         setSummary(payload.summary || {});
+        setExpandedCustomerId(null);
       } catch (requestError) {
         setCustomers([]);
         setError(
@@ -280,6 +375,55 @@ export default function CustomersPage() {
     setPage(1);
   }
 
+  async function toggleCustomerActivity(customerId: string) {
+    if (expandedCustomerId === customerId) {
+      setExpandedCustomerId(null);
+      return;
+    }
+
+    setExpandedCustomerId(customerId);
+
+    if (customerDetails[customerId] || !adminKey) return;
+
+    setDetailLoadingId(customerId);
+    setDetailErrors((current) => ({ ...current, [customerId]: "" }));
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/customers/${customerId}`, {
+        headers: {
+          "x-admin-key": adminKey,
+        },
+        cache: "no-store",
+      });
+
+      const payload = (await response.json()) as CustomerDetailResponse;
+
+      if (!response.ok || !payload.customer) {
+        if (response.status === 401) {
+          window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+          setAdminKey("");
+        }
+
+        throw new Error(payload.error || "Unable to load customer activity.");
+      }
+
+      setCustomerDetails((current) => ({
+        ...current,
+        [customerId]: payload.customer as Customer,
+      }));
+    } catch (requestError) {
+      setDetailErrors((current) => ({
+        ...current,
+        [customerId]:
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to load customer activity.",
+      }));
+    } finally {
+      setDetailLoadingId(null);
+    }
+  }
+
   const privateCount = summary.byAccountType?.PRIVATE || 0;
   const businessCount = summary.byAccountType?.BUSINESS || 0;
   const tradeCount = summary.byAccountType?.TRADE || 0;
@@ -316,10 +460,7 @@ export default function CustomersPage() {
             disabled={refreshing || loading || !adminKey}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <RefreshCw
-              size={17}
-              className={refreshing ? "animate-spin" : ""}
-            />
+            <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
             Refresh
           </button>
 
@@ -334,26 +475,10 @@ export default function CustomersPage() {
       </div>
 
       <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard
-          label="All customers"
-          value={pagination.total}
-          icon={Users}
-        />
-        <SummaryCard
-          label="Active accounts"
-          value={activeCount}
-          icon={ShieldCheck}
-        />
-        <SummaryCard
-          label="Business accounts"
-          value={businessCount}
-          icon={Building2}
-        />
-        <SummaryCard
-          label="Private / Trade"
-          value={`${privateCount} / ${tradeCount}`}
-          icon={Users}
-        />
+        <SummaryCard label="All customers" value={pagination.total} icon={Users} />
+        <SummaryCard label="Active accounts" value={activeCount} icon={ShieldCheck} />
+        <SummaryCard label="Business accounts" value={businessCount} icon={Building2} />
+        <SummaryCard label="Private / Trade" value={`${privateCount} / ${tradeCount}`} icon={Users} />
       </section>
 
       {!adminKey ? (
@@ -363,9 +488,7 @@ export default function CustomersPage() {
               <CircleAlert size={22} />
             </span>
             <div>
-              <h2 className="text-lg font-bold text-amber-950">
-                Admin key required
-              </h2>
+              <h2 className="text-lg font-bold text-amber-950">Admin key required</h2>
               <p className="mt-2 text-sm leading-6 text-amber-900">
                 Open Driver Management, unlock the admin area with the existing
                 admin key, then return to this page.
@@ -457,15 +580,11 @@ export default function CustomersPage() {
       <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">
-              Customer accounts
-            </h2>
+            <h2 className="text-lg font-bold text-slate-950">Customer accounts</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {pagination.total} matching account
-              {pagination.total === 1 ? "" : "s"}
+              {pagination.total} matching account{pagination.total === 1 ? "" : "s"}
             </p>
           </div>
-
           <p className="text-sm text-slate-500">
             Page {pagination.page} of {pagination.totalPages}
           </p>
@@ -490,8 +609,7 @@ export default function CustomersPage() {
                 No customer accounts found
               </h3>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                Change the filters or create the first office-managed customer
-                account.
+                Change the filters or create the first office-managed customer account.
               </p>
               <Link
                 href="/admin/customers/new"
@@ -508,178 +626,209 @@ export default function CustomersPage() {
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
-                    {[
-                      "Customer",
-                      "Account",
-                      "Contact",
-                      "Status",
-                      "Activity",
-                      "Created",
-                      "",
-                    ].map((heading) => (
-                      <th
-                        key={heading}
-                        className="px-6 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
-                      >
-                        {heading}
-                      </th>
-                    ))}
+                    {["Customer", "Account", "Contact", "Status", "Activity", "Created", ""].map(
+                      (heading, index) => (
+                        <th
+                          key={`${heading}-${index}`}
+                          className="px-6 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
+                        >
+                          {heading}
+                        </th>
+                      ),
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {customers.map((customer) => (
-                    <tr
-                      key={customer.id}
-                      className="transition hover:bg-slate-50"
-                    >
-                      <td className="px-6 py-5 align-top">
-                        <p className="font-bold text-slate-950">
-                          {getDisplayName(customer)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Contact: {getContactName(customer)}
-                        </p>
-                        {customer.registeredPostcode ? (
-                          <p className="mt-1 text-xs text-slate-400">
-                            {customer.registeredTownCity
-                              ? `${customer.registeredTownCity}, `
-                              : ""}
-                            {customer.registeredPostcode}
-                          </p>
-                        ) : null}
-                      </td>
+                  {customers.map((customer) => {
+                    const expanded = expandedCustomerId === customer.id;
+                    const detail = customerDetails[customer.id];
 
-                      <td className="px-6 py-5 align-top">
-                        <div className="flex flex-wrap gap-2">
-                          <Badge
-                            className={accountTypeClasses(
-                              customer.accountType,
-                            )}
-                          >
-                            {customer.accountType}
-                          </Badge>
-                          {customer.adminCreated ? (
-                            <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
-                              OFFICE CREATED
+                    return (
+                      <Fragment key={customer.id}>
+                        <tr className="transition hover:bg-slate-50">
+                          <td className="px-6 py-5 align-top">
+                            <p className="font-bold text-slate-950">{getDisplayName(customer)}</p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              Contact: {getContactName(customer)}
+                            </p>
+                            {customer.registeredPostcode ? (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {customer.registeredTownCity
+                                  ? `${customer.registeredTownCity}, `
+                                  : ""}
+                                {customer.registeredPostcode}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-6 py-5 align-top">
+                            <div className="flex flex-wrap gap-2">
+                              <Badge className={accountTypeClasses(customer.accountType)}>
+                                {customer.accountType}
+                              </Badge>
+                              {customer.adminCreated ? (
+                                <Badge className="bg-slate-100 text-slate-600 ring-slate-200">
+                                  OFFICE CREATED
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-xs font-semibold text-slate-500">
+                              {customer.accountNumber || "No account number"}
+                            </p>
+                            {customer.vatNumber ? (
+                              <p className="mt-1 text-xs text-slate-400">VAT: {customer.vatNumber}</p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-6 py-5 align-top">
+                            <p className="text-sm font-semibold text-slate-800">{customer.email}</p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {customer.phone || "No phone"}
+                            </p>
+                            {customer.accountsEmail ? (
+                              <p className="mt-1 text-xs text-slate-400">
+                                Accounts: {customer.accountsEmail}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-6 py-5 align-top">
+                            <Badge className={accountStatusClasses(customer.accountStatus)}>
+                              {customer.accountStatus}
                             </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-2 text-xs font-semibold text-slate-500">
-                          {customer.accountNumber || "No account number"}
-                        </p>
-                      </td>
+                            {customer.tradeAccount ? (
+                              <p className="mt-2 text-xs font-semibold text-violet-600">
+                                Trade: {customer.tradeAccount.status}
+                              </p>
+                            ) : null}
+                          </td>
 
-                      <td className="px-6 py-5 align-top">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {customer.email}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {customer.phone || "No phone"}
-                        </p>
-                        {customer.accountsEmail ? (
-                          <p className="mt-1 text-xs text-slate-400">
-                            Accounts: {customer.accountsEmail}
-                          </p>
+                          <td className="px-6 py-5 align-top">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+                              <span>{customer._count.quotes} quotes</span>
+                              <span>{customer._count.bookings} bookings</span>
+                              <span>{customer._count.invoices} invoices</span>
+                              <span>{customer._count.payments} payments</span>
+                              <span>{customer._count.savedRoutes} routes</span>
+                              <span>{customer._count.notes} notes</span>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-5 align-top text-sm text-slate-500">
+                            {formatDate(customer.createdAt)}
+                          </td>
+
+                          <td className="px-6 py-5 text-right align-top">
+                            <div className="flex flex-col items-end gap-2">
+                              <Link
+                                href={`/admin/customers/${customer.id}`}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-[#E55300]"
+                              >
+                                Open profile
+                                <ArrowRight size={15} />
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => void toggleCustomerActivity(customer.id)}
+                                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                              >
+                                {expanded ? "Hide activity" : "View activity"}
+                                {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {expanded ? (
+                          <tr>
+                            <td colSpan={7} className="bg-slate-50 px-6 py-6">
+                              <CustomerActivityPanel
+                                customer={detail}
+                                loading={detailLoadingId === customer.id}
+                                error={detailErrors[customer.id]}
+                                customerId={customer.id}
+                              />
+                            </td>
+                          </tr>
                         ) : null}
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <Badge
-                          className={accountStatusClasses(
-                            customer.accountStatus,
-                          )}
-                        >
-                          {customer.accountStatus}
-                        </Badge>
-                        {customer.tradeAccount ? (
-                          <p className="mt-2 text-xs font-semibold text-violet-600">
-                            Trade: {customer.tradeAccount.status}
-                          </p>
-                        ) : null}
-                      </td>
-
-                      <td className="px-6 py-5 align-top">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span>{customer._count.quotes} quotes</span>
-                          <span>{customer._count.bookings} bookings</span>
-                          <span>{customer._count.invoices} invoices</span>
-                          <span>{customer._count.payments} payments</span>
-                        </div>
-                      </td>
-
-                      <td className="px-6 py-5 align-top text-sm text-slate-500">
-                        {formatDate(customer.createdAt)}
-                      </td>
-
-                      <td className="px-6 py-5 text-right align-top">
-                        <Link
-                          href={`/admin/customers/${customer.id}`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-[#E55300]"
-                        >
-                          Open
-                          <ArrowRight size={15} />
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             <div className="divide-y divide-slate-200 lg:hidden">
-              {customers.map((customer) => (
-                <article key={customer.id} className="p-5 sm:p-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-bold text-slate-950">
-                        {getDisplayName(customer)}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Contact: {getContactName(customer)}
-                      </p>
+              {customers.map((customer) => {
+                const expanded = expandedCustomerId === customer.id;
+                const detail = customerDetails[customer.id];
+
+                return (
+                  <article key={customer.id} className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-bold text-slate-950">{getDisplayName(customer)}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Contact: {getContactName(customer)}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Badge className={accountTypeClasses(customer.accountType)}>
+                          {customer.accountType}
+                        </Badge>
+                        <Badge className={accountStatusClasses(customer.accountStatus)}>
+                          {customer.accountStatus}
+                        </Badge>
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Badge
-                        className={accountTypeClasses(customer.accountType)}
+                    <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+                      <InfoItem label="Account number" value={customer.accountNumber || "Not assigned"} />
+                      <InfoItem label="Email" value={customer.email} />
+                      <InfoItem label="Phone" value={customer.phone || "Not provided"} />
+                      <InfoItem
+                        label="Activity"
+                        value={`${customer._count.quotes} quotes · ${customer._count.bookings} bookings · ${customer._count.invoices} invoices`}
+                      />
+                      <InfoItem
+                        label="Routes / notes"
+                        value={`${customer._count.savedRoutes} routes · ${customer._count.notes} notes`}
+                      />
+                      <InfoItem label="Created" value={formatDate(customer.createdAt)} />
+                    </dl>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      <Link
+                        href={`/admin/customers/${customer.id}`}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
                       >
-                        {customer.accountType}
-                      </Badge>
-                      <Badge
-                        className={accountStatusClasses(
-                          customer.accountStatus,
-                        )}
+                        Open customer profile
+                        <ArrowRight size={16} />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void toggleCustomerActivity(customer.id)}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
                       >
-                        {customer.accountStatus}
-                      </Badge>
+                        {expanded ? "Hide activity" : "View account activity"}
+                        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
                     </div>
-                  </div>
 
-                  <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-                    <InfoItem
-                      label="Account number"
-                      value={customer.accountNumber || "Not assigned"}
-                    />
-                    <InfoItem label="Email" value={customer.email} />
-                    <InfoItem
-                      label="Phone"
-                      value={customer.phone || "Not provided"}
-                    />
-                    <InfoItem
-                      label="Activity"
-                      value={`${customer._count.bookings} bookings · ${customer._count.invoices} invoices`}
-                    />
-                  </dl>
-
-                  <Link
-                    href={`/admin/customers/${customer.id}`}
-                    className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
-                  >
-                    Open customer profile
-                    <ArrowRight size={16} />
-                  </Link>
-                </article>
-              ))}
+                    {expanded ? (
+                      <div className="mt-5">
+                        <CustomerActivityPanel
+                          customer={detail}
+                          loading={detailLoadingId === customer.id}
+                          error={detailErrors[customer.id]}
+                          customerId={customer.id}
+                        />
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           </>
         )}
@@ -688,11 +837,7 @@ export default function CustomersPage() {
           <div className="flex flex-col gap-4 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-slate-500">
               Showing {(pagination.page - 1) * pagination.pageSize + 1}–
-              {Math.min(
-                pagination.page * pagination.pageSize,
-                pagination.total,
-              )}{" "}
-              of {pagination.total}
+              {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
             </p>
 
             <div className="flex items-center gap-2">
@@ -710,9 +855,7 @@ export default function CustomersPage() {
                 type="button"
                 disabled={page >= pagination.totalPages}
                 onClick={() =>
-                  setPage((current) =>
-                    Math.min(pagination.totalPages, current + 1),
-                  )
+                  setPage((current) => Math.min(pagination.totalPages, current + 1))
                 }
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -723,6 +866,191 @@ export default function CustomersPage() {
           </div>
         ) : null}
       </section>
+    </div>
+  );
+}
+
+function CustomerActivityPanel({
+  customer,
+  loading,
+  error,
+  customerId,
+}: {
+  customer?: Customer;
+  loading: boolean;
+  error?: string;
+  customerId: string;
+}) {
+  if (loading) {
+    return (
+      <div className="flex min-h-40 items-center justify-center rounded-2xl border border-slate-200 bg-white">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-7 w-7 animate-spin text-[#FF6A00]" />
+          <p className="mt-2 text-sm font-semibold text-slate-600">Loading account activity</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+        {error}
+      </div>
+    );
+  }
+
+  if (!customer) return null;
+
+  const invoices = customer.invoices || [];
+  const pendingInvoices = invoices.filter((invoice) =>
+    ["DRAFT", "OVERDUE"].includes(invoice.status.toUpperCase()),
+  );
+  const issuedInvoices = invoices.filter((invoice) =>
+    ["ISSUED", "PAID"].includes(invoice.status.toUpperCase()),
+  );
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="font-bold text-slate-950">Account activity overview</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Quotes, bookings, invoice history, saved routes and internal notes linked to this customer.
+          </p>
+        </div>
+        <Link
+          href={`/admin/customers/${customerId}`}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#E55300]"
+        >
+          <Pencil size={16} />
+          Open and edit profile
+        </Link>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+        <ActivitySection
+          title="Pending invoices"
+          icon={ReceiptText}
+          empty="No draft or overdue invoices."
+        >
+          {pendingInvoices.slice(0, 5).map((invoice) => (
+            <ActivityRecord
+              key={invoice.id}
+              title={invoice.invoiceNumber}
+              description={`${money(invoice.total)} · Due ${formatDate(invoice.dueDate)}`}
+              status={invoice.status}
+            />
+          ))}
+        </ActivitySection>
+
+        <ActivitySection
+          title="Issued / finalised invoices"
+          icon={FileText}
+          empty="No issued or paid invoices."
+        >
+          {issuedInvoices.slice(0, 5).map((invoice) => (
+            <ActivityRecord
+              key={invoice.id}
+              title={invoice.invoiceNumber}
+              description={`${money(invoice.total)} · ${formatDate(invoice.createdAt)}`}
+              status={invoice.status}
+            />
+          ))}
+        </ActivitySection>
+
+        <ActivitySection title="Bookings" icon={BookOpen} empty="No bookings recorded.">
+          {(customer.bookings || []).slice(0, 5).map((booking) => (
+            <ActivityRecord
+              key={booking.id}
+              title={booking.reference}
+              description={`${formatDate(booking.collectionDate)} · ${booking.collectionAddress} → ${booking.deliveryAddress}`}
+              status={booking.status}
+            />
+          ))}
+        </ActivitySection>
+
+        <ActivitySection title="Quotes" icon={FileText} empty="No quotes recorded.">
+          {(customer.quotes || []).slice(0, 5).map((quote) => (
+            <ActivityRecord
+              key={quote.id}
+              title={`${quote.collectionAddress} → ${quote.deliveryAddress}`}
+              description={`${money(quote.totalPrice)} · ${formatDate(quote.createdAt)}`}
+              status={quote.status}
+            />
+          ))}
+        </ActivitySection>
+
+        <ActivitySection title="Saved routes and addresses" icon={MapPin} empty="No saved routes or addresses.">
+          {(customer.savedRoutes || []).slice(0, 5).map((route) => (
+            <ActivityRecord
+              key={route.id}
+              title={route.name || "Saved route"}
+              description={`${route.collectionAddress} → ${route.deliveryAddress}`}
+            />
+          ))}
+        </ActivitySection>
+
+        <ActivitySection title="Internal notes" icon={MessageSquareText} empty="No internal notes.">
+          {(customer.notes || []).slice(0, 5).map((note) => (
+            <ActivityRecord
+              key={note.id}
+              title={note.body}
+              description={formatDate(note.createdAt)}
+            />
+          ))}
+        </ActivitySection>
+      </div>
+    </div>
+  );
+}
+
+function ActivitySection({
+  title,
+  icon: Icon,
+  empty,
+  children,
+}: {
+  title: string;
+  icon: typeof FileText;
+  empty: string;
+  children: React.ReactNode;
+}) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+
+  return (
+    <section className="rounded-2xl border border-slate-200 p-4">
+      <div className="flex items-center gap-2">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+          <Icon size={17} />
+        </span>
+        <h4 className="font-bold text-slate-950">{title}</h4>
+      </div>
+      <div className="mt-4 space-y-3">
+        {hasChildren ? children : <p className="text-sm text-slate-500">{empty}</p>}
+      </div>
+    </section>
+  );
+}
+
+function ActivityRecord({
+  title,
+  description,
+  status,
+}: {
+  title: string;
+  description: string;
+  status?: string;
+}) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 break-words text-sm font-bold text-slate-800">{title}</p>
+        {status ? (
+          <Badge className={recordStatusClasses(status)}>{status.replace(/_/g, " ")}</Badge>
+        ) : null}
+      </div>
+      <p className="mt-1 break-words text-xs leading-5 text-slate-500">{description}</p>
     </div>
   );
 }
@@ -741,9 +1069,7 @@ function SummaryCard({
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-            {value}
-          </p>
+          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
         </div>
         <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
           <Icon size={21} />
@@ -778,11 +1104,8 @@ function InfoItem({
 }) {
   return (
     <div>
-      <dt className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-        {label}
-      </dt>
+      <dt className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">{label}</dt>
       <dd className="mt-1 break-words font-semibold text-slate-700">{value}</dd>
     </div>
   );
 }
-
