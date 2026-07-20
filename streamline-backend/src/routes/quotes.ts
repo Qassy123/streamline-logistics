@@ -774,9 +774,28 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         collectionWindow: getString(req.body.collectionWindow),
         vehicleSize: getString(req.body.vehicleSize),
         collectionAddress: getString(req.body.collectionAddress),
+        collectionAddressDetails:
+          req.body.collectionAddressDetails &&
+          typeof req.body.collectionAddressDetails === "object"
+            ? (req.body.collectionAddressDetails as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
         deliveryAddress: getString(req.body.deliveryAddress),
+        deliveryAddressDetails:
+          req.body.deliveryAddressDetails &&
+          typeof req.body.deliveryAddressDetails === "object"
+            ? (req.body.deliveryAddressDetails as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
         returnAddress: getOptionalString(req.body.returnAddress),
         extraDrops: extraDrops.length > 0 ? extraDrops : Prisma.JsonNull,
+        whatAreWeCollecting: getOptionalString(req.body.whatAreWeCollecting),
+        capacityPercent: req.body.capacityPercent
+          ? Number(req.body.capacityPercent)
+          : null,
+        loadDescription: getOptionalString(req.body.loadDescription),
+        specialInstructions: getOptionalString(req.body.specialInstructions),
+        fragileGoods: Boolean(req.body.fragileGoods),
+        contactPreference: getOptionalString(req.body.contactPreference),
+        accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
         customerName: customer.name,
         customerEmail: customer.email,
         customerPhone: customer.phone ?? "",
@@ -785,7 +804,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         tradingName: customer.tradingName,
         customerReference: getOptionalString(req.body.customerReference),
         purchaseOrderNumber: getOptionalString(req.body.purchaseOrderNumber),
-        specialInstructions: getOptionalString(req.body.notes),
+        handoverNotes: getOptionalString(req.body.notes),
         distanceMiles: calculation.distanceMiles,
         basePrice: calculation.basePrice,
         fuelSurcharge: calculation.fuelSurcharge,
@@ -1193,12 +1212,10 @@ router.post("/", async (req, res) => {
     const user = await getAuthenticatedUser(req);
 
     if (user && user.accountStatus !== "ACTIVE") {
-      return res
-        .status(403)
-        .json({
-          error:
-            "This customer account is not active. New quotes cannot be created.",
-        });
+      return res.status(403).json({
+        error:
+          "This customer account is not active. New quotes cannot be created.",
+      });
     }
 
     let distanceMiles: number | null = null;
