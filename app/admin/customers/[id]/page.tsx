@@ -259,15 +259,31 @@ function date(value?: string | null) {
 function statusClass(status: string) {
   const normalized = status.toUpperCase();
 
-  if (["ACTIVE", "APPROVED", "PAID", "COMPLETED", "CONFIRMED"].includes(normalized)) {
+  if (
+    ["ACTIVE", "APPROVED", "PAID", "COMPLETED", "CONFIRMED"].includes(
+      normalized,
+    )
+  ) {
     return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   }
 
-  if (["SUSPENDED", "FAILED", "CANCELLED", "OVERDUE", "REJECTED"].includes(normalized)) {
+  if (
+    ["SUSPENDED", "FAILED", "CANCELLED", "OVERDUE", "REJECTED"].includes(
+      normalized,
+    )
+  ) {
     return "bg-red-50 text-red-700 ring-red-200";
   }
 
-  if (["PENDING", "PENDING_PAYMENT", "UNDER_REVIEW", "ISSUED", "ASSIGNED"].includes(normalized)) {
+  if (
+    [
+      "PENDING",
+      "PENDING_PAYMENT",
+      "UNDER_REVIEW",
+      "ISSUED",
+      "ASSIGNED",
+    ].includes(normalized)
+  ) {
     return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 
@@ -329,56 +345,64 @@ export default function CustomerProfilePage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const loadCustomer = useCallback(async (refresh = false) => {
-    if (!customerId) return;
+  const loadCustomer = useCallback(
+    async (refresh = false) => {
+      if (!customerId) return;
 
-    const adminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      const adminKey =
+        window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
 
-    if (!adminKey) {
-      setLoading(false);
-      setError("Admin key is required. Unlock the admin area from Driver Management.");
-      return;
-    }
+      if (!adminKey) {
+        setLoading(false);
+        setError(
+          "Admin key is required. Unlock the admin area from Driver Management.",
+        );
+        return;
+      }
 
-    refresh ? setRefreshing(true) : setLoading(true);
-    setError("");
+      refresh ? setRefreshing(true) : setLoading(true);
+      setError("");
 
-    try {
-      const response = await fetch(`${API_BASE}/api/admin/customers/${customerId}`, {
-        headers: {
-          "x-admin-key": adminKey,
-        },
-        cache: "no-store",
-      });
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/admin/customers/${customerId}`,
+          {
+            headers: {
+              "x-admin-key": adminKey,
+            },
+            cache: "no-store",
+          },
+        );
 
-      const payload = (await response.json()) as CustomerPayload;
+        const payload = (await response.json()) as CustomerPayload;
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+        if (!response.ok) {
+          if (response.status === 401) {
+            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+          }
+
+          throw new Error(payload.error || "Unable to load customer account.");
         }
 
-        throw new Error(payload.error || "Unable to load customer account.");
-      }
+        if (!payload.customer) {
+          throw new Error("Customer account not found.");
+        }
 
-      if (!payload.customer) {
-        throw new Error("Customer account not found.");
+        setCustomer(payload.customer);
+        setForm(toEditForm(payload.customer));
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to load customer account.",
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-
-      setCustomer(payload.customer);
-      setForm(toEditForm(payload.customer));
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load customer account.",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [customerId]);
+    },
+    [customerId],
+  );
 
   useEffect(() => {
     void loadCustomer();
@@ -395,10 +419,7 @@ export default function CustomerProfilePage() {
     );
   }, [customer]);
 
-  function updateField<K extends keyof EditForm>(
-    field: K,
-    value: EditForm[K],
-  ) {
+  function updateField<K extends keyof EditForm>(field: K, value: EditForm[K]) {
     setForm((current) =>
       current
         ? {
@@ -427,14 +448,17 @@ export default function CustomerProfilePage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/customers/${customerId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
+      const response = await fetch(
+        `${API_BASE}/api/admin/customers/${customerId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify(form),
         },
-        body: JSON.stringify(form),
-      });
+      );
 
       const payload = (await response.json()) as CustomerPayload;
 
@@ -606,7 +630,8 @@ export default function CustomerProfilePage() {
             {displayName}
           </h1>
           <p className="mt-3 text-sm text-slate-500">
-            {customer.accountNumber || "No account number"} · Created {date(customer.createdAt)}
+            {customer.accountNumber || "No account number"} · Created{" "}
+            {date(customer.createdAt)}
           </p>
         </div>
 
@@ -647,10 +672,26 @@ export default function CustomerProfilePage() {
       ) : null}
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Quotes" value={customer._count?.quotes ?? customer.quotes?.length ?? 0} icon={ReceiptText} />
-        <Metric label="Bookings" value={customer._count?.bookings ?? customer.bookings?.length ?? 0} icon={CalendarDays} />
-        <Metric label="Invoices" value={customer._count?.invoices ?? customer.invoices?.length ?? 0} icon={FileText} />
-        <Metric label="Payments" value={customer._count?.payments ?? customer.payments?.length ?? 0} icon={WalletCards} />
+        <Metric
+          label="Quotes"
+          value={customer._count?.quotes ?? customer.quotes?.length ?? 0}
+          icon={ReceiptText}
+        />
+        <Metric
+          label="Bookings"
+          value={customer._count?.bookings ?? customer.bookings?.length ?? 0}
+          icon={CalendarDays}
+        />
+        <Metric
+          label="Invoices"
+          value={customer._count?.invoices ?? customer.invoices?.length ?? 0}
+          icon={FileText}
+        />
+        <Metric
+          label="Payments"
+          value={customer._count?.payments ?? customer.payments?.length ?? 0}
+          icon={WalletCards}
+        />
       </section>
 
       <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -662,54 +703,172 @@ export default function CustomerProfilePage() {
                   <SelectField
                     label="Account type"
                     value={form.accountType}
-                    onChange={(value) => updateField("accountType", value as AccountType)}
+                    onChange={(value) =>
+                      updateField("accountType", value as AccountType)
+                    }
                     options={["PRIVATE", "BUSINESS", "TRADE"]}
                   />
                   <SelectField
                     label="Account status"
                     value={form.accountStatus}
-                    onChange={(value) => updateField("accountStatus", value as AccountStatus)}
+                    onChange={(value) =>
+                      updateField("accountStatus", value as AccountStatus)
+                    }
                     options={["ACTIVE", "SUSPENDED", "INACTIVE"]}
                   />
-                  <Field label="Customer name" value={form.name} onChange={(value) => updateField("name", value)} required />
+                  <Field
+                    label="Customer name"
+                    value={form.name}
+                    onChange={(value) => updateField("name", value)}
+                    required
+                  />
                 </div>
               </Section>
 
               <Section title="Customer and business details" icon={Building2}>
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field label="Company name" value={form.companyName} onChange={(value) => updateField("companyName", value)} />
-                  <Field label="Legal entity" value={form.legalEntity} onChange={(value) => updateField("legalEntity", value)} />
-                  <Field label="Trading name" value={form.tradingName} onChange={(value) => updateField("tradingName", value)} />
-                  <Field label="First name" value={form.firstName} onChange={(value) => updateField("firstName", value)} />
-                  <Field label="Last name" value={form.lastName} onChange={(value) => updateField("lastName", value)} />
-                  <Field label="Main contact" value={form.mainContactName} onChange={(value) => updateField("mainContactName", value)} />
-                  <Field label="Job title" value={form.jobTitle} onChange={(value) => updateField("jobTitle", value)} />
-                  <Field label="Companies House number" value={form.companyRegistrationNumber} onChange={(value) => updateField("companyRegistrationNumber", value)} />
-                  <Field label="VAT number" value={form.vatNumber} onChange={(value) => updateField("vatNumber", value)} />
-                  <Field label="Business type" value={form.businessType} onChange={(value) => updateField("businessType", value)} />
-                  <Field label="Industry" value={form.industry} onChange={(value) => updateField("industry", value)} />
-                  <Field label="Company website" value={form.companyWebsite} onChange={(value) => updateField("companyWebsite", value)} />
+                  <Field
+                    label="Company name"
+                    value={form.companyName}
+                    onChange={(value) => updateField("companyName", value)}
+                  />
+                  <Field
+                    label="Legal entity"
+                    value={form.legalEntity}
+                    onChange={(value) => updateField("legalEntity", value)}
+                  />
+                  <Field
+                    label="Trading name"
+                    value={form.tradingName}
+                    onChange={(value) => updateField("tradingName", value)}
+                  />
+                  <Field
+                    label="First name"
+                    value={form.firstName}
+                    onChange={(value) => updateField("firstName", value)}
+                  />
+                  <Field
+                    label="Last name"
+                    value={form.lastName}
+                    onChange={(value) => updateField("lastName", value)}
+                  />
+                  <Field
+                    label="Main contact"
+                    value={form.mainContactName}
+                    onChange={(value) => updateField("mainContactName", value)}
+                  />
+                  <Field
+                    label="Job title"
+                    value={form.jobTitle}
+                    onChange={(value) => updateField("jobTitle", value)}
+                  />
+                  <Field
+                    label="Companies House number"
+                    value={form.companyRegistrationNumber}
+                    onChange={(value) =>
+                      updateField("companyRegistrationNumber", value)
+                    }
+                  />
+                  <Field
+                    label="VAT number"
+                    value={form.vatNumber}
+                    onChange={(value) => updateField("vatNumber", value)}
+                  />
+                  <Field
+                    label="Business type"
+                    value={form.businessType}
+                    onChange={(value) => updateField("businessType", value)}
+                  />
+                  <Field
+                    label="Industry"
+                    value={form.industry}
+                    onChange={(value) => updateField("industry", value)}
+                  />
+                  <Field
+                    label="Company website"
+                    value={form.companyWebsite}
+                    onChange={(value) => updateField("companyWebsite", value)}
+                  />
                 </div>
               </Section>
 
               <Section title="Contact details" icon={UserRound}>
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field label="Email" type="email" value={form.email} onChange={(value) => updateField("email", value)} required />
-                  <Field label="Accounts email" type="email" value={form.accountsEmail} onChange={(value) => updateField("accountsEmail", value)} />
-                  <Field label="Phone" value={form.phone} onChange={(value) => updateField("phone", value)} />
-                  <Field label="Alternative phone" value={form.alternativeContactNumber} onChange={(value) => updateField("alternativeContactNumber", value)} />
-                  <Field label="Username" value={form.username} onChange={(value) => updateField("username", value)} />
+                  <Field
+                    label="Email"
+                    type="email"
+                    value={form.email}
+                    onChange={(value) => updateField("email", value)}
+                    required
+                  />
+                  <Field
+                    label="Accounts email"
+                    type="email"
+                    value={form.accountsEmail}
+                    onChange={(value) => updateField("accountsEmail", value)}
+                  />
+                  <Field
+                    label="Phone"
+                    value={form.phone}
+                    onChange={(value) => updateField("phone", value)}
+                  />
+                  <Field
+                    label="Alternative phone"
+                    value={form.alternativeContactNumber}
+                    onChange={(value) =>
+                      updateField("alternativeContactNumber", value)
+                    }
+                  />
+                  <Field
+                    label="Username"
+                    value={form.username}
+                    onChange={(value) => updateField("username", value)}
+                  />
                 </div>
               </Section>
 
               <Section title="Registered address" icon={MapPin}>
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field label="Address line 1" value={form.registeredAddressLine1} onChange={(value) => updateField("registeredAddressLine1", value)} />
-                  <Field label="Address line 2" value={form.registeredAddressLine2} onChange={(value) => updateField("registeredAddressLine2", value)} />
-                  <Field label="Town / City" value={form.registeredTownCity} onChange={(value) => updateField("registeredTownCity", value)} />
-                  <Field label="County" value={form.registeredCounty} onChange={(value) => updateField("registeredCounty", value)} />
-                  <Field label="Postcode" value={form.registeredPostcode} onChange={(value) => updateField("registeredPostcode", value)} />
-                  <Field label="Country" value={form.registeredCountry} onChange={(value) => updateField("registeredCountry", value)} />
+                  <Field
+                    label="Address line 1"
+                    value={form.registeredAddressLine1}
+                    onChange={(value) =>
+                      updateField("registeredAddressLine1", value)
+                    }
+                  />
+                  <Field
+                    label="Address line 2"
+                    value={form.registeredAddressLine2}
+                    onChange={(value) =>
+                      updateField("registeredAddressLine2", value)
+                    }
+                  />
+                  <Field
+                    label="Town / City"
+                    value={form.registeredTownCity}
+                    onChange={(value) =>
+                      updateField("registeredTownCity", value)
+                    }
+                  />
+                  <Field
+                    label="County"
+                    value={form.registeredCounty}
+                    onChange={(value) => updateField("registeredCounty", value)}
+                  />
+                  <Field
+                    label="Postcode"
+                    value={form.registeredPostcode}
+                    onChange={(value) =>
+                      updateField("registeredPostcode", value)
+                    }
+                  />
+                  <Field
+                    label="Country"
+                    value={form.registeredCountry}
+                    onChange={(value) =>
+                      updateField("registeredCountry", value)
+                    }
+                  />
                 </div>
               </Section>
 
@@ -718,19 +877,58 @@ export default function CustomerProfilePage() {
                   <input
                     type="checkbox"
                     checked={form.tradingAddressDifferent}
-                    onChange={(event) => updateField("tradingAddressDifferent", event.target.checked)}
+                    onChange={(event) =>
+                      updateField(
+                        "tradingAddressDifferent",
+                        event.target.checked,
+                      )
+                    }
                   />
-                  <span className="font-semibold text-slate-700">Trading address is different</span>
+                  <span className="font-semibold text-slate-700">
+                    Trading address is different
+                  </span>
                 </label>
 
                 {form.tradingAddressDifferent ? (
                   <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                    <Field label="Address line 1" value={form.tradingAddressLine1} onChange={(value) => updateField("tradingAddressLine1", value)} />
-                    <Field label="Address line 2" value={form.tradingAddressLine2} onChange={(value) => updateField("tradingAddressLine2", value)} />
-                    <Field label="Town / City" value={form.tradingTownCity} onChange={(value) => updateField("tradingTownCity", value)} />
-                    <Field label="County" value={form.tradingCounty} onChange={(value) => updateField("tradingCounty", value)} />
-                    <Field label="Postcode" value={form.tradingPostcode} onChange={(value) => updateField("tradingPostcode", value)} />
-                    <Field label="Country" value={form.tradingCountry} onChange={(value) => updateField("tradingCountry", value)} />
+                    <Field
+                      label="Address line 1"
+                      value={form.tradingAddressLine1}
+                      onChange={(value) =>
+                        updateField("tradingAddressLine1", value)
+                      }
+                    />
+                    <Field
+                      label="Address line 2"
+                      value={form.tradingAddressLine2}
+                      onChange={(value) =>
+                        updateField("tradingAddressLine2", value)
+                      }
+                    />
+                    <Field
+                      label="Town / City"
+                      value={form.tradingTownCity}
+                      onChange={(value) =>
+                        updateField("tradingTownCity", value)
+                      }
+                    />
+                    <Field
+                      label="County"
+                      value={form.tradingCounty}
+                      onChange={(value) => updateField("tradingCounty", value)}
+                    />
+                    <Field
+                      label="Postcode"
+                      value={form.tradingPostcode}
+                      onChange={(value) =>
+                        updateField("tradingPostcode", value)
+                      }
+                    />
+                    <Field
+                      label="Country"
+                      value={form.tradingCountry}
+                      onChange={(value) => updateField("tradingCountry", value)}
+                    />
                   </div>
                 ) : null}
               </Section>
@@ -740,12 +938,16 @@ export default function CustomerProfilePage() {
                   <Field
                     label="Estimated shipments per month"
                     value={form.estimatedShipmentsPerMonth}
-                    onChange={(value) => updateField("estimatedShipmentsPerMonth", value)}
+                    onChange={(value) =>
+                      updateField("estimatedShipmentsPerMonth", value)
+                    }
                   />
                   <Field
                     label="Typical shipment type"
                     value={form.typicalShipmentType}
-                    onChange={(value) => updateField("typicalShipmentType", value)}
+                    onChange={(value) =>
+                      updateField("typicalShipmentType", value)
+                    }
                   />
                 </div>
 
@@ -756,7 +958,9 @@ export default function CustomerProfilePage() {
                   <textarea
                     rows={5}
                     value={form.internalNote}
-                    onChange={(event) => updateField("internalNote", event.target.value)}
+                    onChange={(event) =>
+                      updateField("internalNote", event.target.value)
+                    }
                     className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
                   />
                 </label>
@@ -768,7 +972,11 @@ export default function CustomerProfilePage() {
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-60"
                 >
-                  {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                  {saving ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <Save size={18} />
+                  )}
                   Save customer changes
                 </button>
               </div>
@@ -778,13 +986,35 @@ export default function CustomerProfilePage() {
               <Section title="Account overview" icon={UserRound}>
                 <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                   <Info label="Customer name" value={customer.name} />
-                  <Info label="Business name" value={customer.companyName || customer.legalEntity || "Not provided"} />
-                  <Info label="Main contact" value={customer.mainContactName || customer.name} />
+                  <Info
+                    label="Business name"
+                    value={
+                      customer.companyName ||
+                      customer.legalEntity ||
+                      "Not provided"
+                    }
+                  />
+                  <Info
+                    label="Main contact"
+                    value={customer.mainContactName || customer.name}
+                  />
                   <Info label="Email" value={customer.email} />
-                  <Info label="Accounts email" value={customer.accountsEmail || "Not provided"} />
-                  <Info label="Phone" value={customer.phone || "Not provided"} />
-                  <Info label="VAT number" value={customer.vatNumber || "Not provided"} />
-                  <Info label="Companies House number" value={customer.companyRegistrationNumber || "Not provided"} />
+                  <Info
+                    label="Accounts email"
+                    value={customer.accountsEmail || "Not provided"}
+                  />
+                  <Info
+                    label="Phone"
+                    value={customer.phone || "Not provided"}
+                  />
+                  <Info
+                    label="VAT number"
+                    value={customer.vatNumber || "Not provided"}
+                  />
+                  <Info
+                    label="Companies House number"
+                    value={customer.companyRegistrationNumber || "Not provided"}
+                  />
                   <Info label="Last updated" value={date(customer.updatedAt)} />
                 </div>
               </Section>
@@ -881,7 +1111,11 @@ export default function CustomerProfilePage() {
                   <HistoryRow
                     key={payment.id}
                     title={`${payment.provider} · ${payment.paymentMethod || "Payment"}`}
-                    subtitle={payment.paidAt ? `Paid ${date(payment.paidAt)}` : `Created ${date(payment.createdAt)}`}
+                    subtitle={
+                      payment.paidAt
+                        ? `Paid ${date(payment.paidAt)}`
+                        : `Created ${date(payment.createdAt)}`
+                    }
                     meta={money(payment.amount, payment.currency)}
                     status={payment.status}
                   />
@@ -896,13 +1130,29 @@ export default function CustomerProfilePage() {
             <h2 className="text-lg font-bold text-slate-950">Quick actions</h2>
             <div className="mt-4 space-y-3">
               {customer.accountStatus === "ACTIVE" ? (
-                <QuickLink href="/admin/quotes" label="Create quote" icon={ReceiptText} />
+                <QuickLink
+                  href={`/admin/customers/${customer.id}/quotes`}
+                  label="Create quote"
+                  icon={ReceiptText}
+                />
               ) : null}
               {customer.accountStatus === "ACTIVE" ? (
-                <QuickLink href="/admin/planning-board" label="Create booking" icon={ClipboardList} />
+                <QuickLink
+                  href="/admin/planning-board"
+                  label="Create booking"
+                  icon={ClipboardList}
+                />
               ) : null}
-              <QuickLink href={`/admin/customers/${customer.id}/invoices`} label="View invoices" icon={FileText} />
-              <QuickLink href={`/admin/customers/${customer.id}/payments`} label="View payments" icon={WalletCards} />
+              <QuickLink
+                href={`/admin/customers/${customer.id}/invoices`}
+                label="View invoices"
+                icon={FileText}
+              />
+              <QuickLink
+                href={`/admin/customers/${customer.id}/payments`}
+                label="View payments"
+                icon={WalletCards}
+              />
             </div>
           </section>
 
@@ -924,9 +1174,18 @@ export default function CustomerProfilePage() {
 
               <div className="mt-5 grid gap-4">
                 <Info label="Status" value={customer.tradeAccount.status} />
-                <Info label="Credit limit" value={money(customer.tradeAccount.creditLimit)} />
-                <Info label="Current balance" value={money(customer.tradeAccount.currentBalance)} />
-                <Info label="Payment terms" value={`${customer.tradeAccount.paymentTermsDays} days`} />
+                <Info
+                  label="Credit limit"
+                  value={money(customer.tradeAccount.creditLimit)}
+                />
+                <Info
+                  label="Current balance"
+                  value={money(customer.tradeAccount.currentBalance)}
+                />
+                <Info
+                  label="Payment terms"
+                  value={`${customer.tradeAccount.paymentTermsDays} days`}
+                />
               </div>
             </section>
           ) : null}
@@ -979,7 +1238,10 @@ export default function CustomerProfilePage() {
             <h2 className="text-lg font-bold text-slate-950">Saved routes</h2>
             <div className="mt-4 space-y-3">
               {(customer.savedRoutes || []).slice(0, 5).map((route) => (
-                <div key={route.id} className="rounded-2xl border border-slate-200 p-4">
+                <div
+                  key={route.id}
+                  className="rounded-2xl border border-slate-200 p-4"
+                >
                   <p className="font-bold text-slate-900">
                     {route.name || "Saved route"}
                   </p>
@@ -1024,9 +1286,16 @@ export default function CustomerProfilePage() {
                 </div>
               ) : null}
               {(customer.notes || []).slice(0, 5).map((note) => (
-                <div key={note.id} className="rounded-2xl border border-slate-200 p-4">
-                  <p className="text-sm leading-6 text-slate-700">{note.body}</p>
-                  <p className="mt-2 text-xs text-slate-400">{date(note.createdAt)}</p>
+                <div
+                  key={note.id}
+                  className="rounded-2xl border border-slate-200 p-4"
+                >
+                  <p className="text-sm leading-6 text-slate-700">
+                    {note.body}
+                  </p>
+                  <p className="mt-2 text-xs text-slate-400">
+                    {date(note.createdAt)}
+                  </p>
                 </div>
               ))}
               {!customer.internalNote && (customer.notes || []).length === 0 ? (
@@ -1129,7 +1398,9 @@ function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
+      <span className="mb-2 block text-sm font-bold text-slate-700">
+        {label}
+      </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -1145,13 +1416,7 @@ function SelectField({
   );
 }
 
-function Info({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
@@ -1176,7 +1441,9 @@ function AddressCard({
       <h3 className="font-bold text-slate-950">{title}</h3>
       <div className="mt-3 space-y-1 text-sm leading-6 text-slate-600">
         {visibleLines.length > 0 ? (
-          visibleLines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)
+          visibleLines.map((line, index) => (
+            <p key={`${line}-${index}`}>{line}</p>
+          ))
         ) : (
           <p>Not provided</p>
         )}
@@ -1198,8 +1465,9 @@ function HistorySection({
   empty: string;
   children: React.ReactNode;
 }) {
-  const hasChildren =
-    Array.isArray(children) ? children.length > 0 : Boolean(children);
+  const hasChildren = Array.isArray(children)
+    ? children.length > 0
+    : Boolean(children);
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -1219,7 +1487,11 @@ function HistorySection({
         </Link>
       </div>
       <div className="mt-4 space-y-3">
-        {hasChildren ? children : <p className="text-sm text-slate-500">{empty}</p>}
+        {hasChildren ? (
+          children
+        ) : (
+          <p className="text-sm text-slate-500">{empty}</p>
+        )}
       </div>
     </section>
   );

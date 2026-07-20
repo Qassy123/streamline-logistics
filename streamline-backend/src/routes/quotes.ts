@@ -301,9 +301,7 @@ async function geocodeWithOpenRouteService(
   return coordinates;
 }
 
-async function geocodeAddress(
-  address: string,
-): Promise<{
+async function geocodeAddress(address: string): Promise<{
   coordinates: Coordinates;
   coordinateSource: "ors-full-address" | "postcodes.io";
 }> {
@@ -535,6 +533,346 @@ function adminQuoteSelect() {
    Admin Quote Management
 ---------------------------------- */
 
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatQuoteMoney(value: unknown) {
+  const amount = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+async function sendQuoteEmail(
+  quote: Awaited<ReturnType<typeof prisma.quote.findUnique>>,
+) {
+  if (!quote) {
+    throw new Error("Quote not found.");
+  }
+
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  const fromEmail =
+    process.env.QUOTE_FROM_EMAIL?.trim() ||
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.RESEND_FROM_EMAIL?.trim();
+
+  if (!resendApiKey || !fromEmail) {
+    throw new Error(
+      "Quote email is not configured. Add RESEND_API_KEY and QUOTE_FROM_EMAIL (or EMAIL_FROM).",
+    );
+  }
+
+  const recipient = getString(quote.customerEmail);
+
+  if (!recipient) {
+    throw new Error("The customer does not have an email address.");
+  }
+
+  const subject = `Your Streamline Logistics quote ${quote.id}`;
+  const route = `${htmlEscape(quote.collectionAddress)} → ${htmlEscape(
+    quote.deliveryAddress,
+  )}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#0f172a">
+      <h1 style="margin-bottom:8px">Your delivery quote</h1>
+      <p>Hello ${htmlEscape(quote.customerName || quote.companyName || "Customer")},</p>
+      <p>Streamline Logistics has prepared the following quote for you.</p>
+      <table style="width:100%;border-collapse:collapse;margin:24px 0">
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Quote</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(quote.id)}</td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Route</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${route}</td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Vehicle</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(quote.vehicleSize)}</td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Total</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>${formatQuoteMoney(quote.totalPrice)}</strong></td></tr>
+      </table>
+      ${quote.specialInstructions ? `<p><strong>Notes:</strong> ${htmlEscape(quote.specialInstructions)}</p>` : ""}
+      <p>Please reply to this email to accept the quote or contact the office if you need any changes.</p>
+      <p>Kind regards,<br />Streamline Logistics</p>
+    </div>
+  `;
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [recipient],
+      subject,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Quote email could not be sent: ${details}`);
+  }
+}
+
+function applyAdminDiscount(
+  price: ReturnType<typeof calculateQuotePrice>,
+  discountType: string,
+  discountValue: unknown,
+) {
+  const basePrice = Number(price.basePrice ?? 0);
+  const fuelSurcharge = Number(price.fuelSurcharge ?? 0);
+  const adminPrice = Number(price.adminPrice ?? 0);
+  const originalVat = Number(price.vatAmount ?? 0);
+  const subtotalBeforeDiscount = basePrice + fuelSurcharge + adminPrice;
+  const requestedValue = Math.max(0, Number(discountValue ?? 0) || 0);
+
+  let discountAmount = 0;
+
+  if (discountType === "PERCENTAGE") {
+    discountAmount =
+      (subtotalBeforeDiscount * Math.min(requestedValue, 100)) / 100;
+  } else if (discountType === "FIXED") {
+    discountAmount = Math.min(requestedValue, subtotalBeforeDiscount);
+  }
+
+  const discountedSubtotal = Math.max(
+    0,
+    subtotalBeforeDiscount - discountAmount,
+  );
+  const vatRate =
+    subtotalBeforeDiscount > 0 ? originalVat / subtotalBeforeDiscount : 0;
+  const vatAmount = Number((discountedSubtotal * vatRate).toFixed(2));
+  const totalPrice = Number((discountedSubtotal + vatAmount).toFixed(2));
+
+  return {
+    distanceMiles: price.distanceMiles,
+    basePrice: Number(basePrice.toFixed(2)),
+    fuelSurcharge: Number(fuelSurcharge.toFixed(2)),
+    adminPrice: Number(adminPrice.toFixed(2)),
+    discountAmount: Number(discountAmount.toFixed(2)),
+    vatAmount,
+    totalPrice,
+  };
+}
+
+async function calculateAdminQuote(reqBody: Record<string, unknown>) {
+  const collectionAddress = getString(reqBody.collectionAddress);
+  const deliveryAddress = getString(reqBody.deliveryAddress);
+  const vehicleSize = getString(reqBody.vehicleSize);
+
+  if (!collectionAddress || !deliveryAddress || !vehicleSize) {
+    throw new Error(
+      "Collection address, delivery address and vehicle type are required.",
+    );
+  }
+
+  const originalRouteAddresses = buildOriginalRouteAddresses(
+    collectionAddress,
+    deliveryAddress,
+    reqBody.extraDrops,
+    getOptionalString(reqBody.journeyType),
+    getOptionalString(reqBody.returnAddress),
+  );
+  const routeStops = await buildRouteStops(
+    collectionAddress,
+    deliveryAddress,
+    reqBody.extraDrops,
+    getOptionalString(reqBody.journeyType),
+    getOptionalString(reqBody.returnAddress),
+  );
+  const route = await calculateRouteDistance(routeStops);
+  const extraDropCount = normaliseExtraDrops(reqBody.extraDrops).length;
+  const rawPrice = calculateQuotePrice({
+    deliveryType: getString(reqBody.deliveryType) || "Dedicated",
+    journeyType: getString(reqBody.journeyType) || "One-way",
+    vehicleSize,
+    distanceMiles: route.distanceMiles,
+    extraDropCount,
+  });
+  const price = applyAdminDiscount(
+    rawPrice,
+    getString(reqBody.discountType),
+    reqBody.discountValue,
+  );
+
+  return {
+    ...price,
+    durationMinutes: route.durationMinutes,
+    originalRouteAddresses,
+    optimisedRouteAddresses: routeStops.map((stop) => stop.address),
+    extraDropCount,
+  };
+}
+
+router.post("/admin/calculate", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const calculation = await calculateAdminQuote(req.body || {});
+    return res.json({ success: true, calculation });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to calculate quote.";
+    return res.status(400).json({ error: message });
+  }
+});
+
+router.post("/admin/customer/:customerId", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const customer = await prisma.user.findUnique({
+      where: { id: req.params.customerId },
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: "Customer account not found." });
+    }
+
+    if (customer.accountStatus !== "ACTIVE") {
+      return res.status(403).json({
+        error:
+          "This customer account is not active. New quotes cannot be created.",
+      });
+    }
+
+    const collectionDate = new Date(getString(req.body.collectionDate));
+
+    if (Number.isNaN(collectionDate.getTime())) {
+      return res
+        .status(400)
+        .json({ error: "A valid collection date is required." });
+    }
+
+    const calculation = await calculateAdminQuote(req.body || {});
+    const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
+      (drop, index) => ({
+        order: index + 1,
+        address: getString(drop.address),
+      }),
+    );
+    const sendToCustomer = Boolean(req.body.sendToCustomer);
+
+    const quote = await prisma.quote.create({
+      data: {
+        status: sendToCustomer ? "Draft" : "Draft",
+        userId: customer.id,
+        deliveryType: getString(req.body.deliveryType) || "Dedicated",
+        journeyType: getString(req.body.journeyType) || "One-way",
+        collectionDate,
+        collectionWindow: getString(req.body.collectionWindow),
+        vehicleSize: getString(req.body.vehicleSize),
+        collectionAddress: getString(req.body.collectionAddress),
+        deliveryAddress: getString(req.body.deliveryAddress),
+        returnAddress: getOptionalString(req.body.returnAddress),
+        extraDrops: extraDrops.length > 0 ? extraDrops : Prisma.JsonNull,
+        customerName: customer.name,
+        customerEmail: customer.email,
+        customerPhone: customer.phone ?? "",
+        companyName: customer.companyName || customer.legalEntity,
+        legalEntity: customer.legalEntity || customer.companyName,
+        tradingName: customer.tradingName,
+        customerReference: getOptionalString(req.body.customerReference),
+        purchaseOrderNumber: getOptionalString(req.body.purchaseOrderNumber),
+        specialInstructions: getOptionalString(req.body.notes),
+        distanceMiles: calculation.distanceMiles,
+        basePrice: calculation.basePrice,
+        fuelSurcharge: calculation.fuelSurcharge,
+        adminPrice: calculation.adminPrice,
+        discountAmount: calculation.discountAmount,
+        discountReason: getOptionalString(req.body.discountReason),
+        vatAmount: calculation.vatAmount,
+        totalPrice: calculation.totalPrice,
+      },
+      select: adminQuoteSelect(),
+    });
+
+    if (sendToCustomer) {
+      try {
+        await sendQuoteEmail(quote as never);
+        const sentQuote = await prisma.quote.update({
+          where: { id: quote.id },
+          data: { status: "Sent", sentAt: new Date() },
+          select: adminQuoteSelect(),
+        });
+
+        return res.status(201).json({
+          success: true,
+          quote: sentQuote,
+          calculation,
+          emailSent: true,
+        });
+      } catch (emailError) {
+        return res.status(201).json({
+          success: true,
+          quote,
+          calculation,
+          emailSent: false,
+          warning:
+            emailError instanceof Error
+              ? emailError.message
+              : "Quote saved, but the email could not be sent.",
+        });
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      quote,
+      calculation,
+      emailSent: false,
+    });
+  } catch (error) {
+    console.error("Admin customer quote creation error:", error);
+    const message =
+      error instanceof Error ? error.message : "Unable to create quote.";
+    return res.status(400).json({ error: message });
+  }
+});
+
+router.post("/admin/:id/send", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!quote) {
+      return res.status(404).json({ error: "Quote not found." });
+    }
+
+    await sendQuoteEmail(quote);
+
+    const updatedQuote = await prisma.quote.update({
+      where: { id: quote.id },
+      data: { status: "Sent", sentAt: new Date() },
+      select: adminQuoteSelect(),
+    });
+
+    return res.json({ success: true, quote: updatedQuote });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to send quote.";
+    return res.status(400).json({ error: message });
+  }
+});
+
 router.get("/admin/list", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -651,10 +989,7 @@ router.get("/admin/list", async (req, res) => {
       },
       summary: {
         byStatus: Object.fromEntries(
-          statusTotals.map((item) => [
-            item.status,
-            item._count._all,
-          ]),
+          statusTotals.map((item) => [item.status, item._count._all]),
         ),
       },
     });
@@ -766,17 +1101,13 @@ router.patch("/admin/:id", async (req, res) => {
             ? req.body.distanceMiles
             : undefined,
         basePrice:
-          req.body.basePrice !== undefined
-            ? req.body.basePrice
-            : undefined,
+          req.body.basePrice !== undefined ? req.body.basePrice : undefined,
         fuelSurcharge:
           req.body.fuelSurcharge !== undefined
             ? req.body.fuelSurcharge
             : undefined,
         adminPrice:
-          req.body.adminPrice !== undefined
-            ? req.body.adminPrice
-            : undefined,
+          req.body.adminPrice !== undefined ? req.body.adminPrice : undefined,
         discountAmount:
           req.body.discountAmount !== undefined
             ? req.body.discountAmount
@@ -786,33 +1117,14 @@ router.patch("/admin/:id", async (req, res) => {
             ? getOptionalString(req.body.discountReason)
             : undefined,
         vatAmount:
-          req.body.vatAmount !== undefined
-            ? req.body.vatAmount
-            : undefined,
+          req.body.vatAmount !== undefined ? req.body.vatAmount : undefined,
         totalPrice:
-          req.body.totalPrice !== undefined
-            ? req.body.totalPrice
-            : undefined,
-        sentAt:
-          status === "Sent"
-            ? now
-            : undefined,
-        viewedAt:
-          status === "Viewed"
-            ? now
-            : undefined,
-        acceptedAt:
-          status === "Accepted"
-            ? now
-            : undefined,
-        cancelledAt:
-          status === "Cancelled"
-            ? now
-            : undefined,
-        convertedAt:
-          status === "Converted to Booking"
-            ? now
-            : undefined,
+          req.body.totalPrice !== undefined ? req.body.totalPrice : undefined,
+        sentAt: status === "Sent" ? now : undefined,
+        viewedAt: status === "Viewed" ? now : undefined,
+        acceptedAt: status === "Accepted" ? now : undefined,
+        cancelledAt: status === "Cancelled" ? now : undefined,
+        convertedAt: status === "Converted to Booking" ? now : undefined,
       },
       select: adminQuoteSelect(),
     });
@@ -881,7 +1193,12 @@ router.post("/", async (req, res) => {
     const user = await getAuthenticatedUser(req);
 
     if (user && user.accountStatus !== "ACTIVE") {
-      return res.status(403).json({ error: "This customer account is not active. New quotes cannot be created." });
+      return res
+        .status(403)
+        .json({
+          error:
+            "This customer account is not active. New quotes cannot be created.",
+        });
     }
 
     let distanceMiles: number | null = null;

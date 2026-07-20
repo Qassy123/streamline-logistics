@@ -1,895 +1,642 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  Building2,
+  Calculator,
   CheckCircle2,
   CircleAlert,
   Loader2,
+  Mail,
+  MapPin,
+  MinusCircle,
+  PlusCircle,
   Save,
-  ShieldCheck,
-  UserRound,
+  Truck,
 } from "lucide-react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 
-type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
+const VEHICLES = [
+  "Small Van",
+  "SWB Van",
+  "LWB Van",
+  "XLWB Van",
+  "Luton Tail Lift Van",
+];
+
+const WINDOWS = [
+  "08:00–10:00",
+  "10:00–12:00",
+  "12:00–14:00",
+  "14:00–16:00",
+  "16:00–18:00",
+  "18:00–20:00",
+  "Flexible / call customer",
+];
+
+type Customer = {
+  id: string;
+  name: string;
+  companyName?: string | null;
+  legalEntity?: string | null;
+  tradingName?: string | null;
+  email: string;
+  phone?: string | null;
+  accountNumber?: string | null;
+  accountStatus: string;
+  savedRoutes?: Array<{
+    id: string;
+    name?: string | null;
+    collectionAddress: string;
+    deliveryAddress: string;
+    vehicleSize?: string | null;
+  }>;
+};
+
+type Calculation = {
+  distanceMiles: number;
+  durationMinutes: number | null;
+  basePrice: string | number;
+  fuelSurcharge: string | number;
+  adminPrice: string | number;
+  discountAmount: string | number;
+  vatAmount: string | number;
+  totalPrice: string | number;
+  extraDropCount: number;
+  routeAddresses: string[];
+};
 
 type FormState = {
-  accountType: AccountType;
-  name: string;
-  firstName: string;
-  lastName: string;
-  companyName: string;
-  legalEntity: string;
-  tradingName: string;
-  email: string;
-  accountsEmail: string;
-  phone: string;
-  alternativeContactNumber: string;
-  mainContactName: string;
-  jobTitle: string;
-  companyRegistrationNumber: string;
-  vatNumber: string;
-  businessType: string;
-  industry: string;
-  companyWebsite: string;
-  registeredAddressLine1: string;
-  registeredAddressLine2: string;
-  registeredTownCity: string;
-  registeredCounty: string;
-  registeredPostcode: string;
-  registeredCountry: string;
-  tradingAddressDifferent: boolean;
-  tradingAddressLine1: string;
-  tradingAddressLine2: string;
-  tradingTownCity: string;
-  tradingCounty: string;
-  tradingPostcode: string;
-  tradingCountry: string;
-  estimatedShipmentsPerMonth: string;
-  typicalShipmentType: string;
-  internalNote: string;
-  username: string;
-  password: string;
-  confirmPassword: string;
+  journeyType: "One Way" | "Return";
+  deliveryType: string;
+  collectionAddress: string;
+  deliveryAddress: string;
+  returnAddress: string;
+  vehicleSize: string;
+  collectionDate: string;
+  collectionWindow: string;
+  customerReference: string;
+  purchaseOrderNumber: string;
+  specialInstructions: string;
+  discountType: "NONE" | "FIXED" | "PERCENTAGE";
+  discountValue: string;
+  discountReason: string;
 };
 
-const initialState: FormState = {
-  accountType: "BUSINESS",
-  name: "",
-  firstName: "",
-  lastName: "",
-  companyName: "",
-  legalEntity: "",
-  tradingName: "",
-  email: "",
-  accountsEmail: "",
-  phone: "",
-  alternativeContactNumber: "",
-  mainContactName: "",
-  jobTitle: "",
-  companyRegistrationNumber: "",
-  vatNumber: "",
-  businessType: "",
-  industry: "",
-  companyWebsite: "",
-  registeredAddressLine1: "",
-  registeredAddressLine2: "",
-  registeredTownCity: "",
-  registeredCounty: "",
-  registeredPostcode: "",
-  registeredCountry: "United Kingdom",
-  tradingAddressDifferent: false,
-  tradingAddressLine1: "",
-  tradingAddressLine2: "",
-  tradingTownCity: "",
-  tradingCounty: "",
-  tradingPostcode: "",
-  tradingCountry: "United Kingdom",
-  estimatedShipmentsPerMonth: "",
-  typicalShipmentType: "",
-  internalNote: "",
-  username: "",
-  password: "",
-  confirmPassword: "",
+const initialForm: FormState = {
+  journeyType: "One Way",
+  deliveryType: "Standard",
+  collectionAddress: "",
+  deliveryAddress: "",
+  returnAddress: "",
+  vehicleSize: "SWB Van",
+  collectionDate: "",
+  collectionWindow: "",
+  customerReference: "",
+  purchaseOrderNumber: "",
+  specialInstructions: "",
+  discountType: "NONE",
+  discountValue: "",
+  discountReason: "",
 };
 
-export default function NewCustomerPage() {
+function adminKey() {
+  return window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+}
+
+function money(value: unknown) {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function customerName(customer: Customer | null) {
+  return (
+    customer?.companyName ||
+    customer?.legalEntity ||
+    customer?.tradingName ||
+    customer?.name ||
+    "Customer"
+  );
+}
+
+export default function CreateCustomerQuotePage() {
+  const params = useParams<{ id: string }>();
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(initialState);
+  const customerId = params.id;
+
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [form, setForm] = useState<FormState>(initialForm);
+  const [extraStops, setExtraStops] = useState<string[]>([]);
+  const [calculation, setCalculation] = useState<Calculation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [calculating, setCalculating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [message, setMessage] = useState("");
 
-  const isPrivate = form.accountType === "PRIVATE";
-  const isTrade = form.accountType === "TRADE";
-
-  const resolvedCustomerName = useMemo(() => {
-    if (form.name.trim()) return form.name.trim();
-
-    const personalName = `${form.firstName} ${form.lastName}`.trim();
-
-    if (personalName) return personalName;
-
-    return form.companyName.trim();
-  }, [form.companyName, form.firstName, form.lastName, form.name]);
-
-  function updateField<K extends keyof FormState>(
-    field: K,
-    value: FormState[K],
-  ) {
-    setForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function changeAccountType(accountType: AccountType) {
+  const loadCustomer = useCallback(async () => {
+    setLoading(true);
     setError("");
-    setSuccess("");
 
-    setForm((current) => ({
-      ...current,
-      accountType,
-      ...(accountType === "PRIVATE"
-        ? {
-            companyName: "",
-            legalEntity: "",
-            tradingName: "",
-            accountsEmail: "",
-            companyRegistrationNumber: "",
-            vatNumber: "",
-            businessType: "",
-            industry: "",
-            companyWebsite: "",
-            tradingAddressDifferent: false,
-            tradingAddressLine1: "",
-            tradingAddressLine2: "",
-            tradingTownCity: "",
-            tradingCounty: "",
-            tradingPostcode: "",
-            tradingCountry: "United Kingdom",
-            estimatedShipmentsPerMonth: "",
-            typicalShipmentType: "",
-          }
-        : {}),
-    }));
+    try {
+      const key = adminKey();
+      if (!key) throw new Error("Admin key is required.");
+
+      const response = await fetch(`${API_BASE}/api/admin/customers/${customerId}`, {
+        headers: { "x-admin-key": key },
+        cache: "no-store",
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.customer) {
+        throw new Error(payload?.error || "Unable to load customer account.");
+      }
+
+      setCustomer(payload.customer);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load customer account.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [customerId]);
+
+  useEffect(() => {
+    void loadCustomer();
+  }, [loadCustomer]);
+
+  useEffect(() => {
+    setCalculation(null);
+  }, [form, extraStops]);
+
+  const payload = useMemo(
+    () => ({
+      ...form,
+      discountValue: Number(form.discountValue || 0),
+      extraDrops: extraStops
+        .map((address, index) => ({ order: index + 1, address: address.trim() }))
+        .filter((stop) => stop.address),
+    }),
+    [form, extraStops],
+  );
+
+  function update<K extends keyof FormState>(field: K, value: FormState[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
-  function copyRegisteredAddress() {
-    setForm((current) => ({
-      ...current,
-      tradingAddressDifferent: false,
-      tradingAddressLine1: "",
-      tradingAddressLine2: "",
-      tradingTownCity: "",
-      tradingCounty: "",
-      tradingPostcode: "",
-      tradingCountry: "United Kingdom",
-    }));
+  function validate() {
+    if (!customer || customer.accountStatus !== "ACTIVE") {
+      return "Only active customer accounts can receive new quotes.";
+    }
+    if (!form.collectionAddress.trim()) return "Collection address is required.";
+    if (!form.deliveryAddress.trim()) return "Delivery address is required.";
+    if (form.journeyType === "Return" && !form.returnAddress.trim()) {
+      return "Return address is required for a return journey.";
+    }
+    if (!form.vehicleSize) return "Vehicle type is required.";
+    if (!form.collectionDate) return "Collection date is required.";
+    if (!form.collectionWindow) return "Collection time window is required.";
+    if (form.discountType !== "NONE" && Number(form.discountValue) <= 0) {
+      return "Enter a valid discount value.";
+    }
+    if (form.discountType !== "NONE" && !form.discountReason.trim()) {
+      return "A discount reason is required.";
+    }
+    return "";
   }
 
-  async function submitForm(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function calculate() {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
-    const adminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+    setCalculating(true);
+    setError("");
+    setMessage("");
 
-    if (!adminKey) {
-      setError(
-        "Admin key is missing. Open Driver Management and unlock the admin area first.",
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/quotes/admin/customer/${customerId}/calculate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey(),
+          },
+          body: JSON.stringify(payload),
+        },
       );
-      return;
-    }
+      const result = await response.json();
 
-    if (!resolvedCustomerName) {
-      setError("Customer name is required.");
-      return;
-    }
+      if (!response.ok || !result?.calculation) {
+        throw new Error(result?.error || "Unable to calculate journey and price.");
+      }
 
-    const email = form.email.trim().toLowerCase();
-    const accountsEmail = form.accountsEmail.trim().toLowerCase();
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!email || !form.phone.trim()) {
-      setError("General email address and contact number are required.");
-      return;
-    }
-
-    if (!emailPattern.test(email)) {
-      setError("Enter a valid general email address.");
-      return;
-    }
-
-    if (!isPrivate && !form.companyName.trim()) {
-      setError("Business name is required for business and trade accounts.");
-      return;
-    }
-
-    if (!isPrivate && !form.mainContactName.trim()) {
-      setError("Main person to contact is required for business and trade accounts.");
-      return;
-    }
-
-    if (!isPrivate && !accountsEmail) {
-      setError("Accounts email address is required for business and trade accounts.");
-      return;
-    }
-
-    if (accountsEmail && !emailPattern.test(accountsEmail)) {
-      setError("Enter a valid accounts email address.");
-      return;
-    }
-
-    if (
-      !form.registeredAddressLine1.trim() ||
-      !form.registeredTownCity.trim() ||
-      !form.registeredPostcode.trim() ||
-      !form.registeredCountry.trim()
-    ) {
-      setError("Complete the primary or registered office address.");
-      return;
-    }
-
-    if (
-      form.tradingAddressDifferent &&
-      (
-        !form.tradingAddressLine1.trim() ||
-        !form.tradingTownCity.trim() ||
-        !form.tradingPostcode.trim() ||
-        !form.tradingCountry.trim()
-      )
-    ) {
-      setError("Complete the separate trading address.");
-      return;
-    }
-
-    const username = form.username.trim().toLowerCase();
-    const hasUsername = Boolean(username);
-    const hasPassword = Boolean(form.password);
-
-    if (hasUsername !== hasPassword) {
+      setCalculation(result.calculation);
+      setMessage("Journey time and price calculated successfully.");
+    } catch (requestError) {
       setError(
-        "Enter both a portal username and temporary password, or leave both blank.",
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to calculate journey and price.",
       );
+    } finally {
+      setCalculating(false);
+    }
+  }
+
+  async function createQuote(sendToCustomer: boolean) {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    if (form.password && form.password.length < 10) {
-      setError("Temporary password must contain at least 10 characters.");
-      return;
-    }
-
-    if (form.password !== form.confirmPassword) {
-      setError("Temporary password and confirmation do not match.");
+    if (!calculation) {
+      setError("Calculate the journey and price before saving the quote.");
       return;
     }
 
     setSaving(true);
     setError("");
-    setSuccess("");
+    setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/customers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
+      const response = await fetch(
+        `${API_BASE}/api/quotes/admin/customer/${customerId}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey(),
+          },
+          body: JSON.stringify({ ...payload, sendToCustomer }),
         },
-        body: JSON.stringify({
-          accountType: form.accountType,
-          name: resolvedCustomerName,
-          firstName: form.firstName.trim(),
-          lastName: form.lastName.trim(),
-          companyName: isPrivate ? null : form.companyName.trim(),
-          legalEntity: isPrivate
-            ? null
-            : form.legalEntity.trim() || form.companyName.trim(),
-          tradingName: isPrivate ? null : form.tradingName.trim(),
-          email: form.email.trim().toLowerCase(),
-          accountsEmail: isPrivate
-            ? null
-            : form.accountsEmail.trim().toLowerCase(),
-          phone: form.phone.trim(),
-          alternativeContactNumber:
-            form.alternativeContactNumber.trim() || null,
-          mainContactName:
-            form.mainContactName.trim() || resolvedCustomerName,
-          jobTitle: form.jobTitle.trim() || null,
-          companyRegistrationNumber: isPrivate
-            ? null
-            : form.companyRegistrationNumber.trim() || null,
-          vatNumber: isPrivate ? null : form.vatNumber.trim() || null,
-          businessType: isPrivate ? null : form.businessType.trim() || null,
-          industry: isPrivate ? null : form.industry.trim() || null,
-          companyWebsite: isPrivate
-            ? null
-            : form.companyWebsite.trim() || null,
-          registeredAddressLine1: form.registeredAddressLine1.trim(),
-          registeredAddressLine2:
-            form.registeredAddressLine2.trim() || null,
-          registeredTownCity: form.registeredTownCity.trim(),
-          registeredCounty: form.registeredCounty.trim() || null,
-          registeredPostcode: form.registeredPostcode.trim().toUpperCase(),
-          registeredCountry: form.registeredCountry.trim(),
-          tradingAddressDifferent:
-            !isPrivate && form.tradingAddressDifferent,
-          tradingAddressLine1:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingAddressLine1.trim()
-              : null,
-          tradingAddressLine2:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingAddressLine2.trim() || null
-              : null,
-          tradingTownCity:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingTownCity.trim()
-              : null,
-          tradingCounty:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingCounty.trim() || null
-              : null,
-          tradingPostcode:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingPostcode.trim().toUpperCase()
-              : null,
-          tradingCountry:
-            !isPrivate && form.tradingAddressDifferent
-              ? form.tradingCountry.trim()
-              : null,
-          estimatedShipmentsPerMonth: isPrivate
-            ? null
-            : form.estimatedShipmentsPerMonth.trim() || null,
-          typicalShipmentType: isPrivate
-            ? null
-            : form.typicalShipmentType.trim() || null,
-          internalNote: form.internalNote.trim() || null,
-          username: username || null,
-          password: form.password || undefined,
-        }),
-      });
+      );
+      const result = await response.json();
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
-        }
-
-        throw new Error(payload?.error || "Unable to create customer account.");
+      if (!response.ok || !result?.quote) {
+        throw new Error(result?.error || "Unable to save quote.");
       }
 
-      const customerId = payload?.customer?.id as string | undefined;
+      const emailMessage = sendToCustomer
+        ? result.email?.sent
+          ? " Quote emailed to the customer."
+          : ` ${result.email?.reason || "The quote was saved as Draft."}`
+        : " Quote saved as Draft.";
 
-      setSuccess("Customer account created successfully.");
-
-      window.setTimeout(() => {
-        if (customerId) {
-          router.push(`/admin/customers/${customerId}`);
-        } else {
-          router.push("/admin/customers");
-        }
-      }, 700);
+      window.alert(`Quote ${result.quote.id} created.${emailMessage}`);
+      router.push(`/admin/customers/${customerId}/quotes`);
+      router.refresh();
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to create customer account.",
+          : "Unable to save quote.",
       );
     } finally {
       setSaving(false);
     }
   }
 
+  function useSavedRoute(routeId: string) {
+    const route = customer?.savedRoutes?.find((item) => item.id === routeId);
+    if (!route) return;
+    setForm((current) => ({
+      ...current,
+      collectionAddress: route.collectionAddress,
+      deliveryAddress: route.deliveryAddress,
+      vehicleSize: route.vehicleSize || current.vehicleSize,
+    }));
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[520px] items-center justify-center">
+        <Loader2 className="h-9 w-9 animate-spin text-[#FF6A00]" />
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto w-full max-w-[1450px]">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+    <div className="mx-auto w-full max-w-[1500px] space-y-6">
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <Link
-            href="/admin/customers"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-950"
+            href={`/admin/customers/${customerId}`}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-950"
           >
-            <ArrowLeft size={16} />
-            Customer accounts
+            <ArrowLeft size={17} /> Back to customer
           </Link>
-
           <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Customer management
+            Customer account quote
           </p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Add new customer account
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            Create a private customer, business customer or trade account for
-            office-managed quotes, bookings and invoicing.
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">Create Quote</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Create, price and send a quote for {customerName(customer)}.
           </p>
         </div>
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm shadow-sm">
+          <p className="font-bold text-slate-950">{customerName(customer)}</p>
+          <p className="mt-1 text-slate-500">{customer?.accountNumber || "No account number"}</p>
+          <p className="text-slate-500">{customer?.email}</p>
+        </div>
+      </header>
 
-        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
-            Account preview
-          </p>
-          <p className="mt-1 font-bold text-slate-950">
-            {resolvedCustomerName || "New customer"}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">{form.accountType}</p>
+      {message ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 size={19} /> {message}
         </div>
-      </div>
+      ) : null}
 
       {error ? (
-        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
-          <CircleAlert size={19} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
+        <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+          <CircleAlert size={19} /> {error}
         </div>
       ) : null}
 
-      {success ? (
-        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
-          <CheckCircle2 size={19} className="mt-0.5 shrink-0" />
-          <span>{success}</span>
+      {customer?.accountStatus !== "ACTIVE" ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
+          This account is {customer?.accountStatus}. Reactivate it before creating a quote.
         </div>
       ) : null}
 
-      <form onSubmit={submitForm} className="mt-6 space-y-6">
-        <Section
-          title="Account type"
-          description="Choose the customer account type required by the office."
-          icon={ShieldCheck}
-        >
-          <div className="grid gap-3 md:grid-cols-3">
-            {(["PRIVATE", "BUSINESS", "TRADE"] as AccountType[]).map(
-              (type) => {
-                const active = form.accountType === type;
-                const Icon = type === "PRIVATE" ? UserRound : Building2;
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_390px]">
+        <div className="space-y-6">
+          <Section title="Journey details" icon={MapPin}>
+            {customer?.savedRoutes?.length ? (
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-700">Use a saved route</span>
+                <select
+                  defaultValue=""
+                  onChange={(event) => useSavedRoute(event.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
+                >
+                  <option value="">Choose saved route</option>
+                  {customer.savedRoutes.map((route) => (
+                    <option key={route.id} value={route.id}>
+                      {route.name || `${route.collectionAddress} → ${route.deliveryAddress}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => changeAccountType(type)}
-                    aria-pressed={active}
-                    className={[
-                      "flex items-center gap-3 rounded-2xl border p-4 text-left transition",
-                      active
-                        ? "border-[#FF6A00] bg-orange-50 ring-2 ring-orange-100"
-                        : "border-slate-200 bg-white hover:border-slate-300",
-                    ].join(" ")}
-                  >
-                    <span
-                      className={[
-                        "flex h-11 w-11 items-center justify-center rounded-xl",
-                        active
-                          ? "bg-[#FF6A00] text-white"
-                          : "bg-slate-100 text-slate-600",
-                      ].join(" ")}
-                    >
-                      <Icon size={21} />
-                    </span>
-                    <span>
-                      <span className="block font-bold text-slate-950">
-                        {type === "PRIVATE"
-                          ? "Private customer"
-                          : type === "BUSINESS"
-                            ? "Business account"
-                            : "Trade account"}
-                      </span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">
-                        {type === "PRIVATE"
-                          ? "Individual customer"
-                          : type === "BUSINESS"
-                            ? "Business paying normally"
-                            : "Business with credit terms"}
-                      </span>
-                    </span>
-                  </button>
-                );
-              },
-            )}
-          </div>
-        </Section>
-
-        <Section
-          title="Customer identity"
-          description="Core customer and contact information."
-          icon={UserRound}
-        >
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            <Field
-              label="Customer display name"
-              value={form.name}
-              onChange={(value) => updateField("name", value)}
-              placeholder="Customer or account name"
-            />
-            <Field
-              label="First name"
-              value={form.firstName}
-              onChange={(value) => updateField("firstName", value)}
-            />
-            <Field
-              label="Last name"
-              value={form.lastName}
-              onChange={(value) => updateField("lastName", value)}
-            />
-            {!isPrivate ? (
-              <>
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              <SelectField
+                label="Journey type"
+                value={form.journeyType}
+                onChange={(value) => update("journeyType", value as FormState["journeyType"])}
+                options={["One Way", "Return"]}
+              />
+              <SelectField
+                label="Delivery service"
+                value={form.deliveryType}
+                onChange={(value) => update("deliveryType", value)}
+                options={["Standard", "Same Day", "Next Day", "Timed"]}
+              />
+              <Field
+                label="Collection address"
+                value={form.collectionAddress}
+                onChange={(value) => update("collectionAddress", value)}
+                required
+              />
+              <Field
+                label="Delivery address"
+                value={form.deliveryAddress}
+                onChange={(value) => update("deliveryAddress", value)}
+                required
+              />
+              {form.journeyType === "Return" ? (
                 <Field
-                  label="Business name"
-                  value={form.companyName}
-                  onChange={(value) => updateField("companyName", value)}
+                  label="Return address"
+                  value={form.returnAddress}
+                  onChange={(value) => update("returnAddress", value)}
                   required
                 />
-                <Field
-                  label="Legal entity"
-                  value={form.legalEntity}
-                  onChange={(value) => updateField("legalEntity", value)}
-                />
-                <Field
-                  label="Trading name"
-                  value={form.tradingName}
-                  onChange={(value) => updateField("tradingName", value)}
-                />
-              </>
-            ) : null}
-            <Field
-              label="Main person to contact"
-              value={form.mainContactName}
-              onChange={(value) => updateField("mainContactName", value)}
-              required
-            />
-            <Field
-              label="Job title"
-              value={form.jobTitle}
-              onChange={(value) => updateField("jobTitle", value)}
-            />
-          </div>
-        </Section>
-
-        <Section
-          title="Contact details"
-          description="General and accounts contact information."
-          icon={UserRound}
-        >
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            <Field
-              label="General email address"
-              type="email"
-              value={form.email}
-              onChange={(value) => updateField("email", value)}
-              required
-            />
-            <Field
-              label="Accounts email address"
-              type="email"
-              value={form.accountsEmail}
-              onChange={(value) => updateField("accountsEmail", value)}
-              required={!isPrivate}
-            />
-            <Field
-              label="Contact number"
-              value={form.phone}
-              onChange={(value) => updateField("phone", value)}
-              required
-            />
-            <Field
-              label="Alternative contact number"
-              value={form.alternativeContactNumber}
-              onChange={(value) =>
-                updateField("alternativeContactNumber", value)
-              }
-            />
-            <Field
-              label="Username"
-              value={form.username}
-              onChange={(value) => updateField("username", value)}
-              hint="Optional customer portal username"
-            />
-            <Field
-              label="Temporary password"
-              type="password"
-              value={form.password}
-              onChange={(value) => updateField("password", value)}
-              hint="Optional. Minimum 10 characters when supplied."
-            />
-            <Field
-              label="Confirm temporary password"
-              type="password"
-              value={form.confirmPassword}
-              onChange={(value) => updateField("confirmPassword", value)}
-              hint="Must match the temporary password."
-            />
-          </div>
-        </Section>
-
-        {!isPrivate ? (
-          <Section
-            title="Business details"
-            description="Company registration, VAT and trading details."
-            icon={Building2}
-          >
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              <Field
-                label="Companies House number"
-                value={form.companyRegistrationNumber}
-                onChange={(value) =>
-                  updateField("companyRegistrationNumber", value)
-                }
-              />
-              <Field
-                label="VAT number"
-                value={form.vatNumber}
-                onChange={(value) => updateField("vatNumber", value)}
-              />
-              <Field
-                label="Business type"
-                value={form.businessType}
-                onChange={(value) => updateField("businessType", value)}
-              />
-              <Field
-                label="Industry"
-                value={form.industry}
-                onChange={(value) => updateField("industry", value)}
-              />
-              <Field
-                label="Company website"
-                value={form.companyWebsite}
-                onChange={(value) => updateField("companyWebsite", value)}
-                placeholder="example.co.uk"
-              />
-              <Field
-                label="Estimated shipments per month"
-                value={form.estimatedShipmentsPerMonth}
-                onChange={(value) =>
-                  updateField("estimatedShipmentsPerMonth", value)
-                }
-              />
-              <Field
-                label="Typical shipment type"
-                value={form.typicalShipmentType}
-                onChange={(value) =>
-                  updateField("typicalShipmentType", value)
-                }
-              />
+              ) : null}
             </div>
 
-            {isTrade ? (
-              <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-800">
-                A trade-account record will be created automatically with
-                pending approval status. Credit limit and payment terms can be
-                managed from Trade Accounts.
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-700">Extra stops</p>
+                <button
+                  type="button"
+                  onClick={() => setExtraStops((current) => [...current, ""])}
+                  className="inline-flex items-center gap-2 text-sm font-bold text-[#E55300]"
+                >
+                  <PlusCircle size={17} /> Add stop
+                </button>
               </div>
-            ) : null}
+              {extraStops.map((stop, index) => (
+                <div key={index} className="flex gap-3">
+                  <input
+                    value={stop}
+                    onChange={(event) =>
+                      setExtraStops((current) =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? event.target.value : item,
+                        ),
+                      )
+                    }
+                    placeholder={`Extra stop ${index + 1}`}
+                    className="min-w-0 flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtraStops((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                    }
+                    className="rounded-xl border border-red-200 px-3 text-red-600"
+                    aria-label={`Remove stop ${index + 1}`}
+                  >
+                    <MinusCircle size={19} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </Section>
-        ) : null}
 
-        <Section
-          title="Registered office address"
-          description={
-            isPrivate
-              ? "Primary customer address."
-              : "Registered office address for the business."
-          }
-          icon={Building2}
-        >
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            <Field
-              label="Address line 1"
-              value={form.registeredAddressLine1}
-              onChange={(value) =>
-                updateField("registeredAddressLine1", value)
-              }
-              required
-            />
-            <Field
-              label="Address line 2"
-              value={form.registeredAddressLine2}
-              onChange={(value) =>
-                updateField("registeredAddressLine2", value)
-              }
-            />
-            <Field
-              label="Town / City"
-              value={form.registeredTownCity}
-              onChange={(value) =>
-                updateField("registeredTownCity", value)
-              }
-              required
-            />
-            <Field
-              label="County"
-              value={form.registeredCounty}
-              onChange={(value) => updateField("registeredCounty", value)}
-            />
-            <Field
-              label="Postcode"
-              value={form.registeredPostcode}
-              onChange={(value) => updateField("registeredPostcode", value)}
-              required
-            />
-            <Field
-              label="Country"
-              value={form.registeredCountry}
-              onChange={(value) => updateField("registeredCountry", value)}
-              required
-            />
-          </div>
-        </Section>
-
-        {!isPrivate ? (
-          <Section
-            title="Trading address"
-            description="Use a separate trading address when required."
-            icon={Building2}
-          >
-            <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <input
-                type="checkbox"
-                checked={form.tradingAddressDifferent}
-                onChange={(event) => {
-                  if (event.target.checked) {
-                    updateField("tradingAddressDifferent", true);
-                  } else {
-                    copyRegisteredAddress();
-                  }
-                }}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#FF6A00] focus:ring-orange-200"
+          <Section title="Vehicle, date and time" icon={Truck}>
+            <div className="grid gap-5 md:grid-cols-3">
+              <SelectField
+                label="Vehicle type"
+                value={form.vehicleSize}
+                onChange={(value) => update("vehicleSize", value)}
+                options={VEHICLES}
               />
-              <span>
-                <span className="block font-bold text-slate-950">
-                  Trading address is different
-                </span>
-                <span className="mt-1 block text-sm text-slate-500">
-                  Tick this box to enter a separate trading address.
-                </span>
-              </span>
-            </label>
-
-            {form.tradingAddressDifferent ? (
-              <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                <Field
-                  label="Address line 1"
-                  value={form.tradingAddressLine1}
-                  onChange={(value) =>
-                    updateField("tradingAddressLine1", value)
-                  }
-                  required
-                />
-                <Field
-                  label="Address line 2"
-                  value={form.tradingAddressLine2}
-                  onChange={(value) =>
-                    updateField("tradingAddressLine2", value)
-                  }
-                />
-                <Field
-                  label="Town / City"
-                  value={form.tradingTownCity}
-                  onChange={(value) =>
-                    updateField("tradingTownCity", value)
-                  }
-                  required
-                />
-                <Field
-                  label="County"
-                  value={form.tradingCounty}
-                  onChange={(value) =>
-                    updateField("tradingCounty", value)
-                  }
-                />
-                <Field
-                  label="Postcode"
-                  value={form.tradingPostcode}
-                  onChange={(value) =>
-                    updateField("tradingPostcode", value)
-                  }
-                  required
-                />
-                <Field
-                  label="Country"
-                  value={form.tradingCountry}
-                  onChange={(value) =>
-                    updateField("tradingCountry", value)
-                  }
-                  required
-                />
-              </div>
-            ) : null}
+              <Field
+                label="Collection date"
+                type="datetime-local"
+                value={form.collectionDate}
+                onChange={(value) => update("collectionDate", value)}
+                required
+              />
+              <SelectField
+                label="Time window"
+                value={form.collectionWindow}
+                onChange={(value) => update("collectionWindow", value)}
+                options={WINDOWS}
+                placeholder="Choose window"
+              />
+            </div>
           </Section>
-        ) : null}
 
-        <Section
-          title="Internal office notes"
-          description="Optional information visible to office staff."
-          icon={ShieldCheck}
-        >
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-slate-700">
-              Notes about the customer
-            </span>
-            <textarea
-              value={form.internalNote}
-              onChange={(event) =>
-                updateField("internalNote", event.target.value)
-              }
-              rows={6}
-              className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-              placeholder="Account preferences, billing instructions, operational requirements or other office notes"
-            />
-          </label>
-        </Section>
+          <Section title="Customer reference and notes" icon={Save}>
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field
+                label="Customer reference"
+                value={form.customerReference}
+                onChange={(value) => update("customerReference", value)}
+              />
+              <Field
+                label="Purchase order number"
+                value={form.purchaseOrderNumber}
+                onChange={(value) => update("purchaseOrderNumber", value)}
+              />
+            </div>
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-bold text-slate-700">Quote notes / special instructions</span>
+              <textarea
+                rows={5}
+                value={form.specialInstructions}
+                onChange={(event) => update("specialInstructions", event.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm"
+              />
+            </label>
+          </Section>
 
-        <div className="sticky bottom-4 z-20 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-500">
-            This creates a permanent customer record linked to future quotes,
-            bookings, invoices and payments.
-          </p>
-
-          <div className="flex gap-3">
-            <Link
-              href="/admin/customers"
-              className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" />
-                  Saving customer
-                </>
-              ) : (
-                <>
-                  <Save size={18} />
-                  Save customer account
-                </>
-              )}
-            </button>
-          </div>
+          <Section title="Discount" icon={Calculator}>
+            <div className="grid gap-5 md:grid-cols-3">
+              <SelectField
+                label="Discount type"
+                value={form.discountType}
+                onChange={(value) => update("discountType", value as FormState["discountType"])}
+                options={["NONE", "FIXED", "PERCENTAGE"]}
+              />
+              <Field
+                label={form.discountType === "PERCENTAGE" ? "Discount percentage" : "Discount amount"}
+                type="number"
+                value={form.discountValue}
+                onChange={(value) => update("discountValue", value)}
+                disabled={form.discountType === "NONE"}
+              />
+              <Field
+                label="Discount reason"
+                value={form.discountReason}
+                onChange={(value) => update("discountReason", value)}
+                disabled={form.discountType === "NONE"}
+              />
+            </div>
+          </Section>
         </div>
-      </form>
+
+        <aside className="space-y-6">
+          <section className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-slate-950">Quote calculation</h2>
+            <p className="mt-2 text-sm text-slate-500">
+              Calculation uses the configured pricing engine and the routed journey distance.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => void calculate()}
+              disabled={calculating || saving || customer?.accountStatus !== "ACTIVE"}
+              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {calculating ? <Loader2 size={18} className="animate-spin" /> : <Calculator size={18} />}
+              Calculate journey and price
+            </button>
+
+            {calculation ? (
+              <div className="mt-6 space-y-3 border-t border-slate-200 pt-5">
+                <PriceRow label="Journey distance" value={`${calculation.distanceMiles.toFixed(1)} miles`} />
+                <PriceRow
+                  label="Journey time"
+                  value={
+                    calculation.durationMinutes === null
+                      ? "Not returned"
+                      : `${Math.floor(calculation.durationMinutes / 60)}h ${calculation.durationMinutes % 60}m`
+                  }
+                />
+                <PriceRow label="Extra stops" value={String(calculation.extraDropCount)} />
+                <PriceRow label="Base price" value={money(calculation.basePrice)} />
+                <PriceRow label="Fuel surcharge" value={money(calculation.fuelSurcharge)} />
+                <PriceRow label="Admin price" value={money(calculation.adminPrice)} />
+                <PriceRow label="Discount" value={`−${money(calculation.discountAmount)}`} />
+                <PriceRow label="VAT" value={money(calculation.vatAmount)} />
+                <div className="flex items-center justify-between border-t border-slate-200 pt-4 text-lg font-bold text-slate-950">
+                  <span>Total</span>
+                  <span>{money(calculation.totalPrice)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-2xl bg-slate-50 p-5 text-center text-sm text-slate-500">
+                Complete the form, then calculate the quote.
+              </div>
+            )}
+
+            <div className="mt-6 grid gap-3">
+              <button
+                type="button"
+                onClick={() => void createQuote(false)}
+                disabled={saving || !calculation}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                Save quote to account
+              </button>
+              <button
+                type="button"
+                onClick={() => void createQuote(true)}
+                disabled={saving || !calculation}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+                Save and send quote
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
 
 function Section({
   title,
-  description,
   icon: Icon,
   children,
 }: {
   title: string;
-  description: string;
-  icon: typeof UserRound;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex items-start gap-4 border-b border-slate-200 pb-5">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={21} />
-        </span>
-        <div>
-          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-500">
-            {description}
-          </p>
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex items-center gap-3">
+        <div className="rounded-xl bg-orange-50 p-2.5 text-[#E55300]">
+          <Icon size={20} />
         </div>
+        <h2 className="text-xl font-bold text-slate-950">{title}</h2>
       </div>
-
-      <div className="mt-5">{children}</div>
+      {children}
     </section>
   );
 }
@@ -899,40 +646,72 @@ function Field({
   value,
   onChange,
   type = "text",
-  placeholder,
-  hint,
   required = false,
-  autoComplete,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
-  placeholder?: string;
-  hint?: string;
   required?: boolean;
-  autoComplete?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-        {required ? <span className="ml-1 text-red-500">*</span> : null}
+        {label} {required ? <span className="text-red-500">*</span> : null}
       </span>
       <input
         type={type}
         value={value}
-        required={required}
-        autoComplete={autoComplete}
-        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+        required={required}
+        disabled={disabled}
+        min={type === "number" ? "0" : undefined}
+        step={type === "number" ? "0.01" : undefined}
+        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm disabled:bg-slate-100"
       />
-      {hint ? (
-        <span className="mt-1.5 block text-xs leading-5 text-slate-400">
-          {hint}
-        </span>
-      ) : null}
     </label>
   );
-} 
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"
+      >
+        {placeholder ? <option value="">{placeholder}</option> : null}
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option.replaceAll("_", " ")}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function PriceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 text-sm">
+      <span className="text-slate-500">{label}</span>
+      <span className="font-semibold text-slate-800">{value}</span>
+    </div>
+  );
+}
