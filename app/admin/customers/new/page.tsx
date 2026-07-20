@@ -133,6 +133,38 @@ export default function NewCustomerPage() {
     }));
   }
 
+  function changeAccountType(accountType: AccountType) {
+    setError("");
+    setSuccess("");
+
+    setForm((current) => ({
+      ...current,
+      accountType,
+      ...(accountType === "PRIVATE"
+        ? {
+            companyName: "",
+            legalEntity: "",
+            tradingName: "",
+            accountsEmail: "",
+            companyRegistrationNumber: "",
+            vatNumber: "",
+            businessType: "",
+            industry: "",
+            companyWebsite: "",
+            tradingAddressDifferent: false,
+            tradingAddressLine1: "",
+            tradingAddressLine2: "",
+            tradingTownCity: "",
+            tradingCounty: "",
+            tradingPostcode: "",
+            tradingCountry: "United Kingdom",
+            estimatedShipmentsPerMonth: "",
+            typicalShipmentType: "",
+          }
+        : {}),
+    }));
+  }
+
   function copyRegisteredAddress() {
     setForm((current) => ({
       ...current,
@@ -218,6 +250,17 @@ export default function NewCustomerPage() {
       )
     ) {
       setError("Complete the separate trading address.");
+      return;
+    }
+
+    const username = form.username.trim().toLowerCase();
+    const hasUsername = Boolean(username);
+    const hasPassword = Boolean(form.password);
+
+    if (hasUsername !== hasPassword) {
+      setError(
+        "Enter both a portal username and temporary password, or leave both blank.",
+      );
       return;
     }
 
@@ -311,7 +354,7 @@ export default function NewCustomerPage() {
             ? null
             : form.typicalShipmentType.trim() || null,
           internalNote: form.internalNote.trim() || null,
-          username: form.username.trim().toLowerCase() || null,
+          username: username || null,
           password: form.password || undefined,
         }),
       });
@@ -413,7 +456,8 @@ export default function NewCustomerPage() {
                   <button
                     key={type}
                     type="button"
-                    onClick={() => updateField("accountType", type)}
+                    onClick={() => changeAccountType(type)}
+                    aria-pressed={active}
                     className={[
                       "flex items-center gap-3 rounded-2xl border p-4 text-left transition",
                       active
@@ -528,6 +572,7 @@ export default function NewCustomerPage() {
               type="email"
               value={form.accountsEmail}
               onChange={(value) => updateField("accountsEmail", value)}
+              required={!isPrivate}
             />
             <Field
               label="Contact number"
@@ -674,6 +719,7 @@ export default function NewCustomerPage() {
               label="Country"
               value={form.registeredCountry}
               onChange={(value) => updateField("registeredCountry", value)}
+              required
             />
           </div>
         </Section>
@@ -753,6 +799,7 @@ export default function NewCustomerPage() {
                   onChange={(value) =>
                     updateField("tradingCountry", value)
                   }
+                  required
                 />
               </div>
             ) : null}
@@ -855,6 +902,7 @@ function Field({
   placeholder,
   hint,
   required = false,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -863,6 +911,7 @@ function Field({
   placeholder?: string;
   hint?: string;
   required?: boolean;
+  autoComplete?: string;
 }) {
   return (
     <label className="block">
@@ -874,6 +923,7 @@ function Field({
         type={type}
         value={value}
         required={required}
+        autoComplete={autoComplete}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"

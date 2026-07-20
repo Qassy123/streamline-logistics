@@ -13,6 +13,10 @@ function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getRawString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function getOptionalString(value: unknown) {
   const cleanValue = getString(value);
   return cleanValue || null;
@@ -391,6 +395,12 @@ router.post("/", async (req, res) => {
     const mainContactName =
       getOptionalString(req.body.mainContactName) || name;
 
+    const companyRegistrationNumber = getOptionalString(
+      req.body.companyRegistrationNumber,
+    )?.toUpperCase() || null;
+    const vatNumber =
+      getOptionalString(req.body.vatNumber)?.toUpperCase() || null;
+
     const registeredAddressLine1 = getString(
       req.body.registeredAddressLine1,
     );
@@ -520,7 +530,16 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const password = getString(req.body.password);
+    const password = getRawString(req.body.password);
+    const hasUsername = Boolean(username);
+    const hasPassword = Boolean(password);
+
+    if (hasUsername !== hasPassword) {
+      return res.status(400).json({
+        error:
+          "Enter both a portal username and temporary password, or leave both blank.",
+      });
+    }
 
     if (password && password.length < 10) {
       return res.status(400).json({
@@ -549,10 +568,8 @@ router.post("/", async (req, res) => {
         legalEntity:
           getOptionalString(req.body.legalEntity) || companyName,
         tradingName: getOptionalString(req.body.tradingName),
-        companyRegistrationNumber: getOptionalString(
-          req.body.companyRegistrationNumber,
-        ),
-        vatNumber: getOptionalString(req.body.vatNumber),
+        companyRegistrationNumber,
+        vatNumber,
         businessType: getOptionalString(req.body.businessType),
         industry: getOptionalString(req.body.industry),
         companyWebsite: getOptionalString(req.body.companyWebsite),
@@ -578,12 +595,14 @@ router.post("/", async (req, res) => {
         tradingAddressDifferent,
         tradingAddressLine1:
           tradingAddressDifferent ? tradingAddressLine1 : null,
-        tradingAddressLine2: getOptionalString(
-          req.body.tradingAddressLine2,
-        ),
+        tradingAddressLine2: tradingAddressDifferent
+          ? getOptionalString(req.body.tradingAddressLine2)
+          : null,
         tradingTownCity:
           tradingAddressDifferent ? tradingTownCity : null,
-        tradingCounty: getOptionalString(req.body.tradingCounty),
+        tradingCounty: tradingAddressDifferent
+          ? getOptionalString(req.body.tradingCounty)
+          : null,
         tradingPostcode:
           tradingAddressDifferent ? tradingPostcode : null,
         tradingCountry:
@@ -612,10 +631,8 @@ router.post("/", async (req, res) => {
                 create: {
                   companyName: companyName || name,
                   tradingName: getOptionalString(req.body.tradingName),
-                  companyRegistrationNumber: getOptionalString(
-                    req.body.companyRegistrationNumber,
-                  ),
-                  vatNumber: getOptionalString(req.body.vatNumber),
+                  companyRegistrationNumber,
+                  vatNumber,
                   registeredAddressLine1,
                   registeredAddressLine2: getOptionalString(
                     req.body.registeredAddressLine2,
@@ -629,14 +646,14 @@ router.post("/", async (req, res) => {
                   tradingAddressDifferent,
                   tradingAddressLine1:
                     tradingAddressDifferent ? tradingAddressLine1 : null,
-                  tradingAddressLine2: getOptionalString(
-                    req.body.tradingAddressLine2,
-                  ),
+                  tradingAddressLine2: tradingAddressDifferent
+                    ? getOptionalString(req.body.tradingAddressLine2)
+                    : null,
                   tradingTownCity:
                     tradingAddressDifferent ? tradingTownCity : null,
-                  tradingCounty: getOptionalString(
-                    req.body.tradingCounty,
-                  ),
+                  tradingCounty: tradingAddressDifferent
+                    ? getOptionalString(req.body.tradingCounty)
+                    : null,
                   tradingPostcode:
                     tradingAddressDifferent ? tradingPostcode : null,
                   tradingCountry:
