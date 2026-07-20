@@ -26,8 +26,11 @@ import {
 } from "react";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000";
+  (
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "https://streamline-logistics-production.up.railway.app"
+  ).replace(/\/$/, "");
 
 type SearchEntity =
   | ""
