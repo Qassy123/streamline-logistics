@@ -524,12 +524,19 @@ router.post("/create-checkout-session", async (req, res) => {
       where: {
         id: quoteId,
       },
+      include: {
+        user: { select: { accountStatus: true } },
+      },
     });
 
     if (!quote) {
       return res.status(404).json({
         error: "Quote not found",
       });
+    }
+
+    if (quote.user && quote.user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({ error: "This customer account is not active. Checkout is unavailable." });
     }
 
     if (!quote.totalPrice) {

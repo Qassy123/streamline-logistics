@@ -833,6 +833,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       },
       include: {
         booking: true,
+        user: { select: { accountStatus: true } },
       },
     });
 
@@ -840,6 +841,10 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       return res.status(404).json({
         error: "Quote not found",
       });
+    }
+
+    if (quote.user && quote.user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({ error: "This customer account is not active. New bookings cannot be created." });
     }
 
     if (quote.booking) {

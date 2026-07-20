@@ -461,14 +461,39 @@ export default function CustomerProfilePage() {
   }
 
   async function changeStatus(status: AccountStatus) {
-    if (!form) return;
+    if (!form || !customerId) return;
 
-    updateField("accountStatus", status);
+    const reason =
+      status === "ACTIVE"
+        ? window.prompt("Optional reactivation note:", "") || ""
+        : window.prompt(
+            status === "SUSPENDED"
+              ? "Enter the reason for suspending this account:"
+              : "Enter the reason for marking this account inactive:",
+            "",
+          );
+
+    const trimmedReason = reason?.trim() ?? "";
+
+    if (status !== "ACTIVE" && trimmedReason.length < 5) {
+      setError("A reason of at least five characters is required.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      status === "ACTIVE"
+        ? "Reactivate this customer account?"
+        : status === "SUSPENDED"
+          ? "Suspend this account? The customer will be blocked from new quotes, bookings and checkout."
+          : "Mark this account inactive?",
+    );
+
+    if (!confirmed) return;
 
     const adminKey =
       window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
 
-    if (!adminKey || !customerId) {
+    if (!adminKey) {
       setError("Admin key is required.");
       return;
     }
@@ -478,16 +503,17 @@ export default function CustomerProfilePage() {
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/customers/${customerId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
+      const response = await fetch(
+        `${API_BASE}/api/admin/customers/${customerId}/status`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({ status, reason: trimmedReason }),
         },
-        body: JSON.stringify({
-          accountStatus: status,
-        }),
-      });
+      );
 
       const payload = (await response.json()) as CustomerPayload;
 
@@ -869,8 +895,12 @@ export default function CustomerProfilePage() {
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-bold text-slate-950">Quick actions</h2>
             <div className="mt-4 space-y-3">
-              <QuickLink href="/admin/quotes" label="Create quote" icon={ReceiptText} />
-              <QuickLink href="/admin/planning-board" label="Create booking" icon={ClipboardList} />
+              {customer.accountStatus === "ACTIVE" ? (
+                <QuickLink href="/admin/quotes" label="Create quote" icon={ReceiptText} />
+              ) : null}
+              {customer.accountStatus === "ACTIVE" ? (
+                <QuickLink href="/admin/planning-board" label="Create booking" icon={ClipboardList} />
+              ) : null}
               <QuickLink href={`/admin/customers/${customer.id}/invoices`} label="View invoices" icon={FileText} />
               <QuickLink href={`/admin/customers/${customer.id}/payments`} label="View payments" icon={WalletCards} />
             </div>

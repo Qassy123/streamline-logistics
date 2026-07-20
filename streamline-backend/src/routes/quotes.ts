@@ -880,6 +880,10 @@ router.post("/", async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
 
+    if (user && user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({ error: "This customer account is not active. New quotes cannot be created." });
+    }
+
     let distanceMiles: number | null = null;
     let durationMinutes: number | null = null;
     let distanceSource = "fallback";

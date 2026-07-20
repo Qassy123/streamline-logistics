@@ -13,10 +13,6 @@ function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getRawString(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
 function getOptionalString(value: unknown) {
   const cleanValue = getString(value);
   return cleanValue || null;
@@ -395,12 +391,6 @@ router.post("/", async (req, res) => {
     const mainContactName =
       getOptionalString(req.body.mainContactName) || name;
 
-    const companyRegistrationNumber = getOptionalString(
-      req.body.companyRegistrationNumber,
-    )?.toUpperCase() || null;
-    const vatNumber =
-      getOptionalString(req.body.vatNumber)?.toUpperCase() || null;
-
     const registeredAddressLine1 = getString(
       req.body.registeredAddressLine1,
     );
@@ -530,16 +520,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const password = getRawString(req.body.password);
-    const hasUsername = Boolean(username);
-    const hasPassword = Boolean(password);
-
-    if (hasUsername !== hasPassword) {
-      return res.status(400).json({
-        error:
-          "Enter both a portal username and temporary password, or leave both blank.",
-      });
-    }
+    const password = getString(req.body.password);
 
     if (password && password.length < 10) {
       return res.status(400).json({
@@ -568,8 +549,10 @@ router.post("/", async (req, res) => {
         legalEntity:
           getOptionalString(req.body.legalEntity) || companyName,
         tradingName: getOptionalString(req.body.tradingName),
-        companyRegistrationNumber,
-        vatNumber,
+        companyRegistrationNumber: getOptionalString(
+          req.body.companyRegistrationNumber,
+        ),
+        vatNumber: getOptionalString(req.body.vatNumber),
         businessType: getOptionalString(req.body.businessType),
         industry: getOptionalString(req.body.industry),
         companyWebsite: getOptionalString(req.body.companyWebsite),
@@ -595,14 +578,12 @@ router.post("/", async (req, res) => {
         tradingAddressDifferent,
         tradingAddressLine1:
           tradingAddressDifferent ? tradingAddressLine1 : null,
-        tradingAddressLine2: tradingAddressDifferent
-          ? getOptionalString(req.body.tradingAddressLine2)
-          : null,
+        tradingAddressLine2: getOptionalString(
+          req.body.tradingAddressLine2,
+        ),
         tradingTownCity:
           tradingAddressDifferent ? tradingTownCity : null,
-        tradingCounty: tradingAddressDifferent
-          ? getOptionalString(req.body.tradingCounty)
-          : null,
+        tradingCounty: getOptionalString(req.body.tradingCounty),
         tradingPostcode:
           tradingAddressDifferent ? tradingPostcode : null,
         tradingCountry:
@@ -631,8 +612,10 @@ router.post("/", async (req, res) => {
                 create: {
                   companyName: companyName || name,
                   tradingName: getOptionalString(req.body.tradingName),
-                  companyRegistrationNumber,
-                  vatNumber,
+                  companyRegistrationNumber: getOptionalString(
+                    req.body.companyRegistrationNumber,
+                  ),
+                  vatNumber: getOptionalString(req.body.vatNumber),
                   registeredAddressLine1,
                   registeredAddressLine2: getOptionalString(
                     req.body.registeredAddressLine2,
@@ -646,14 +629,14 @@ router.post("/", async (req, res) => {
                   tradingAddressDifferent,
                   tradingAddressLine1:
                     tradingAddressDifferent ? tradingAddressLine1 : null,
-                  tradingAddressLine2: tradingAddressDifferent
-                    ? getOptionalString(req.body.tradingAddressLine2)
-                    : null,
+                  tradingAddressLine2: getOptionalString(
+                    req.body.tradingAddressLine2,
+                  ),
                   tradingTownCity:
                     tradingAddressDifferent ? tradingTownCity : null,
-                  tradingCounty: tradingAddressDifferent
-                    ? getOptionalString(req.body.tradingCounty)
-                    : null,
+                  tradingCounty: getOptionalString(
+                    req.body.tradingCounty,
+                  ),
                   tradingPostcode:
                     tradingAddressDifferent ? tradingPostcode : null,
                   tradingCountry:
@@ -773,6 +756,99 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({
       error: "Unable to load customer account.",
     });
+  }
+});
+
+
+router.post("/:id/status", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const statusValue = getString(req.body.status).toUpperCase();
+    const reason = getString(req.body.reason);
+
+    if (!isAccountStatus(statusValue)) {
+      return res.status(400).json({ error: "Invalid account status." });
+    }
+
+    if (statusValue !== AccountStatus.ACTIVE && reason.length < 5) {
+      return res.status(400).json({
+        error: "A reason of at least five characters is required when restricting an account.",
+      });
+    }
+
+    const existingCustomer = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: { tradeAccount: true },
+    });
+
+    if (!existingCustomer) {
+      return res.status(404).json({ error: "Customer account not found." });
+    }
+
+    const customer = await prisma.$transaction(async (transaction) => {
+      await transaction.user.update({
+        where: { id: existingCustomer.id },
+        data: { accountStatus: statusValue as AccountStatus },
+      });
+
+      if (existingCustomer.tradeAccount) {
+        if (statusValue === AccountStatus.SUSPENDED) {
+          await transaction.tradeAccount.update({
+            where: { id: existingCustomer.tradeAccount.id },
+            data: {
+              status: "SUSPENDED",
+              suspendedAt: new Date(),
+            },
+          });
+        } else if (statusValue === AccountStatus.ACTIVE && existingCustomer.tradeAccount.status === "SUSPENDED") {
+          await transaction.tradeAccount.update({
+            where: { id: existingCustomer.tradeAccount.id },
+            data: {
+              status: "APPROVED",
+              reactivatedAt: new Date(),
+            },
+          });
+        }
+      }
+
+      await transaction.customerNote.create({
+        data: {
+          userId: existingCustomer.id,
+          body:
+            statusValue === AccountStatus.ACTIVE
+              ? `Account reactivated.${reason ? ` Reason: ${reason}` : ""}`
+              : `Account changed to ${statusValue}. Reason: ${reason}`,
+        },
+      });
+
+      return transaction.user.findUnique({
+        where: { id: existingCustomer.id },
+        select: {
+          ...customerSelect(),
+          notes: { orderBy: { createdAt: "desc" } },
+          documents: { orderBy: { createdAt: "desc" } },
+          quotes: { orderBy: { createdAt: "desc" }, take: 20 },
+          bookings: {
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            include: { vehicle: true, driver: true },
+          },
+          invoices: { orderBy: { createdAt: "desc" }, take: 20 },
+          payments: { orderBy: { createdAt: "desc" }, take: 20 },
+          savedRoutes: { orderBy: { createdAt: "desc" }, take: 20 },
+        },
+      });
+    });
+
+    res.json({ success: true, customer });
+  } catch (error) {
+    console.error("Admin customer status update error:", error);
+    res.status(500).json({ error: "Unable to update customer account status." });
   }
 });
 
