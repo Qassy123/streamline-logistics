@@ -1,5 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import {
   AccountStatus,
   AccountType,
@@ -38,6 +39,26 @@ function getBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
   return false;
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function generateAccountNumber(transaction: Prisma.TransactionClient) {
+  const year = new Date().getFullYear();
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const accountNumber = `SL-CUS-${year}-${crypto.randomInt(100000, 1000000)}`;
+    const existing = await transaction.user.findUnique({
+      where: { accountNumber },
+      select: { id: true },
+    });
+
+    if (!existing) return accountNumber;
+  }
+
+  throw new Error("Unable to generate a unique customer account number.");
 }
 
 function isTradeAccountStatus(value: string): value is TradeAccountStatus {
@@ -238,8 +259,8 @@ router.post("/apply", async (req, res) => {
       existingUser ||
       (await prisma.user.create({
         data: {
-          accountType: AccountType.TRADE,
-          accountStatus: AccountStatus.ACTIVE,
+          accountType: AccountType.BUSINESS,
+          accountStatus: AccountStatus.INACTIVE,
           name: `${firstName} ${lastName}`.trim(),
           email,
           phone: mobileNumber,
@@ -264,25 +285,13 @@ router.post("/apply", async (req, res) => {
           registeredAddressLine2: getOptionalString(
             req.body.registeredAddressLine2,
           ),
-          registeredTownCity: getOptionalString(
-            req.body.registeredTownCity,
-          ),
+          registeredTownCity: getOptionalString(req.body.registeredTownCity),
           registeredCounty: getOptionalString(req.body.registeredCounty),
-          registeredPostcode: getOptionalString(
-            req.body.registeredPostcode,
-          ),
-          registeredCountry: getOptionalString(
-            req.body.registeredCountry,
-          ),
-          tradingAddressDifferent: getBoolean(
-            req.body.tradingAddressDifferent,
-          ),
-          tradingAddressLine1: getOptionalString(
-            req.body.tradingAddressLine1,
-          ),
-          tradingAddressLine2: getOptionalString(
-            req.body.tradingAddressLine2,
-          ),
+          registeredPostcode: getOptionalString(req.body.registeredPostcode),
+          registeredCountry: getOptionalString(req.body.registeredCountry),
+          tradingAddressDifferent: getBoolean(req.body.tradingAddressDifferent),
+          tradingAddressLine1: getOptionalString(req.body.tradingAddressLine1),
+          tradingAddressLine2: getOptionalString(req.body.tradingAddressLine2),
           tradingTownCity: getOptionalString(req.body.tradingTownCity),
           tradingCounty: getOptionalString(req.body.tradingCounty),
           tradingPostcode: getOptionalString(req.body.tradingPostcode),
@@ -290,12 +299,8 @@ router.post("/apply", async (req, res) => {
           estimatedShipmentsPerMonth: getOptionalString(
             req.body.estimatedShipmentsPerMonth,
           ),
-          typicalShipmentType: getOptionalString(
-            req.body.typicalShipmentType,
-          ),
-          authorisedToCreateAccount: getBoolean(
-            req.body.authorisedToApply,
-          ),
+          typicalShipmentType: getOptionalString(req.body.typicalShipmentType),
+          authorisedToCreateAccount: getBoolean(req.body.authorisedToApply),
           acceptedTerms: getBoolean(req.body.termsAccepted),
           acceptedPrivacy: getBoolean(req.body.privacyAccepted),
         },
@@ -305,11 +310,9 @@ router.post("/apply", async (req, res) => {
       await prisma.user.update({
         where: { id: existingUser.id },
         data: {
-          accountType: AccountType.TRADE,
-          accountStatus: AccountStatus.ACTIVE,
-          passwordHash: existingUser.passwordHash
-            ? undefined
-            : passwordHash,
+          accountType: AccountType.BUSINESS,
+          accountStatus: AccountStatus.INACTIVE,
+          passwordHash: existingUser.passwordHash ? undefined : passwordHash,
         },
       });
     }
@@ -335,35 +338,20 @@ router.post("/apply", async (req, res) => {
         registeredAddressLine2: getOptionalString(
           req.body.registeredAddressLine2,
         ),
-        registeredTownCity: getOptionalString(
-          req.body.registeredTownCity,
-        ),
+        registeredTownCity: getOptionalString(req.body.registeredTownCity),
         registeredCounty: getOptionalString(req.body.registeredCounty),
-        registeredPostcode: getOptionalString(
-          req.body.registeredPostcode,
-        ),
-        registeredCountry: getOptionalString(
-          req.body.registeredCountry,
-        ),
-        tradingAddressDifferent: getBoolean(
-          req.body.tradingAddressDifferent,
-        ),
-        tradingAddressLine1: getOptionalString(
-          req.body.tradingAddressLine1,
-        ),
-        tradingAddressLine2: getOptionalString(
-          req.body.tradingAddressLine2,
-        ),
+        registeredPostcode: getOptionalString(req.body.registeredPostcode),
+        registeredCountry: getOptionalString(req.body.registeredCountry),
+        tradingAddressDifferent: getBoolean(req.body.tradingAddressDifferent),
+        tradingAddressLine1: getOptionalString(req.body.tradingAddressLine1),
+        tradingAddressLine2: getOptionalString(req.body.tradingAddressLine2),
         tradingTownCity: getOptionalString(req.body.tradingTownCity),
         tradingCounty: getOptionalString(req.body.tradingCounty),
         tradingPostcode: getOptionalString(req.body.tradingPostcode),
         tradingCountry: getOptionalString(req.body.tradingCountry),
-        accountsContactName: getOptionalString(
-          req.body.accountsContactName,
-        ),
+        accountsContactName: getOptionalString(req.body.accountsContactName),
         accountsJobTitle: getOptionalString(req.body.accountsJobTitle),
-        accountsEmail:
-          getString(req.body.accountsEmail).toLowerCase() || null,
+        accountsEmail: getString(req.body.accountsEmail).toLowerCase() || null,
         accountsPhone: getOptionalString(req.body.accountsPhone),
         invoiceDeliveryEmail:
           getString(req.body.invoiceDeliveryEmail).toLowerCase() || null,
@@ -373,27 +361,19 @@ router.post("/apply", async (req, res) => {
         primaryEmail: email,
         primaryMobile: mobileNumber,
         requestedCreditLimit: getNumber(req.body.requestedCreditLimit),
-        expectedMonthlySpend: getOptionalString(
-          req.body.expectedMonthlySpend,
-        ),
+        expectedMonthlySpend: getOptionalString(req.body.expectedMonthlySpend),
         estimatedShipmentsPerMonth: getOptionalString(
           req.body.estimatedShipmentsPerMonth,
         ),
         preferredPaymentTerms: getOptionalString(
           req.body.preferredPaymentTerms,
         ),
-        serviceNextDayDelivery: getBoolean(
-          req.body.serviceNextDayDelivery,
-        ),
+        serviceNextDayDelivery: getBoolean(req.body.serviceNextDayDelivery),
         serviceMultiDrop: getBoolean(req.body.serviceMultiDrop),
-        serviceDedicatedVehicles: getBoolean(
-          req.body.serviceDedicatedVehicles,
-        ),
+        serviceDedicatedVehicles: getBoolean(req.body.serviceDedicatedVehicles),
         creditCheckConsent: getBoolean(req.body.creditCheckConsent),
         authorisedToApply: getBoolean(req.body.authorisedToApply),
-        creditSubjectToApproval: getBoolean(
-          req.body.creditSubjectToApproval,
-        ),
+        creditSubjectToApproval: getBoolean(req.body.creditSubjectToApproval),
         termsAccepted: getBoolean(req.body.termsAccepted),
         privacyAccepted: getBoolean(req.body.privacyAccepted),
         creditLimit: getNumber(req.body.requestedCreditLimit) || 2500,
@@ -407,8 +387,7 @@ router.post("/apply", async (req, res) => {
       userId: user.id,
       tradeAccountId: tradeAccount.id,
       status: tradeAccount.status,
-      redirectUrl:
-        "/payment-success?tradeAccountApplication=received",
+      redirectUrl: "/payment-success?tradeAccountApplication=received",
       message: "Trade account application submitted.",
     });
   } catch (error) {
@@ -419,8 +398,7 @@ router.post("/apply", async (req, res) => {
       error.code === "P2002"
     ) {
       return res.status(409).json({
-        error:
-          "A trade account application already exists for this customer.",
+        error: "A trade account application already exists for this customer.",
       });
     }
 
@@ -516,10 +494,7 @@ router.get("/admin", async (req, res) => {
       },
       summary: {
         byStatus: Object.fromEntries(
-          statusTotals.map((item) => [
-            item.status,
-            item._count._all,
-          ]),
+          statusTotals.map((item) => [item.status, item._count._all]),
         ),
       },
     });
@@ -575,39 +550,41 @@ router.patch("/admin/:id", async (req, res) => {
     });
 
     if (!existing) {
-      return res.status(404).json({
-        error: "Trade account not found.",
-      });
+      return res.status(404).json({ error: "Trade account not found." });
     }
 
     const statusValue = getString(req.body.status).toUpperCase();
+    const nextStatus = statusValue
+      ? (statusValue as TradeAccountStatus)
+      : undefined;
     const creditLimit = getNumber(req.body.creditLimit);
     const currentBalance = getNumber(req.body.currentBalance);
     const paymentTermsDays = getNumber(req.body.paymentTermsDays);
+    const rejectionReason = getString(req.body.rejectionReason);
+    const suspensionReason = getString(req.body.suspensionReason);
+    const accountsEmail = getString(req.body.accountsEmail).toLowerCase();
+    const invoiceDeliveryEmail = getString(
+      req.body.invoiceDeliveryEmail,
+    ).toLowerCase();
     const now = new Date();
 
     if (statusValue && !isTradeAccountStatus(statusValue)) {
-      return res.status(400).json({
-        error: "Invalid trade-account status.",
-      });
+      return res.status(400).json({ error: "Invalid trade-account status." });
     }
 
     if (
       req.body.creditLimit !== undefined &&
       (creditLimit === null || creditLimit < 0)
     ) {
-      return res.status(400).json({
-        error: "Credit limit must be zero or greater.",
-      });
+      return res
+        .status(400)
+        .json({ error: "Credit limit must be zero or greater." });
     }
 
-    if (
-      req.body.currentBalance !== undefined &&
-      currentBalance === null
-    ) {
-      return res.status(400).json({
-        error: "Current balance must be a valid number.",
-      });
+    if (req.body.currentBalance !== undefined && currentBalance === null) {
+      return res
+        .status(400)
+        .json({ error: "Current balance must be a valid number." });
     }
 
     if (
@@ -621,15 +598,81 @@ router.patch("/admin/:id", async (req, res) => {
       });
     }
 
-    const nextStatus = statusValue
-      ? (statusValue as TradeAccountStatus)
-      : undefined;
+    if (accountsEmail && !isValidEmail(accountsEmail)) {
+      return res
+        .status(400)
+        .json({ error: "Enter a valid accounts email address." });
+    }
 
-    const account = await prisma.$transaction(async (transaction) => {
-      const updated = await transaction.tradeAccount.update({
+    if (invoiceDeliveryEmail && !isValidEmail(invoiceDeliveryEmail)) {
+      return res.status(400).json({
+        error: "Enter a valid invoice delivery email address.",
+      });
+    }
+
+    if (
+      nextStatus === TradeAccountStatus.REJECTED &&
+      rejectionReason.length < 5
+    ) {
+      return res.status(400).json({
+        error: "A rejection reason of at least 5 characters is required.",
+      });
+    }
+
+    if (
+      nextStatus === TradeAccountStatus.SUSPENDED &&
+      suspensionReason.length < 5
+    ) {
+      return res.status(400).json({
+        error: "A suspension reason of at least 5 characters is required.",
+      });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.tradeAccount.update({
         where: { id: req.params.id },
         data: {
           status: nextStatus,
+          companyName:
+            req.body.companyName !== undefined
+              ? getString(req.body.companyName)
+              : undefined,
+          tradingName:
+            req.body.tradingName !== undefined
+              ? getOptionalString(req.body.tradingName)
+              : undefined,
+          companyRegistrationNumber:
+            req.body.companyRegistrationNumber !== undefined
+              ? getOptionalString(req.body.companyRegistrationNumber)
+              : undefined,
+          vatNumber:
+            req.body.vatNumber !== undefined
+              ? getOptionalString(req.body.vatNumber)
+              : undefined,
+          billingContactName:
+            req.body.billingContactName !== undefined
+              ? getOptionalString(req.body.billingContactName)
+              : undefined,
+          accountsContactName:
+            req.body.accountsContactName !== undefined
+              ? getOptionalString(req.body.accountsContactName)
+              : undefined,
+          accountsJobTitle:
+            req.body.accountsJobTitle !== undefined
+              ? getOptionalString(req.body.accountsJobTitle)
+              : undefined,
+          accountsEmail:
+            req.body.accountsEmail !== undefined
+              ? accountsEmail || null
+              : undefined,
+          accountsPhone:
+            req.body.accountsPhone !== undefined
+              ? getOptionalString(req.body.accountsPhone)
+              : undefined,
+          invoiceDeliveryEmail:
+            req.body.invoiceDeliveryEmail !== undefined
+              ? invoiceDeliveryEmail || null
+              : undefined,
           creditLimit:
             req.body.creditLimit !== undefined
               ? (creditLimit as number)
@@ -642,27 +685,18 @@ router.patch("/admin/:id", async (req, res) => {
             req.body.paymentTermsDays !== undefined
               ? (paymentTermsDays as number)
               : undefined,
-          billingContactName:
-            req.body.billingContactName !== undefined
-              ? getOptionalString(req.body.billingContactName)
-              : undefined,
-          accountsEmail:
-            req.body.accountsEmail !== undefined
-              ? getOptionalString(req.body.accountsEmail)?.toLowerCase() ||
-                null
-              : undefined,
-          accountsPhone:
-            req.body.accountsPhone !== undefined
-              ? getOptionalString(req.body.accountsPhone)
-              : undefined,
           rejectionReason:
-            req.body.rejectionReason !== undefined
-              ? getOptionalString(req.body.rejectionReason)
-              : undefined,
+            nextStatus === TradeAccountStatus.REJECTED
+              ? rejectionReason
+              : req.body.rejectionReason !== undefined
+                ? getOptionalString(req.body.rejectionReason)
+                : undefined,
           suspensionReason:
-            req.body.suspensionReason !== undefined
-              ? getOptionalString(req.body.suspensionReason)
-              : undefined,
+            nextStatus === TradeAccountStatus.SUSPENDED
+              ? suspensionReason
+              : req.body.suspensionReason !== undefined
+                ? getOptionalString(req.body.suspensionReason)
+                : undefined,
           approvedAt:
             nextStatus === TradeAccountStatus.APPROVED ? now : undefined,
           rejectedAt:
@@ -675,46 +709,83 @@ router.patch("/admin/:id", async (req, res) => {
               ? now
               : undefined,
         },
-        select: tradeAccountSelect(),
       });
 
+      const commonUserData = {
+        companyName:
+          req.body.companyName !== undefined
+            ? getString(req.body.companyName)
+            : undefined,
+        legalEntity:
+          req.body.companyName !== undefined
+            ? getString(req.body.companyName)
+            : undefined,
+        tradingName:
+          req.body.tradingName !== undefined
+            ? getOptionalString(req.body.tradingName)
+            : undefined,
+        companyRegistrationNumber:
+          req.body.companyRegistrationNumber !== undefined
+            ? getOptionalString(req.body.companyRegistrationNumber)
+            : undefined,
+        vatNumber:
+          req.body.vatNumber !== undefined
+            ? getOptionalString(req.body.vatNumber)
+            : undefined,
+        accountsEmail:
+          req.body.accountsEmail !== undefined
+            ? accountsEmail || null
+            : undefined,
+        mainContactName:
+          req.body.billingContactName !== undefined
+            ? getOptionalString(req.body.billingContactName)
+            : undefined,
+      } satisfies Prisma.UserUpdateInput;
+
       if (nextStatus === TradeAccountStatus.APPROVED) {
+        const accountNumber =
+          existing.user.accountNumber ||
+          (await generateAccountNumber(transaction));
         await transaction.user.update({
           where: { id: existing.userId },
           data: {
+            ...commonUserData,
+            accountNumber,
             accountType: AccountType.TRADE,
             accountStatus: AccountStatus.ACTIVE,
           },
         });
-      }
-
-      if (nextStatus === TradeAccountStatus.SUSPENDED) {
+      } else if (nextStatus === TradeAccountStatus.SUSPENDED) {
         await transaction.user.update({
           where: { id: existing.userId },
-          data: { accountStatus: AccountStatus.SUSPENDED },
+          data: { ...commonUserData, accountStatus: AccountStatus.SUSPENDED },
         });
-      }
-
-      if (nextStatus === TradeAccountStatus.REJECTED) {
+      } else if (nextStatus === TradeAccountStatus.REJECTED) {
         await transaction.user.update({
           where: { id: existing.userId },
-          data: { accountStatus: AccountStatus.INACTIVE },
+          data: {
+            ...commonUserData,
+            accountType: AccountType.BUSINESS,
+            accountStatus: AccountStatus.INACTIVE,
+          },
+        });
+      } else {
+        await transaction.user.update({
+          where: { id: existing.userId },
+          data: commonUserData,
         });
       }
-
-      return updated;
     });
 
-    res.json({
-      success: true,
-      account,
+    const account = await prisma.tradeAccount.findUnique({
+      where: { id: req.params.id },
+      select: tradeAccountSelect(),
     });
+
+    res.json({ success: true, account });
   } catch (error) {
     console.error("Admin trade-account update error:", error);
-
-    res.status(500).json({
-      error: "Unable to update trade account.",
-    });
+    res.status(500).json({ error: "Unable to update trade account." });
   }
 });
 
