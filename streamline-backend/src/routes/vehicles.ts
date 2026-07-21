@@ -2,6 +2,7 @@ import {
   BookingStatus,
   Prisma,
   ReservationStatus,
+  VehicleStatus,
 } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
@@ -11,6 +12,18 @@ const router = Router();
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
+
+const VEHICLE_TYPES = [
+  "Small Van",
+  "SWB Van",
+  "LWB High Roof Van",
+  "XLWB High Roof Van",
+  "Luton Tail Lift Van",
+] as const;
+
+function isVehicleType(value: string) {
+  return VEHICLE_TYPES.includes(value as (typeof VEHICLE_TYPES)[number]);
+}
 
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -32,6 +45,20 @@ function getPositiveInteger(value: unknown, fallback: number) {
 
   if (!Number.isFinite(parsedValue) || parsedValue < 1) {
     return fallback;
+  }
+
+  return parsedValue;
+}
+
+function getOptionalNonNegativeInteger(value: unknown) {
+  const cleanValue = getString(value);
+
+  if (!cleanValue) return null;
+
+  const parsedValue = Number.parseInt(cleanValue, 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    return null;
   }
 
   return parsedValue;
@@ -80,6 +107,7 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 
 function getVehicleOperationalState(vehicle: {
   active: boolean;
+  status: VehicleStatus;
   motExpiry: Date | null;
   insuranceExpiry: Date | null;
   serviceDueDate: Date | null;
@@ -90,7 +118,21 @@ function getVehicleOperationalState(vehicle: {
     status: ReservationStatus;
   }[];
 }) {
-  if (!vehicle.active) return "INACTIVE";
+  if (!vehicle.active || vehicle.status === VehicleStatus.INACTIVE) {
+    return "INACTIVE";
+  }
+
+  if (vehicle.status === VehicleStatus.MAINTENANCE) {
+    return "MAINTENANCE";
+  }
+
+  if (vehicle.status === VehicleStatus.OUT_ON_JOB) {
+    return "OUT_ON_JOB";
+  }
+
+  if (vehicle.status === VehicleStatus.BOOKED) {
+    return "BOOKED";
+  }
 
   const now = new Date();
 
@@ -235,7 +277,7 @@ router.get("/admin/list", async (req, res) => {
       where.active = false;
     }
 
-    const [vehicles, total, allTypes, drivers] = await Promise.all([
+    const [vehicles, total, drivers] = await Promise.all([
       prisma.vehicle.findMany({
         where,
         orderBy: [
@@ -252,15 +294,6 @@ router.get("/admin/list", async (req, res) => {
       }),
       prisma.vehicle.count({
         where,
-      }),
-      prisma.vehicle.findMany({
-        select: {
-          vehicleType: true,
-        },
-        distinct: ["vehicleType"],
-        orderBy: {
-          vehicleType: "asc",
-        },
       }),
       prisma.driver.findMany({
         where: {
@@ -349,7 +382,7 @@ router.get("/admin/list", async (req, res) => {
     res.json({
       vehicles: enrichedVehicles,
       drivers,
-      vehicleTypes: allTypes.map((item) => item.vehicleType),
+      vehicleTypes: [...VEHICLE_TYPES],
       pagination: {
         page,
         pageSize,
@@ -457,40 +490,81 @@ router.post("/admin", async (req, res) => {
   try {
     const name = getString(req.body.name);
     const vehicleType = getString(req.body.vehicleType);
-    const registration = getOptionalString(req.body.registration);
+    const registration =
+      getOptionalString(req.body.registration)?.toUpperCase() || null;
+    const status = getString(req.body.status).toUpperCase();
 
-    if (!name || !vehicleType) {
+    if (!name || !vehicleType || !registration) {
       return res.status(400).json({
-        error: "Vehicle name and type are required.",
+        error: "Vehicle name, vehicle type and registration are required.",
       });
     }
 
-    if (registration) {
-      const existingRegistration = await prisma.vehicle.findUnique({
-        where: {
-          registration,
-        },
+    if (!isVehicleType(vehicleType)) {
+      return res.status(400).json({
+        error: "Invalid vehicle type.",
       });
-
-      if (existingRegistration) {
-        return res.status(409).json({
-          error: "A vehicle already exists with this registration.",
-        });
-      }
     }
+
+    if (
+      status &&
+      !Object.values(VehicleStatus).includes(status as VehicleStatus)
+    ) {
+      return res.status(400).json({
+        error: "Invalid vehicle status.",
+      });
+    }
+
+    const existingRegistration = await prisma.vehicle.findUnique({
+      where: {
+        registration,
+      },
+    });
+
+    if (existingRegistration) {
+      return res.status(409).json({
+        error: "A vehicle already exists with this registration.",
+      });
+    }
+
+    const active =
+      req.body.active === undefined ? true : getBoolean(req.body.active);
+    const resolvedStatus = active
+      ? status
+        ? (status as VehicleStatus)
+        : VehicleStatus.AVAILABLE
+      : VehicleStatus.INACTIVE;
 
     const vehicle = await prisma.vehicle.create({
       data: {
         name,
         vehicleType,
+        vehicleCategory: getOptionalString(req.body.vehicleCategory),
+        status: resolvedStatus,
         registration,
-        active:
-          req.body.active === undefined
-            ? true
-            : getBoolean(req.body.active),
+        active,
+        make: getOptionalString(req.body.make),
+        model: getOptionalString(req.body.model),
+        colour: getOptionalString(req.body.colour),
+        fuelType: getOptionalString(req.body.fuelType),
+        engineCapacity: getOptionalString(req.body.engineCapacity),
+        co2Emissions: getOptionalString(req.body.co2Emissions),
+        dateOfFirstRegistration: getOptionalDate(
+          req.body.dateOfFirstRegistration,
+        ),
+        taxDueDate: getOptionalDate(req.body.taxDueDate),
         motExpiry: getOptionalDate(req.body.motExpiry),
+        euroEmissionsStatus: getOptionalString(
+          req.body.euroEmissionsStatus,
+        ),
+        mileage: getOptionalNonNegativeInteger(req.body.mileage),
+        insuranceProvider: getOptionalString(req.body.insuranceProvider),
+        insurancePolicyNumber: getOptionalString(
+          req.body.insurancePolicyNumber,
+        ),
         insuranceExpiry: getOptionalDate(req.body.insuranceExpiry),
         serviceDueDate: getOptionalDate(req.body.serviceDueDate),
+        maintenanceNotes: getOptionalString(req.body.maintenanceNotes),
         gpsDeviceId: getOptionalString(req.body.gpsDeviceId),
       },
     });
@@ -554,8 +628,33 @@ router.patch("/admin/:id", async (req, res) => {
 
     const registration =
       req.body.registration !== undefined
-        ? getOptionalString(req.body.registration)
+        ? getOptionalString(req.body.registration)?.toUpperCase() || null
         : undefined;
+
+    const vehicleType =
+      req.body.vehicleType !== undefined
+        ? getString(req.body.vehicleType)
+        : undefined;
+
+    const status =
+      req.body.status !== undefined
+        ? getString(req.body.status).toUpperCase()
+        : undefined;
+
+    if (vehicleType !== undefined && !isVehicleType(vehicleType)) {
+      return res.status(400).json({
+        error: "Invalid vehicle type.",
+      });
+    }
+
+    if (
+      status !== undefined &&
+      !Object.values(VehicleStatus).includes(status as VehicleStatus)
+    ) {
+      return res.status(400).json({
+        error: "Invalid vehicle status.",
+      });
+    }
 
     if (registration) {
       const duplicateRegistration = await prisma.vehicle.findFirst({
@@ -584,18 +683,75 @@ router.patch("/admin/:id", async (req, res) => {
             req.body.name !== undefined
               ? getString(req.body.name)
               : undefined,
-          vehicleType:
-            req.body.vehicleType !== undefined
-              ? getString(req.body.vehicleType)
+          vehicleType,
+          vehicleCategory:
+            req.body.vehicleCategory !== undefined
+              ? getOptionalString(req.body.vehicleCategory)
               : undefined,
+          status:
+            req.body.active !== undefined && !getBoolean(req.body.active)
+              ? VehicleStatus.INACTIVE
+              : status !== undefined
+                ? (status as VehicleStatus)
+                : req.body.active !== undefined && getBoolean(req.body.active)
+                  ? VehicleStatus.AVAILABLE
+                  : undefined,
           active:
             req.body.active !== undefined
               ? getBoolean(req.body.active)
               : undefined,
           registration,
+          make:
+            req.body.make !== undefined
+              ? getOptionalString(req.body.make)
+              : undefined,
+          model:
+            req.body.model !== undefined
+              ? getOptionalString(req.body.model)
+              : undefined,
+          colour:
+            req.body.colour !== undefined
+              ? getOptionalString(req.body.colour)
+              : undefined,
+          fuelType:
+            req.body.fuelType !== undefined
+              ? getOptionalString(req.body.fuelType)
+              : undefined,
+          engineCapacity:
+            req.body.engineCapacity !== undefined
+              ? getOptionalString(req.body.engineCapacity)
+              : undefined,
+          co2Emissions:
+            req.body.co2Emissions !== undefined
+              ? getOptionalString(req.body.co2Emissions)
+              : undefined,
+          dateOfFirstRegistration:
+            req.body.dateOfFirstRegistration !== undefined
+              ? getOptionalDate(req.body.dateOfFirstRegistration)
+              : undefined,
+          taxDueDate:
+            req.body.taxDueDate !== undefined
+              ? getOptionalDate(req.body.taxDueDate)
+              : undefined,
           motExpiry:
             req.body.motExpiry !== undefined
               ? getOptionalDate(req.body.motExpiry)
+              : undefined,
+          euroEmissionsStatus:
+            req.body.euroEmissionsStatus !== undefined
+              ? getOptionalString(req.body.euroEmissionsStatus)
+              : undefined,
+          mileage:
+            req.body.mileage !== undefined
+              ? getOptionalNonNegativeInteger(req.body.mileage)
+              : undefined,
+          insuranceProvider:
+            req.body.insuranceProvider !== undefined
+              ? getOptionalString(req.body.insuranceProvider)
+              : undefined,
+          insurancePolicyNumber:
+            req.body.insurancePolicyNumber !== undefined
+              ? getOptionalString(req.body.insurancePolicyNumber)
               : undefined,
           insuranceExpiry:
             req.body.insuranceExpiry !== undefined
@@ -604,6 +760,10 @@ router.patch("/admin/:id", async (req, res) => {
           serviceDueDate:
             req.body.serviceDueDate !== undefined
               ? getOptionalDate(req.body.serviceDueDate)
+              : undefined,
+          maintenanceNotes:
+            req.body.maintenanceNotes !== undefined
+              ? getOptionalString(req.body.maintenanceNotes)
               : undefined,
           gpsDeviceId:
             req.body.gpsDeviceId !== undefined
