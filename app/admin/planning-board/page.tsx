@@ -24,6 +24,14 @@ const API_BASE =
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 
+const VEHICLE_TYPES = [
+  "Small Van",
+  "SWB Van",
+  "LWB High Roof Van",
+  "XLWB High Roof Van",
+  "Luton Tail Lift Van",
+] as const;
+
 type Driver = {
   id: string;
   name: string;
@@ -200,7 +208,7 @@ export default function AdminPlanningBoardPage() {
           days: String(days),
           status,
           driverId: driverFilter,
-          vehicleId: vehicleFilter,
+          vehicleType: vehicleFilter,
           unassignedOnly: String(unassignedOnly),
         });
 
@@ -273,6 +281,7 @@ export default function AdminPlanningBoardPage() {
         booking.user?.name,
         booking.user?.companyName,
         booking.driver?.name,
+        booking.vehicle?.vehicleType,
         booking.vehicle?.name,
         booking.vehicle?.registration,
         booking.collectionAddress,
@@ -504,9 +513,9 @@ export default function AdminPlanningBoardPage() {
             className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
           >
             <option value="ALL">All vehicles</option>
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.name}
+            {VEHICLE_TYPES.map((vehicleType) => (
+              <option key={vehicleType} value={vehicleType}>
+                {vehicleType}
               </option>
             ))}
           </select>
@@ -641,7 +650,7 @@ export default function AdminPlanningBoardPage() {
                             Driver: {booking.driver?.name || "Unassigned"}
                           </p>
                           <p>
-                            Vehicle: {booking.vehicle?.name || "Unassigned"}
+                            Vehicle: {booking.vehicle?.vehicleType || "Unassigned"}
                           </p>
                           <p>Status: {booking.status}</p>
                         </div>
@@ -714,7 +723,7 @@ export default function AdminPlanningBoardPage() {
                   onChange={setEditVehicleId}
                   options={vehicles.map((vehicle) => ({
                     value: vehicle.id,
-                    label: `${vehicle.name}${
+                    label: `${vehicle.vehicleType}${
                       vehicle.registration
                         ? ` · ${vehicle.registration}`
                         : ""

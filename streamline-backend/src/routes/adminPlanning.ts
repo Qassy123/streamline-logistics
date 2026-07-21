@@ -179,7 +179,7 @@ router.get("/", async (req, res) => {
     const endDate = endOfRange(startDate, days);
     const status = getString(req.query.status).toUpperCase();
     const driverId = getString(req.query.driverId);
-    const vehicleId = getString(req.query.vehicleId);
+    const vehicleType = getString(req.query.vehicleType);
     const unassignedOnly = getBoolean(req.query.unassignedOnly);
 
     const where: Prisma.BookingWhereInput = {
@@ -203,8 +203,12 @@ router.get("/", async (req, res) => {
       where.driverId = driverId;
     }
 
-    if (vehicleId && vehicleId !== "ALL") {
-      where.vehicleId = vehicleId;
+    if (vehicleType && vehicleType !== "ALL") {
+      where.vehicle = {
+        is: {
+          vehicleType,
+        },
+      };
     }
 
     if (unassignedOnly) {
