@@ -685,9 +685,15 @@ router.get("/availability", async (req, res) => {
       });
     }
 
+    const companySettings = await prisma.companySettings.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { vehicleBlockHours: true },
+    });
+
     const { reservedFrom, reservedUntil } = getReservationWindow(
       collectionDate,
       collectionWindow,
+      companySettings?.vehicleBlockHours ?? 6,
     );
 
     const vehicles = await prisma.vehicle.findMany({

@@ -72,6 +72,27 @@ function normalisePositiveInteger(
   return parsed;
 }
 
+function normaliseBoundedPositiveInteger(
+  value: unknown,
+  fieldName: string,
+  minimum: number,
+  maximum: number,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `${fieldName} must be a whole number between ${minimum} and ${maximum}.`,
+    );
+  }
+
+  return parsed;
+}
+
 function normaliseDecimal(
   value: unknown,
   fieldName: string,
@@ -105,6 +126,7 @@ const settingsSelect = {
   invoicePrefix: true,
   nextInvoiceNumber: true,
   paymentTermsDays: true,
+  vehicleBlockHours: true,
   vatRate: true,
   currency: true,
   footerMessage: true,
@@ -129,6 +151,7 @@ async function getOrCreateSettings() {
       invoicePrefix: "INV",
       nextInvoiceNumber: 1,
       paymentTermsDays: 30,
+      vehicleBlockHours: 6,
       vatRate: new Prisma.Decimal(20),
       currency: "GBP",
     },
@@ -218,6 +241,12 @@ router.patch("/", async (request, response) => {
       request.body.paymentTermsDays,
       "Payment terms",
     );
+    const vehicleBlockHours = normaliseBoundedPositiveInteger(
+      request.body.vehicleBlockHours,
+      "Vehicle block duration",
+      1,
+      48,
+    );
     const vatRate = normaliseDecimal(request.body.vatRate, "VAT rate");
 
     const updated = await prisma.companySettings.update({
@@ -239,6 +268,7 @@ router.patch("/", async (request, response) => {
         invoicePrefix,
         nextInvoiceNumber,
         paymentTermsDays,
+        vehicleBlockHours,
         vatRate,
         currency,
         footerMessage: normaliseNullableString(request.body.footerMessage),
@@ -267,6 +297,7 @@ router.patch("/", async (request, response) => {
           invoicePrefix: existing.invoicePrefix,
           nextInvoiceNumber: existing.nextInvoiceNumber,
           paymentTermsDays: existing.paymentTermsDays,
+          vehicleBlockHours: existing.vehicleBlockHours,
           vatRate: existing.vatRate.toString(),
           currency: existing.currency,
           footerMessage: existing.footerMessage,
@@ -287,6 +318,7 @@ router.patch("/", async (request, response) => {
           invoicePrefix: updated.invoicePrefix,
           nextInvoiceNumber: updated.nextInvoiceNumber,
           paymentTermsDays: updated.paymentTermsDays,
+          vehicleBlockHours: updated.vehicleBlockHours,
           vatRate: updated.vatRate.toString(),
           currency: updated.currency,
           footerMessage: updated.footerMessage,

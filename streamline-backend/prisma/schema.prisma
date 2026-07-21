@@ -667,6 +667,7 @@ model CompanySettings {
   invoicePrefix             String   @default("INV")
   nextInvoiceNumber         Int      @default(1)
   paymentTermsDays          Int      @default(30)
+  vehicleBlockHours         Int      @default(6)
   vatRate                   Decimal  @default(20)
   currency                  String   @default("GBP")
   footerMessage             String?

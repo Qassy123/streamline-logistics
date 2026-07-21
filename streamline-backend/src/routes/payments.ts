@@ -279,9 +279,15 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
 
   const resolvedUserId = userId || quote.userId || undefined;
 
+  const companySettings = await prisma.companySettings.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { vehicleBlockHours: true },
+  });
+
   const { reservedFrom, reservedUntil } = getReservationWindow(
     quote.collectionDate,
     quote.collectionWindow,
+    companySettings?.vehicleBlockHours ?? 6,
   );
 
   const vehicleAvailableAt = reservedUntil;

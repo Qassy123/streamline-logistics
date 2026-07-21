@@ -1,4 +1,6 @@
 const VEHICLE_BLOCK_HOURS = 6;
+const MIN_VEHICLE_BLOCK_HOURS = 1;
+const MAX_VEHICLE_BLOCK_HOURS = 48;
 const UK_TIME_ZONE = "Europe/London";
 
 function getTimeZoneOffsetMs(timeZone: string, date: Date) {
@@ -43,9 +45,23 @@ function createUtcDateFromUkLocalTime(
   return new Date(utcGuess.getTime() - offsetMs);
 }
 
+function resolveVehicleBlockHours(vehicleBlockHours: number | undefined) {
+  if (
+    !Number.isInteger(vehicleBlockHours) ||
+    vehicleBlockHours === undefined ||
+    vehicleBlockHours < MIN_VEHICLE_BLOCK_HOURS ||
+    vehicleBlockHours > MAX_VEHICLE_BLOCK_HOURS
+  ) {
+    return VEHICLE_BLOCK_HOURS;
+  }
+
+  return vehicleBlockHours;
+}
+
 export function getReservationWindow(
   collectionDate: Date | string,
   collectionWindow: string,
+  vehicleBlockHours = VEHICLE_BLOCK_HOURS,
 ) {
   const dateString =
     typeof collectionDate === "string"
@@ -65,8 +81,11 @@ export function getReservationWindow(
     throw new Error("Invalid collection date or collection window.");
   }
 
+  const resolvedVehicleBlockHours = resolveVehicleBlockHours(vehicleBlockHours);
   const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setHours(reservedUntil.getHours() + VEHICLE_BLOCK_HOURS);
+  reservedUntil.setHours(
+    reservedUntil.getHours() + resolvedVehicleBlockHours,
+  );
 
   return {
     reservedFrom,
