@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Save,
   Settings,
+  Truck,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -33,6 +34,7 @@ type CompanySettings = {
   invoicePrefix: string;
   nextInvoiceNumber: number;
   paymentTermsDays: number;
+  vehicleBlockHours: number;
   vatRate: string;
   currency: string;
   footerMessage: string | null;
@@ -71,6 +73,7 @@ type FormState = {
   invoicePrefix: string;
   nextInvoiceNumber: string;
   paymentTermsDays: string;
+  vehicleBlockHours: string;
   vatRate: string;
   currency: string;
   footerMessage: string;
@@ -93,6 +96,7 @@ const emptyForm: FormState = {
   invoicePrefix: "INV",
   nextInvoiceNumber: "1",
   paymentTermsDays: "30",
+  vehicleBlockHours: "6",
   vatRate: "20",
   currency: "GBP",
   footerMessage: "",
@@ -116,6 +120,7 @@ function toForm(settings: CompanySettings): FormState {
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNumber: String(settings.nextInvoiceNumber),
     paymentTermsDays: String(settings.paymentTermsDays),
+    vehicleBlockHours: String(settings.vehicleBlockHours),
     vatRate: String(settings.vatRate),
     currency: settings.currency,
     footerMessage: settings.footerMessage || "",
@@ -208,6 +213,7 @@ export default function AdminSettingsPage() {
           invoicePrefix: form.invoicePrefix,
           nextInvoiceNumber: Number(form.nextInvoiceNumber),
           paymentTermsDays: Number(form.paymentTermsDays),
+          vehicleBlockHours: Number(form.vehicleBlockHours),
           vatRate: Number(form.vatRate),
           currency: form.currency,
           footerMessage: form.footerMessage,
@@ -548,6 +554,36 @@ export default function AdminSettingsPage() {
                 className={inputClass}
               />
             </Field>
+          </div>
+        </Section>
+
+        <Section
+          title="Fleet availability"
+          description="Control how long a vehicle remains unavailable from the selected collection time."
+          icon={Truck}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Vehicle block duration (hours)">
+              <input
+                type="number"
+                min="1"
+                max="48"
+                step="1"
+                value={form.vehicleBlockHours}
+                onChange={(event) =>
+                  updateField("vehicleBlockHours", event.target.value)
+                }
+                required
+                className={inputClass}
+              />
+            </Field>
+
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
+              A vehicle is blocked from the start of its collection window for
+              this many hours. The default is 6 hours. Changes apply to both
+              public and admin availability checks and to newly confirmed
+              bookings.
+            </div>
           </div>
         </Section>
 
