@@ -169,7 +169,7 @@ export default function AdminPlanningBoardPage() {
 
   const [selected, setSelected] = useState<Booking | null>(null);
   const [editDriverId, setEditDriverId] = useState("");
-  const [editVehicleId, setEditVehicleId] = useState("");
+  const [editVehicleType, setEditVehicleType] = useState("");
   const [editCollectionDate, setEditCollectionDate] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
@@ -321,7 +321,7 @@ export default function AdminPlanningBoardPage() {
   function openBooking(booking: Booking) {
     setSelected(booking);
     setEditDriverId(booking.driverId || "");
-    setEditVehicleId(booking.vehicleId || "");
+    setEditVehicleType(booking.vehicle?.vehicleType || "");
     setEditCollectionDate(localDateInput(booking.collectionDate));
     setEditStartTime(localDateTimeInput(booking.estimatedStartTime));
     setEditEndTime(localDateTimeInput(booking.estimatedEndTime));
@@ -350,7 +350,7 @@ export default function AdminPlanningBoardPage() {
           },
           body: JSON.stringify({
             driverId: editDriverId || null,
-            vehicleId: editVehicleId || null,
+            vehicleType: editVehicleType || null,
           }),
         },
       );
@@ -719,15 +719,11 @@ export default function AdminPlanningBoardPage() {
 
                 <SelectField
                   label="Vehicle"
-                  value={editVehicleId}
-                  onChange={setEditVehicleId}
-                  options={vehicles.map((vehicle) => ({
-                    value: vehicle.id,
-                    label: `${vehicle.vehicleType}${
-                      vehicle.registration
-                        ? ` · ${vehicle.registration}`
-                        : ""
-                    }`,
+                  value={editVehicleType}
+                  onChange={setEditVehicleType}
+                  options={VEHICLE_TYPES.map((vehicleType) => ({
+                    value: vehicleType,
+                    label: vehicleType,
                   }))}
                   allowEmpty
                 />

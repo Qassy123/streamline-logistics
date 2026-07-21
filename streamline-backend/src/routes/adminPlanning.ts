@@ -372,10 +372,49 @@ router.patch("/bookings/:bookingId/assignment", async (req, res) => {
         ? undefined
         : getString(req.body.driverId) || null;
 
-    const vehicleId =
-      req.body.vehicleId === undefined
+    const vehicleType =
+      req.body.vehicleType === undefined
         ? undefined
-        : getString(req.body.vehicleId) || null;
+        : getString(req.body.vehicleType) || null;
+
+    let vehicleId: string | null | undefined = undefined;
+
+    if (vehicleType === null) {
+      vehicleId = null;
+    } else if (vehicleType !== undefined) {
+      const candidateVehicles = await prisma.vehicle.findMany({
+        where: {
+          active: true,
+          vehicleType,
+        },
+        orderBy: {
+          name: "asc",
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const candidate of candidateVehicles) {
+        const conflict = await hasVehicleConflict(
+          candidate.id,
+          booking.id,
+          booking.estimatedStartTime,
+          booking.estimatedEndTime,
+        );
+
+        if (!conflict) {
+          vehicleId = candidate.id;
+          break;
+        }
+      }
+
+      if (!vehicleId) {
+        return res.status(409).json({
+          error: `No available ${vehicleType} vehicle was found for this booking time.`,
+        });
+      }
+    }
 
     if (
       driverId &&
