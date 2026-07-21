@@ -7,6 +7,7 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  Clock3,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
@@ -22,7 +23,8 @@ import {
 } from "lucide-react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
@@ -52,6 +54,8 @@ type Booking = {
   status: string;
   collectionDate: string;
   collectionWindow: string;
+  estimatedStartTime?: string | null;
+  estimatedEndTime?: string | null;
   collectionAddress: string;
   deliveryAddress: string;
   returnAddress?: string | null;
@@ -78,6 +82,7 @@ type Booking = {
     customerName: string;
     customerEmail: string;
     customerPhone: string;
+    vehicleSize?: string | null;
   } | null;
   vehicle?: Vehicle | null;
   driver?: Driver | null;
@@ -154,6 +159,63 @@ function date(value?: string | null) {
   }).format(parsed);
 }
 
+
+function dateInputValue(value = new Date()) {
+  const copy = new Date(value);
+  const offset = copy.getTimezoneOffset();
+  const local = new Date(copy.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 10);
+}
+
+function displaySelectedDate(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00`));
+}
+
+function time(value?: string | null) {
+  if (!value) return "";
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function bookingTimeSlot(booking: Booking) {
+  const start = time(booking.estimatedStartTime);
+  const end = time(booking.estimatedEndTime);
+
+  if (start && end) return `${start}–${end}`;
+  if (start) return start;
+  return booking.collectionWindow || "Time not set";
+}
+
+function bookingCustomerName(booking: Booking) {
+  return (
+    booking.user?.companyName ||
+    booking.user?.name ||
+    booking.quote?.customerName ||
+    booking.user?.email ||
+    "Guest customer"
+  );
+}
+
+function requiredVehicleType(booking: Booking) {
+  return (
+    booking.quote?.vehicleSize ||
+    booking.vehicle?.vehicleType ||
+    "Not specified"
+  );
+}
+
 function statusClass(status: string) {
   switch (status) {
     case "COMPLETED":
@@ -179,8 +241,7 @@ export default function AdminBookingsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => dateInputValue());
   const [vehicleFilter, setVehicleFilter] = useState("ALL");
   const [driverFilter, setDriverFilter] = useState("ALL");
   const [page, setPage] = useState(1);
@@ -249,8 +310,8 @@ export default function AdminBookingsPage() {
         });
 
         if (search) params.set("search", search);
-        if (dateFrom) params.set("dateFrom", dateFrom);
-        if (dateTo) params.set("dateTo", dateTo);
+        params.set("dateFrom", selectedDate);
+        params.set("dateTo", selectedDate);
 
         const response = await fetch(
           `${API_BASE}/api/bookings/admin/list?${params.toString()}`,
@@ -299,11 +360,10 @@ export default function AdminBookingsPage() {
     },
     [
       adminKey,
-      dateFrom,
-      dateTo,
       driverFilter,
       page,
       search,
+      selectedDate,
       status,
       vehicleFilter,
     ],
@@ -321,12 +381,29 @@ export default function AdminBookingsPage() {
     let count = 0;
     if (search) count += 1;
     if (status !== "ALL") count += 1;
-    if (dateFrom) count += 1;
-    if (dateTo) count += 1;
     if (vehicleFilter !== "ALL") count += 1;
     if (driverFilter !== "ALL") count += 1;
     return count;
-  }, [dateFrom, dateTo, driverFilter, search, status, vehicleFilter]);
+  }, [driverFilter, search, status, vehicleFilter]);
+
+  function moveSelectedDate(days: number) {
+    const next = new Date(`${selectedDate}T12:00:00`);
+    next.setDate(next.getDate() + days);
+    setSelectedDate(dateInputValue(next));
+    setPage(1);
+  }
+
+  function selectToday() {
+    setSelectedDate(dateInputValue());
+    setPage(1);
+  }
+
+  function selectTomorrow() {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setSelectedDate(dateInputValue(tomorrow));
+    setPage(1);
+  }
 
   function openBooking(booking: Booking) {
     setSelected(booking);
@@ -426,7 +503,7 @@ export default function AdminBookingsPage() {
             Transport operations
           </p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Existing bookings
+            Existing Bookings Calendar
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
             Review scheduled work, assign vehicles and drivers, update booking
@@ -477,7 +554,66 @@ export default function AdminBookingsPage() {
       </section>
 
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px_180px_180px_auto]">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => moveSelectedDate(-1)}
+              className="rounded-xl border border-slate-300 bg-white p-3 text-slate-700 hover:bg-slate-50"
+              aria-label="Previous day"
+            >
+              <ChevronLeft size={19} />
+            </button>
+            <button
+              type="button"
+              onClick={selectToday}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={selectTomorrow}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              Tomorrow
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSelectedDate(1)}
+              className="rounded-xl border border-slate-300 bg-white p-3 text-slate-700 hover:bg-slate-50"
+              aria-label="Next day"
+            >
+              <ChevronRight size={19} />
+            </button>
+          </div>
+
+          <label className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="text-sm font-bold text-slate-700">Choose date</span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => {
+                setSelectedDate(event.target.value);
+                setPage(1);
+              }}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+            />
+          </label>
+        </div>
+
+        <div className="mt-5 border-t border-slate-200 pt-5">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
+            Selected date
+          </p>
+          <h2 className="mt-1 text-xl font-bold text-slate-950">
+            {displaySelectedDate(selectedDate)}
+          </h2>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px_220px_220px_auto]">
           <label className="relative">
             <Search
               size={18}
@@ -543,26 +679,6 @@ export default function AdminBookingsPage() {
             ))}
           </select>
 
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => {
-              setDateFrom(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          />
-
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => {
-              setDateTo(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          />
-
           {activeFilters > 0 ? (
             <button
               type="button"
@@ -572,8 +688,6 @@ export default function AdminBookingsPage() {
                 setStatus("ALL");
                 setVehicleFilter("ALL");
                 setDriverFilter("ALL");
-                setDateFrom("");
-                setDateTo("");
                 setPage(1);
               }}
               className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
@@ -635,18 +749,19 @@ export default function AdminBookingsPage() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-bold text-slate-950">
+                    <button
+                      type="button"
+                      onClick={() => openBooking(booking)}
+                      className="text-left text-lg font-bold text-[#E55300] hover:underline"
+                    >
                       {booking.reference}
-                    </h3>
+                    </button>
                     <Badge className={statusClass(booking.status)}>
                       {booking.status}
                     </Badge>
                   </div>
-                  <p className="mt-2 text-sm text-slate-500">
-                    {booking.user?.companyName ||
-                      booking.user?.name ||
-                      booking.quote?.customerName ||
-                      "Guest customer"}
+                  <p className="mt-2 text-sm font-bold text-slate-800">
+                    {bookingCustomerName(booking)}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
                     {booking.collectionAddress} → {booking.deliveryAddress}
@@ -655,25 +770,36 @@ export default function AdminBookingsPage() {
 
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Collection
+                    Time slot
                   </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    {date(booking.collectionDate)}
+                  <p className="mt-1 flex items-center gap-2 font-bold text-slate-950">
+                    <Clock3 size={17} className="text-[#E55300]" />
+                    {bookingTimeSlot(booking)}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {booking.collectionWindow}
+                    {date(booking.collectionDate)}
                   </p>
                 </div>
 
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Assignment
+                    Vehicle and driver
                   </p>
                   <p className="mt-1 font-bold text-slate-950">
-                    {booking.vehicle?.name || "No vehicle"}
+                    Required: {requiredVehicleType(booking)}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {booking.driver?.name || "No driver"}
+                    Assigned vehicle:{" "}
+                    {booking.vehicle
+                      ? `${booking.vehicle.name}${
+                          booking.vehicle.registration
+                            ? ` · ${booking.vehicle.registration}`
+                            : ""
+                        }`
+                      : "Unassigned"}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Driver: {booking.driver?.name || "Unassigned"}
                   </p>
                 </div>
 
