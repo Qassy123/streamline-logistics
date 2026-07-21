@@ -234,7 +234,11 @@ router.get("/admin/list", async (req, res) => {
     const active = getString(req.query.active).toUpperCase();
     const state = getString(req.query.state).toUpperCase();
 
-    const where: Prisma.VehicleWhereInput = {};
+    const where: Prisma.VehicleWhereInput = {
+      vehicleType: {
+        in: [...VEHICLE_TYPES],
+      },
+    };
 
     if (search) {
       where.OR = [
@@ -351,6 +355,11 @@ router.get("/admin/list", async (req, res) => {
       });
 
     const allVehiclesForSummary = await prisma.vehicle.findMany({
+      where: {
+        vehicleType: {
+          in: [...VEHICLE_TYPES],
+        },
+      },
       include: adminVehicleInclude(),
     });
 
@@ -819,6 +828,11 @@ router.patch("/admin/:id", async (req, res) => {
 router.get("/", async (_, res) => {
   try {
     const vehicles = await prisma.vehicle.findMany({
+      where: {
+        vehicleType: {
+          in: [...VEHICLE_TYPES],
+        },
+      },
       orderBy: {
         vehicleType: "asc",
       },
@@ -859,6 +873,9 @@ router.get("/availability", async (req, res) => {
     const vehicles = await prisma.vehicle.findMany({
       where: {
         active: true,
+        vehicleType: {
+          in: [...VEHICLE_TYPES],
+        },
       },
       orderBy: [
         {
