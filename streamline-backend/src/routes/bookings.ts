@@ -575,6 +575,147 @@ router.patch("/admin/:id", async (req, res) => {
   }
 });
 
+/*
+ * Tab 4 - Planning / Create Booking
+ *
+ * Admin-only booking creation from an already calculated quote.
+ *
+ * This deliberately does NOT:
+ * - choose a vehicle
+ * - create a vehicle reservation
+ * - assign a driver
+ * - start the payment reservation flow
+ *
+ * The booking is created unassigned so it can be placed onto an exact
+ * vehicle from the planning board.
+ */
+router.post("/admin/from-quote/:quoteId", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: {
+        id: req.params.quoteId,
+      },
+      include: {
+        booking: true,
+        user: {
+          select: {
+            accountStatus: true,
+          },
+        },
+      },
+    });
+
+    if (!quote) {
+      return res.status(404).json({
+        error: "Quote not found",
+      });
+    }
+
+    if (quote.user && quote.user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({
+        error:
+          "This customer account is not active. New bookings cannot be created.",
+      });
+    }
+
+    if (quote.booking) {
+      return res.status(409).json({
+        error: "Booking already exists for this quote",
+      });
+    }
+
+    if (!quote.totalPrice) {
+      return res.status(400).json({
+        error: "Quote has no total price",
+      });
+    }
+
+    if (!quote.collectionWindow || quote.collectionWindow === "ASAP") {
+      return res.status(400).json({
+        error: "A fixed collection window is required before booking",
+      });
+    }
+
+    const { reservedFrom, reservedUntil } = getReservationWindow(
+      quote.collectionDate,
+      quote.collectionWindow,
+    );
+
+    const booking = await prisma.$transaction(async (transaction) => {
+      const createdBooking = await transaction.booking.create({
+        data: {
+          reference: generateBookingReference(),
+          status: BookingStatus.CONFIRMED,
+          quoteId: quote.id,
+          userId: quote.userId,
+
+          /*
+           * Deliberately unassigned.
+           * Tab 4 drag-and-drop chooses the exact vehicle afterwards.
+           */
+          vehicleId: null,
+          driverId: null,
+
+          collectionDate: quote.collectionDate,
+          collectionWindow: quote.collectionWindow,
+          collectionAddress: quote.collectionAddress,
+          deliveryAddress: quote.deliveryAddress,
+          extraDrops:
+            quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
+
+          estimatedStartTime: reservedFrom,
+          estimatedEndTime: reservedUntil,
+          vehicleAvailableAt: reservedUntil,
+
+          totalPrice: quote.totalPrice!,
+
+          trackingEvents: {
+            create: {
+              status: BookingStatus.CONFIRMED,
+              title: "Booking Created",
+              description:
+                "Booking created by the administration team and awaiting planning assignment.",
+              userVisible: false,
+            },
+          },
+        },
+        include: adminBookingInclude(),
+      });
+
+      await transaction.quote.update({
+        where: {
+          id: quote.id,
+        },
+        data: {
+          status: "Converted to Booking",
+          convertedAt: new Date(),
+        },
+      });
+
+      return createdBooking;
+    });
+
+    return res.status(201).json({
+      success: true,
+      booking,
+    });
+  } catch (error) {
+    console.error("Admin booking creation from quote error:", error);
+
+    return res.status(500).json({
+      error: "Unable to create planning booking from quote.",
+    });
+  }
+});
+
 /* ---------------------------------
    Existing Booking Routes
 ---------------------------------- */
@@ -833,7 +974,11 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       },
       include: {
         booking: true,
-        user: { select: { accountStatus: true } },
+        user: {
+          select: {
+            accountStatus: true,
+          },
+        },
       },
     });
 
@@ -844,7 +989,10 @@ router.post("/from-quote/:quoteId", async (req, res) => {
     }
 
     if (quote.user && quote.user.accountStatus !== "ACTIVE") {
-      return res.status(403).json({ error: "This customer account is not active. New bookings cannot be created." });
+      return res.status(403).json({
+        error:
+          "This customer account is not active. New bookings cannot be created.",
+      });
     }
 
     if (quote.booking) {
@@ -942,7 +1090,10 @@ router.post("/from-quote/:quoteId", async (req, res) => {
     }
 
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + PAYMENT_RESERVATION_MINUTES);
+
+    expiresAt.setMinutes(
+      expiresAt.getMinutes() + PAYMENT_RESERVATION_MINUTES,
+    );
 
     const booking = await prisma.booking.create({
       data: {

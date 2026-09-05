@@ -580,18 +580,33 @@ async function sendQuoteEmail(
   const route = `${htmlEscape(quote.collectionAddress)} → ${htmlEscape(
     quote.deliveryAddress,
   )}`;
+
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#0f172a">
       <h1 style="margin-bottom:8px">Your delivery quote</h1>
-      <p>Hello ${htmlEscape(quote.customerName || quote.companyName || "Customer")},</p>
+      <p>Hello ${htmlEscape(
+        quote.customerName || quote.companyName || "Customer",
+      )},</p>
       <p>Streamline Logistics has prepared the following quote for you.</p>
       <table style="width:100%;border-collapse:collapse;margin:24px 0">
-        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Quote</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(quote.id)}</td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Quote</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(
+          quote.id,
+        )}</td></tr>
         <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Route</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${route}</td></tr>
-        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Vehicle</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(quote.vehicleSize)}</td></tr>
-        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Total</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>${formatQuoteMoney(quote.totalPrice)}</strong></td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Vehicle</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(
+          quote.vehicleSize,
+        )}</td></tr>
+        <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Total</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>${formatQuoteMoney(
+          quote.totalPrice,
+        )}</strong></td></tr>
       </table>
-      ${quote.specialInstructions ? `<p><strong>Notes:</strong> ${htmlEscape(quote.specialInstructions)}</p>` : ""}
+      ${
+        quote.specialInstructions
+          ? `<p><strong>Notes:</strong> ${htmlEscape(
+              quote.specialInstructions,
+            )}</p>`
+          : ""
+      }
       <p>Please reply to this email to accept the quote or contact the office if you need any changes.</p>
       <p>Kind regards,<br />Streamline Logistics</p>
     </div>
@@ -613,6 +628,7 @@ async function sendQuoteEmail(
 
   if (!response.ok) {
     const details = await response.text();
+
     throw new Error(`Quote email could not be sent: ${details}`);
   }
 }
@@ -642,8 +658,10 @@ function applyAdminDiscount(
     0,
     subtotalBeforeDiscount - discountAmount,
   );
+
   const vatRate =
     subtotalBeforeDiscount > 0 ? originalVat / subtotalBeforeDiscount : 0;
+
   const vatAmount = Number((discountedSubtotal * vatRate).toFixed(2));
   const totalPrice = Number((discountedSubtotal + vatAmount).toFixed(2));
 
@@ -676,6 +694,7 @@ async function calculateAdminQuote(reqBody: Record<string, unknown>) {
     getOptionalString(reqBody.journeyType),
     getOptionalString(reqBody.returnAddress),
   );
+
   const routeStops = await buildRouteStops(
     collectionAddress,
     deliveryAddress,
@@ -683,8 +702,10 @@ async function calculateAdminQuote(reqBody: Record<string, unknown>) {
     getOptionalString(reqBody.journeyType),
     getOptionalString(reqBody.returnAddress),
   );
+
   const route = await calculateRouteDistance(routeStops);
   const extraDropCount = normaliseExtraDrops(reqBody.extraDrops).length;
+
   const rawPrice = calculateQuotePrice({
     deliveryType: getString(reqBody.deliveryType) || "Dedicated",
     journeyType: getString(reqBody.journeyType) || "One-way",
@@ -692,6 +713,7 @@ async function calculateAdminQuote(reqBody: Record<string, unknown>) {
     distanceMiles: route.distanceMiles,
     extraDropCount,
   });
+
   const price = applyAdminDiscount(
     rawPrice,
     getString(reqBody.discountType),
@@ -711,16 +733,25 @@ router.post("/admin/calculate", async (req, res) => {
   const admin = requireAdmin(req);
 
   if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
   }
 
   try {
     const calculation = await calculateAdminQuote(req.body || {});
-    return res.json({ success: true, calculation });
+
+    return res.json({
+      success: true,
+      calculation,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to calculate quote.";
-    return res.status(400).json({ error: message });
+
+    return res.status(400).json({
+      error: message,
+    });
   }
 });
 
@@ -728,16 +759,22 @@ router.post("/admin/customer/:customerId", async (req, res) => {
   const admin = requireAdmin(req);
 
   if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
   }
 
   try {
     const customer = await prisma.user.findUnique({
-      where: { id: req.params.customerId },
+      where: {
+        id: req.params.customerId,
+      },
     });
 
     if (!customer) {
-      return res.status(404).json({ error: "Customer account not found." });
+      return res.status(404).json({
+        error: "Customer account not found.",
+      });
     }
 
     if (customer.accountStatus !== "ACTIVE") {
@@ -750,18 +787,20 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     const collectionDate = new Date(getString(req.body.collectionDate));
 
     if (Number.isNaN(collectionDate.getTime())) {
-      return res
-        .status(400)
-        .json({ error: "A valid collection date is required." });
+      return res.status(400).json({
+        error: "A valid collection date is required.",
+      });
     }
 
     const calculation = await calculateAdminQuote(req.body || {});
+
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
         order: index + 1,
         address: getString(drop.address),
       }),
     );
+
     const sendToCustomer = Boolean(req.body.sendToCustomer);
 
     const quote = await prisma.quote.create({
@@ -820,9 +859,15 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     if (sendToCustomer) {
       try {
         await sendQuoteEmail(quote as never);
+
         const sentQuote = await prisma.quote.update({
-          where: { id: quote.id },
-          data: { status: "Sent", sentAt: new Date() },
+          where: {
+            id: quote.id,
+          },
+          data: {
+            status: "Sent",
+            sentAt: new Date(),
+          },
           select: adminQuoteSelect(),
         });
 
@@ -854,9 +899,151 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     });
   } catch (error) {
     console.error("Admin customer quote creation error:", error);
+
     const message =
       error instanceof Error ? error.message : "Unable to create quote.";
-    return res.status(400).json({ error: message });
+
+    return res.status(400).json({
+      error: message,
+    });
+  }
+});
+
+/*
+ * Tab 4 - Planning / Create Booking
+ *
+ * Separate admin-only guest quote route.
+ *
+ * Existing public quote routes and existing customer-admin
+ * quote creation remain unchanged.
+ */
+router.post("/admin/guest", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const companyName = getString(req.body.companyName);
+    const customerEmail = getString(req.body.customerEmail);
+    const customerPhone = getString(req.body.customerPhone);
+    const collectionDate = new Date(getString(req.body.collectionDate));
+
+    if (!companyName) {
+      return res.status(400).json({
+        error: "Company name is required for a guest customer.",
+      });
+    }
+
+    if (!customerEmail) {
+      return res.status(400).json({
+        error: "Email is required for a guest customer.",
+      });
+    }
+
+    if (!customerPhone) {
+      return res.status(400).json({
+        error: "Contact number is required for a guest customer.",
+      });
+    }
+
+    if (Number.isNaN(collectionDate.getTime())) {
+      return res.status(400).json({
+        error: "A valid collection date is required.",
+      });
+    }
+
+    const calculation = await calculateAdminQuote(req.body || {});
+
+    const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
+      (drop, index) => ({
+        order: index + 1,
+        address: getString(drop.address),
+      }),
+    );
+
+    const quote = await prisma.quote.create({
+      data: {
+        status: "Draft",
+        userId: null,
+        deliveryType: getString(req.body.deliveryType) || "Dedicated",
+        journeyType: getString(req.body.journeyType) || "One-way",
+        collectionDate,
+        collectionWindow: getString(req.body.collectionWindow),
+        vehicleSize: getString(req.body.vehicleSize),
+        collectionAddress: getString(req.body.collectionAddress),
+        collectionAddressDetails:
+          req.body.collectionAddressDetails &&
+          typeof req.body.collectionAddressDetails === "object"
+            ? (req.body.collectionAddressDetails as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        deliveryAddress: getString(req.body.deliveryAddress),
+        deliveryAddressDetails:
+          req.body.deliveryAddressDetails &&
+          typeof req.body.deliveryAddressDetails === "object"
+            ? (req.body.deliveryAddressDetails as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        returnAddress: getOptionalString(req.body.returnAddress),
+        extraDrops: extraDrops.length > 0 ? extraDrops : Prisma.JsonNull,
+        whatAreWeCollecting: getOptionalString(req.body.whatAreWeCollecting),
+        capacityPercent: req.body.capacityPercent
+          ? Number(req.body.capacityPercent)
+          : null,
+        loadDescription: getOptionalString(req.body.loadDescription),
+        specialInstructions: getOptionalString(req.body.specialInstructions),
+        fragileGoods: Boolean(req.body.fragileGoods),
+        contactPreference: getOptionalString(req.body.contactPreference),
+        accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
+
+        /*
+         * Guest has no User account.
+         * Store only fields already supported by Quote.
+         */
+        customerName:
+          getString(req.body.customerName) ||
+          companyName,
+        customerEmail,
+        customerPhone,
+        companyName,
+        legalEntity: companyName,
+        tradingName: getOptionalString(req.body.tradingName),
+
+        customerReference: getOptionalString(req.body.customerReference),
+        purchaseOrderNumber: getOptionalString(req.body.purchaseOrderNumber),
+        handoverNotes: getOptionalString(req.body.notes),
+
+        distanceMiles: calculation.distanceMiles,
+        basePrice: calculation.basePrice,
+        fuelSurcharge: calculation.fuelSurcharge,
+        adminPrice: calculation.adminPrice,
+        discountAmount: calculation.discountAmount,
+        discountReason: getOptionalString(req.body.discountReason),
+        vatAmount: calculation.vatAmount,
+        totalPrice: calculation.totalPrice,
+      },
+      select: adminQuoteSelect(),
+    });
+
+    return res.status(201).json({
+      success: true,
+      quote,
+      calculation,
+      emailSent: false,
+    });
+  } catch (error) {
+    console.error("Admin guest quote creation error:", error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to create guest quote.";
+
+    return res.status(400).json({
+      error: message,
+    });
   }
 });
 
@@ -864,31 +1051,48 @@ router.post("/admin/:id/send", async (req, res) => {
   const admin = requireAdmin(req);
 
   if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
   }
 
   try {
     const quote = await prisma.quote.findUnique({
-      where: { id: req.params.id },
+      where: {
+        id: req.params.id,
+      },
     });
 
     if (!quote) {
-      return res.status(404).json({ error: "Quote not found." });
+      return res.status(404).json({
+        error: "Quote not found.",
+      });
     }
 
     await sendQuoteEmail(quote);
 
     const updatedQuote = await prisma.quote.update({
-      where: { id: quote.id },
-      data: { status: "Sent", sentAt: new Date() },
+      where: {
+        id: quote.id,
+      },
+      data: {
+        status: "Sent",
+        sentAt: new Date(),
+      },
       select: adminQuoteSelect(),
     });
 
-    return res.json({ success: true, quote: updatedQuote });
+    return res.json({
+      success: true,
+      quote: updatedQuote,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to send quote.";
-    return res.status(400).json({ error: message });
+
+    return res.status(400).json({
+      error: message,
+    });
   }
 });
 
@@ -903,10 +1107,12 @@ router.get("/admin/list", async (req, res) => {
 
   try {
     const page = getPositiveInteger(req.query.page, 1);
+
     const pageSize = Math.min(
       getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
       MAX_PAGE_SIZE,
     );
+
     const search = getString(req.query.search);
     const status = getString(req.query.status);
     const dateFrom = getString(req.query.dateFrom);
@@ -987,9 +1193,11 @@ router.get("/admin/list", async (req, res) => {
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
+
       prisma.quote.count({
         where,
       }),
+
       prisma.quote.groupBy({
         by: ["status"],
         _count: {
@@ -1075,70 +1283,97 @@ router.patch("/admin/:id", async (req, res) => {
       },
       data: {
         status: status || undefined,
+
         collectionDate:
           req.body.collectionDate !== undefined
             ? new Date(req.body.collectionDate)
             : undefined,
+
         collectionWindow:
           req.body.collectionWindow !== undefined
             ? getString(req.body.collectionWindow)
             : undefined,
+
         vehicleSize:
           req.body.vehicleSize !== undefined
             ? getString(req.body.vehicleSize)
             : undefined,
+
         collectionAddress:
           req.body.collectionAddress !== undefined
             ? getString(req.body.collectionAddress)
             : undefined,
+
         deliveryAddress:
           req.body.deliveryAddress !== undefined
             ? getString(req.body.deliveryAddress)
             : undefined,
+
         returnAddress:
           req.body.returnAddress !== undefined
             ? getOptionalString(req.body.returnAddress)
             : undefined,
+
         customerReference:
           req.body.customerReference !== undefined
             ? getOptionalString(req.body.customerReference)
             : undefined,
+
         purchaseOrderNumber:
           req.body.purchaseOrderNumber !== undefined
             ? getOptionalString(req.body.purchaseOrderNumber)
             : undefined,
+
         specialInstructions:
           req.body.specialInstructions !== undefined
             ? getOptionalString(req.body.specialInstructions)
             : undefined,
+
         handoverNotes:
           req.body.handoverNotes !== undefined
             ? getOptionalString(req.body.handoverNotes)
             : undefined,
+
         distanceMiles:
           req.body.distanceMiles !== undefined
             ? req.body.distanceMiles
             : undefined,
+
         basePrice:
-          req.body.basePrice !== undefined ? req.body.basePrice : undefined,
+          req.body.basePrice !== undefined
+            ? req.body.basePrice
+            : undefined,
+
         fuelSurcharge:
           req.body.fuelSurcharge !== undefined
             ? req.body.fuelSurcharge
             : undefined,
+
         adminPrice:
-          req.body.adminPrice !== undefined ? req.body.adminPrice : undefined,
+          req.body.adminPrice !== undefined
+            ? req.body.adminPrice
+            : undefined,
+
         discountAmount:
           req.body.discountAmount !== undefined
             ? req.body.discountAmount
             : undefined,
+
         discountReason:
           req.body.discountReason !== undefined
             ? getOptionalString(req.body.discountReason)
             : undefined,
+
         vatAmount:
-          req.body.vatAmount !== undefined ? req.body.vatAmount : undefined,
+          req.body.vatAmount !== undefined
+            ? req.body.vatAmount
+            : undefined,
+
         totalPrice:
-          req.body.totalPrice !== undefined ? req.body.totalPrice : undefined,
+          req.body.totalPrice !== undefined
+            ? req.body.totalPrice
+            : undefined,
+
         sentAt: status === "Sent" ? now : undefined,
         viewedAt: status === "Viewed" ? now : undefined,
         acceptedAt: status === "Accepted" ? now : undefined,
@@ -1311,7 +1546,9 @@ router.post("/", async (req, res) => {
         handoverContactName: req.body.handoverContactName || null,
         handoverContactPhone: req.body.handoverContactPhone || null,
         handoverNotes: req.body.handoverNotes || null,
-        palletCount: req.body.palletCount ? Number(req.body.palletCount) : null,
+        palletCount: req.body.palletCount
+          ? Number(req.body.palletCount)
+          : null,
         fragileGoods: Boolean(req.body.fragileGoods),
         contactPreference: req.body.contactPreference || null,
         accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
