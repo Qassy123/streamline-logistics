@@ -1,24 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
   CalendarDays,
-  CheckCircle2,
-  Clock3,
   ChevronLeft,
   ChevronRight,
-  CircleAlert,
-  ClipboardList,
+  Clock3,
   Loader2,
-  Pencil,
   RefreshCw,
-  Search,
   Truck,
-  UserRound,
-  WalletCards,
   X,
 } from "lucide-react";
 
@@ -28,7 +18,13 @@ const API_BASE =
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
+
+const START_HOUR = 6;
+const END_HOUR = 22;
+const HOUR_WIDTH = 100;
+const VEHICLE_COLUMN_WIDTH = 220;
+const ROW_HEIGHT = 88;
 
 type Vehicle = {
   id: string;
@@ -66,8 +62,6 @@ type Booking = {
   totalPrice: string | number;
   createdAt: string;
   updatedAt: string;
-  trackingStartedAt?: string | null;
-  trackingEndedAt?: string | null;
   user?: {
     id: string;
     name: string;
@@ -86,42 +80,10 @@ type Booking = {
   } | null;
   vehicle?: Vehicle | null;
   driver?: Driver | null;
-  payments?: {
-    id: string;
-    status: string;
-    amount: string | number;
-    currency: string;
-  }[];
-  invoices?: {
-    id: string;
-    invoiceNumber: string;
-    status: string;
-    total: string | number;
-  }[];
-  pod?: {
-    id: string;
-    status: string;
-    recipientName?: string | null;
-    deliveredAt?: string | null;
-  } | null;
-  reservation?: {
-    id: string;
-    status: string;
-    reservedFrom: string;
-    reservedUntil: string;
-  } | null;
-  trackingEvents?: {
-    id: string;
-    status: string;
-    title: string;
-    description?: string | null;
-    createdAt: string;
-  }[];
 };
 
 type Payload = {
   bookings?: Booking[];
-  booking?: Booking;
   vehicles?: Vehicle[];
   drivers?: Driver[];
   pagination?: {
@@ -130,40 +92,14 @@ type Payload = {
     total: number;
     totalPages: number;
   };
-  summary?: {
-    byStatus?: Record<string, number>;
-  };
   error?: string;
 };
-
-function money(value: string | number | null | undefined) {
-  const amount = Number(value ?? 0);
-
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-  }).format(Number.isFinite(amount) ? amount : 0);
-}
-
-function date(value?: string | null) {
-  if (!value) return "Not recorded";
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) return "Not recorded";
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(parsed);
-}
-
 
 function dateInputValue(value = new Date()) {
   const copy = new Date(value);
   const offset = copy.getTimezoneOffset();
   const local = new Date(copy.getTime() - offset * 60 * 1000);
+
   return local.toISOString().slice(0, 10);
 }
 
@@ -176,26 +112,45 @@ function displaySelectedDate(value: string) {
   }).format(new Date(`${value}T12:00:00`));
 }
 
-function time(value?: string | null) {
+function displayDate(value?: string | null) {
+  if (!value) return "Not recorded";
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Not recorded";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
+}
+
+function displayTime(value?: string | null) {
   if (!value) return "";
 
   const parsed = new Date(value);
 
-  if (Number.isNaN(parsed.getTime())) return "";
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
 
   return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(parsed);
 }
 
-function bookingTimeSlot(booking: Booking) {
-  const start = time(booking.estimatedStartTime);
-  const end = time(booking.estimatedEndTime);
+function money(value: string | number | null | undefined) {
+  const amount = Number(value ?? 0);
 
-  if (start && end) return `${start}–${end}`;
-  if (start) return start;
-  return booking.collectionWindow || "Time not set";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 function bookingCustomerName(booking: Booking) {
@@ -203,93 +158,93 @@ function bookingCustomerName(booking: Booking) {
     booking.user?.companyName ||
     booking.user?.name ||
     booking.quote?.customerName ||
-    booking.user?.email ||
-    "Guest customer"
+    "Guest Customer"
   );
 }
 
-function requiredVehicleType(booking: Booking) {
-  return (
-    booking.quote?.vehicleSize ||
-    booking.vehicle?.vehicleType ||
-    "Not specified"
-  );
+function bookingTimeText(booking: Booking) {
+  const start = displayTime(booking.estimatedStartTime);
+  const end = displayTime(booking.estimatedEndTime);
+
+  if (start && end) {
+    return `${start} - ${end}`;
+  }
+
+  if (start) {
+    return start;
+  }
+
+  return booking.collectionWindow || "Time not set";
 }
 
-function statusClass(status: string) {
+function minutesFromStartOfDay(value?: string | null) {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.getHours() * 60 + parsed.getMinutes();
+}
+
+function statusClasses(status: string) {
   switch (status) {
     case "COMPLETED":
+      return "border-emerald-600 bg-emerald-50 text-emerald-950";
+
+    case "IN_PROGRESS":
+      return "border-blue-600 bg-blue-50 text-blue-950";
+
+    case "ASSIGNED":
+      return "border-indigo-600 bg-indigo-50 text-indigo-950";
+
     case "CONFIRMED":
-      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+      return "border-[#FF6A00] bg-orange-50 text-orange-950";
+
+    case "PENDING_PAYMENT":
+      return "border-amber-500 bg-amber-50 text-amber-950";
+
     case "CANCELLED":
     case "EXPIRED":
-      return "bg-red-50 text-red-700 ring-red-200";
-    case "IN_PROGRESS":
-    case "ASSIGNED":
-      return "bg-blue-50 text-blue-700 ring-blue-200";
+      return "border-red-500 bg-red-50 text-red-950";
+
     default:
-      return "bg-amber-50 text-amber-700 ring-amber-200";
+      return "border-slate-500 bg-slate-50 text-slate-950";
   }
+}
+
+function statusLabel(status: string) {
+  return status
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default function AdminBookingsPage() {
   const [adminKey, setAdminKey] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [selected, setSelected] = useState<Booking | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("ALL");
   const [selectedDate, setSelectedDate] = useState(() => dateInputValue());
-  const [vehicleFilter, setVehicleFilter] = useState("ALL");
-  const [driverFilter, setDriverFilter] = useState("ALL");
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: PAGE_SIZE,
-    total: 0,
-    totalPages: 1,
-  });
-  const [summary, setSummary] = useState<Record<string, number>>({});
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const [editStatus, setEditStatus] = useState("");
-  const [editVehicleId, setEditVehicleId] = useState("");
-  const [editDriverId, setEditDriverId] = useState("");
-  const [editCollectionDate, setEditCollectionDate] = useState("");
-  const [editCollectionWindow, setEditCollectionWindow] = useState("");
-  const [editCollectionAddress, setEditCollectionAddress] = useState("");
-  const [editDeliveryAddress, setEditDeliveryAddress] = useState("");
-  const [editReturnAddress, setEditReturnAddress] = useState("");
-  const [editCustomerReference, setEditCustomerReference] = useState("");
-  const [editPurchaseOrderNumber, setEditPurchaseOrderNumber] = useState("");
-  const [editInternalNotes, setEditInternalNotes] = useState("");
-  const [editDispatchNotes, setEditDispatchNotes] = useState("");
-  const [editTotalPrice, setEditTotalPrice] = useState("");
 
   useEffect(() => {
-    setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
-    );
+    const storedAdminKey =
+      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+
+    setAdminKey(storedAdminKey);
   }, []);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
-    }, 350);
-
-    return () => window.clearTimeout(timeout);
-  }, [searchInput]);
 
   const loadBookings = useCallback(
     async (refresh = false) => {
       if (!adminKey) {
+        setBookings([]);
+        setVehicles([]);
         setLoading(false);
         setError(
           "Admin key is required. Unlock the admin area from Driver Management.",
@@ -297,21 +252,24 @@ export default function AdminBookingsPage() {
         return;
       }
 
-      refresh ? setRefreshing(true) : setLoading(true);
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
       setError("");
 
       try {
         const params = new URLSearchParams({
-          page: String(page),
+          page: "1",
           pageSize: String(PAGE_SIZE),
-          status,
-          vehicleId: vehicleFilter,
-          driverId: driverFilter,
+          status: "ALL",
+          vehicleId: "ALL",
+          driverId: "ALL",
+          dateFrom: selectedDate,
+          dateTo: selectedDate,
         });
-
-        if (search) params.set("search", search);
-        params.set("dateFrom", selectedDate);
-        params.set("dateTo", selectedDate);
 
         const response = await fetch(
           `${API_BASE}/api/bookings/admin/list?${params.toString()}`,
@@ -336,18 +294,10 @@ export default function AdminBookingsPage() {
 
         setBookings(payload.bookings || []);
         setVehicles(payload.vehicles || []);
-        setDrivers(payload.drivers || []);
-        setPagination(
-          payload.pagination || {
-            page,
-            pageSize: PAGE_SIZE,
-            total: 0,
-            totalPages: 1,
-          },
-        );
-        setSummary(payload.summary?.byStatus || {});
       } catch (requestError) {
         setBookings([]);
+        setVehicles([]);
+
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -358,15 +308,7 @@ export default function AdminBookingsPage() {
         setRefreshing(false);
       }
     },
-    [
-      adminKey,
-      driverFilter,
-      page,
-      search,
-      selectedDate,
-      status,
-      vehicleFilter,
-    ],
+    [adminKey, selectedDate],
   );
 
   useEffect(() => {
@@ -377,145 +319,75 @@ export default function AdminBookingsPage() {
     }
   }, [adminKey, loadBookings]);
 
-  const activeFilters = useMemo(() => {
-    let count = 0;
-    if (search) count += 1;
-    if (status !== "ALL") count += 1;
-    if (vehicleFilter !== "ALL") count += 1;
-    if (driverFilter !== "ALL") count += 1;
-    return count;
-  }, [driverFilter, search, status, vehicleFilter]);
-
   function moveSelectedDate(days: number) {
-    const next = new Date(`${selectedDate}T12:00:00`);
-    next.setDate(next.getDate() + days);
-    setSelectedDate(dateInputValue(next));
-    setPage(1);
+    const nextDate = new Date(`${selectedDate}T12:00:00`);
+    nextDate.setDate(nextDate.getDate() + days);
+
+    setSelectedDate(dateInputValue(nextDate));
+    setSelectedBooking(null);
   }
 
   function selectToday() {
     setSelectedDate(dateInputValue());
-    setPage(1);
+    setSelectedBooking(null);
   }
 
-  function selectTomorrow() {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setSelectedDate(dateInputValue(tomorrow));
-    setPage(1);
-  }
-
-  function openBooking(booking: Booking) {
-    setSelected(booking);
-    setEditStatus(booking.status);
-    setEditVehicleId(booking.vehicle?.id || "");
-    setEditDriverId(booking.driver?.id || "");
-    setEditCollectionDate(
-      new Date(booking.collectionDate).toISOString().slice(0, 10),
+  const hours = useMemo(() => {
+    return Array.from(
+      { length: END_HOUR - START_HOUR + 1 },
+      (_, index) => START_HOUR + index,
     );
-    setEditCollectionWindow(booking.collectionWindow || "");
-    setEditCollectionAddress(booking.collectionAddress || "");
-    setEditDeliveryAddress(booking.deliveryAddress || "");
-    setEditReturnAddress(booking.returnAddress || "");
-    setEditCustomerReference(booking.customerReference || "");
-    setEditPurchaseOrderNumber(booking.purchaseOrderNumber || "");
-    setEditInternalNotes(booking.internalNotes || "");
-    setEditDispatchNotes(booking.dispatchNotes || "");
-    setEditTotalPrice(String(booking.totalPrice ?? ""));
-    setError("");
-    setMessage("");
-  }
+  }, []);
 
-  async function updateBooking() {
-    if (!selected || !adminKey) return;
+  const timelineWidth = (END_HOUR - START_HOUR) * HOUR_WIDTH;
 
-    setSaving(true);
-    setError("");
-    setMessage("");
+  const bookingsByVehicle = useMemo(() => {
+    const map = new Map<string, Booking[]>();
 
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/bookings/admin/${selected.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
-          body: JSON.stringify({
-            status: editStatus,
-            vehicleId: editVehicleId || null,
-            driverId: editDriverId || null,
-            collectionDate: editCollectionDate,
-            collectionWindow: editCollectionWindow,
-            collectionAddress: editCollectionAddress,
-            deliveryAddress: editDeliveryAddress,
-            returnAddress: editReturnAddress,
-            customerReference: editCustomerReference,
-            purchaseOrderNumber: editPurchaseOrderNumber,
-            internalNotes: editInternalNotes,
-            dispatchNotes: editDispatchNotes,
-            totalPrice: editTotalPrice || null,
-          }),
-        },
-      );
+    vehicles.forEach((vehicle) => {
+      map.set(vehicle.id, []);
+    });
 
-      const payload = (await response.json()) as Payload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to update booking.");
+    bookings.forEach((booking) => {
+      if (!booking.vehicle?.id) {
+        return;
       }
 
-      if (payload.booking) {
-        setSelected(payload.booking);
-        setBookings((current) =>
-          current.map((booking) =>
-            booking.id === payload.booking?.id ? payload.booking : booking,
-          ),
-        );
-      }
+      const current = map.get(booking.vehicle.id) || [];
+      current.push(booking);
+      map.set(booking.vehicle.id, current);
+    });
 
-      setMessage("Booking updated successfully.");
-      await loadBookings(true);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to update booking.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
+    return map;
+  }, [bookings, vehicles]);
+
+  const unassignedBookings = useMemo(
+    () => bookings.filter((booking) => !booking.vehicle?.id),
+    [bookings],
+  );
 
   return (
-    <div className="mx-auto w-full max-w-[1600px]">
+    <div className="mx-auto w-full max-w-[1800px]">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <Link
-            href="/admin"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-950"
-          >
-            <ArrowLeft size={16} />
-            Admin dashboard
-          </Link>
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Transport operations
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+            Transport Operations
           </p>
+
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Existing Bookings Calendar
+            Existing Bookings
           </h1>
+
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            Review scheduled work, assign vehicles and drivers, update booking
-            status and manage operational notes.
+            View existing bookings against each vehicle and its occupied time.
           </p>
         </div>
 
         <button
           type="button"
           onClick={() => void loadBookings(true)}
-          disabled={refreshing || !adminKey}
-          className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          disabled={refreshing || loading || !adminKey}
+          className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw
             size={17}
@@ -525,176 +397,69 @@ export default function AdminBookingsPage() {
         </button>
       </div>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard
-          label="All bookings"
-          value={pagination.total}
-          icon={CalendarDays}
-        />
-        <SummaryCard
-          label="Confirmed"
-          value={summary.CONFIRMED || 0}
-          icon={CheckCircle2}
-        />
-        <SummaryCard
-          label="Assigned"
-          value={summary.ASSIGNED || 0}
-          icon={Truck}
-        />
-        <SummaryCard
-          label="In progress"
-          value={summary.IN_PROGRESS || 0}
-          icon={ClipboardList}
-        />
-        <SummaryCard
-          label="Completed"
-          value={summary.COMPLETED || 0}
-          icon={CheckCircle2}
-        />
-      </section>
-
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <section className="mt-7 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => moveSelectedDate(-1)}
-              className="rounded-xl border border-slate-300 bg-white p-3 text-slate-700 hover:bg-slate-50"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
               aria-label="Previous day"
             >
-              <ChevronLeft size={19} />
+              <ChevronLeft size={20} />
             </button>
+
             <button
               type="button"
               onClick={selectToday}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
             >
               Today
             </button>
-            <button
-              type="button"
-              onClick={selectTomorrow}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-            >
-              Tomorrow
-            </button>
+
             <button
               type="button"
               onClick={() => moveSelectedDate(1)}
-              className="rounded-xl border border-slate-300 bg-white p-3 text-slate-700 hover:bg-slate-50"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
               aria-label="Next day"
             >
-              <ChevronRight size={19} />
+              <ChevronRight size={20} />
             </button>
           </div>
 
           <label className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span className="text-sm font-bold text-slate-700">Choose date</span>
+            <span className="text-sm font-bold text-slate-700">
+              Select Date
+            </span>
+
             <input
               type="date"
               value={selectedDate}
               onChange={(event) => {
                 setSelectedDate(event.target.value);
-                setPage(1);
+                setSelectedBooking(null);
               }}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
             />
           </label>
         </div>
 
         <div className="mt-5 border-t border-slate-200 pt-5">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
-            Selected date
-          </p>
-          <h2 className="mt-1 text-xl font-bold text-slate-950">
-            {displaySelectedDate(selectedDate)}
-          </h2>
-        </div>
-      </section>
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+              <CalendarDays size={21} />
+            </span>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px_220px_220px_auto]">
-          <label className="relative">
-            <Search
-              size={18}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search reference, customer, company, address, email, PO or customer reference"
-              className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-            />
-          </label>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
+                Selected Date
+              </p>
 
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-          >
-            <option value="ALL">All statuses</option>
-            <option value="PENDING_PAYMENT">Pending payment</option>
-            <option value="CONFIRMED">Confirmed</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="CANCELLED">Cancelled</option>
-            <option value="EXPIRED">Expired</option>
-          </select>
-
-          <select
-            value={vehicleFilter}
-            onChange={(event) => {
-              setVehicleFilter(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-          >
-            <option value="ALL">All vehicles</option>
-            {vehicles.map((vehicle) => (
-              <option key={vehicle.id} value={vehicle.id}>
-                {vehicle.name}
-                {vehicle.registration ? ` - ${vehicle.registration}` : ""}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={driverFilter}
-            onChange={(event) => {
-              setDriverFilter(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-          >
-            <option value="ALL">All drivers</option>
-            {drivers.map((driver) => (
-              <option key={driver.id} value={driver.id}>
-                {driver.name}
-              </option>
-            ))}
-          </select>
-
-          {activeFilters > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchInput("");
-                setSearch("");
-                setStatus("ALL");
-                setVehicleFilter("ALL");
-                setDriverFilter("ALL");
-                setPage(1);
-              }}
-              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-            >
-              Clear
-            </button>
-          ) : null}
+              <h2 className="mt-1 text-xl font-bold text-slate-950">
+                {displaySelectedDate(selectedDate)}
+              </h2>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -704,540 +469,474 @@ export default function AdminBookingsPage() {
         </div>
       ) : null}
 
-      {message ? (
-        <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
-          {message}
-        </div>
-      ) : null}
-
       <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5 sm:px-6">
+        <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">Bookings</h2>
+            <h2 className="text-lg font-bold text-slate-950">
+              Vehicle Booking Calendar
+            </h2>
+
             <p className="mt-1 text-sm text-slate-500">
-              {pagination.total} matching booking
-              {pagination.total === 1 ? "" : "s"}
+              {bookings.length} booking{bookings.length === 1 ? "" : "s"} on{" "}
+              {displaySelectedDate(selectedDate)}
             </p>
           </div>
-          <p className="text-sm text-slate-500">
-            Page {pagination.page} of {pagination.totalPages}
-          </p>
+
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+            <Clock3 size={17} />
+            06:00 - 22:00
+          </div>
         </div>
 
         {loading ? (
-          <div className="flex min-h-[360px] items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-[#FF6A00]" />
+          <div className="flex min-h-[420px] items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#FF6A00]" />
+
+              <p className="mt-3 text-sm font-semibold text-slate-600">
+                Loading booking calendar
+              </p>
+            </div>
           </div>
-        ) : bookings.length === 0 ? (
+        ) : vehicles.length === 0 ? (
           <div className="flex min-h-[360px] items-center justify-center px-6 text-center">
             <div>
-              <CalendarDays className="mx-auto h-12 w-12 text-slate-300" />
+              <Truck className="mx-auto h-12 w-12 text-slate-300" />
+
               <h3 className="mt-4 text-lg font-bold text-slate-950">
-                No bookings found
+                No active vehicles found
               </h3>
+
               <p className="mt-2 text-sm text-slate-500">
-                Change the filters or create a new booking.
+                Active fleet vehicles will appear as rows on this calendar.
               </p>
             </div>
           </div>
         ) : (
-          <div className="divide-y divide-slate-200">
-            {bookings.map((booking) => (
-              <article
-                key={booking.id}
-                className="grid gap-5 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_220px_220px_auto] xl:items-center"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openBooking(booking)}
-                      className="text-left text-lg font-bold text-[#E55300] hover:underline"
-                    >
-                      {booking.reference}
-                    </button>
-                    <Badge className={statusClass(booking.status)}>
-                      {booking.status}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-sm font-bold text-slate-800">
-                    {bookingCustomerName(booking)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {booking.collectionAddress} → {booking.deliveryAddress}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Time slot
-                  </p>
-                  <p className="mt-1 flex items-center gap-2 font-bold text-slate-950">
-                    <Clock3 size={17} className="text-[#E55300]" />
-                    {bookingTimeSlot(booking)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {date(booking.collectionDate)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Vehicle and driver
-                  </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    Required: {requiredVehicleType(booking)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Assigned vehicle:{" "}
-                    {booking.vehicle
-                      ? `${booking.vehicle.name}${
-                          booking.vehicle.registration
-                            ? ` · ${booking.vehicle.registration}`
-                            : ""
-                        }`
-                      : "Unassigned"}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Driver: {booking.driver?.name || "Unassigned"}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => openBooking(booking)}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
+          <div className="overflow-x-auto">
+            <div
+              className="min-w-max"
+              style={{
+                width: VEHICLE_COLUMN_WIDTH + timelineWidth,
+              }}
+            >
+              <div className="flex border-b border-slate-300 bg-slate-50">
+                <div
+                  className="sticky left-0 z-30 flex shrink-0 items-center border-r border-slate-300 bg-slate-50 px-5"
+                  style={{
+                    width: VEHICLE_COLUMN_WIDTH,
+                    height: 58,
+                  }}
                 >
-                  <Pencil size={17} />
-                  Manage
-                </button>
-              </article>
-            ))}
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                      Vehicle
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  className="relative shrink-0"
+                  style={{
+                    width: timelineWidth,
+                    height: 58,
+                  }}
+                >
+                  {hours.map((hour, index) => {
+                    const left = index * HOUR_WIDTH;
+
+                    return (
+                      <div
+                        key={hour}
+                        className="absolute top-0 h-full border-l border-slate-300"
+                        style={{
+                          left,
+                        }}
+                      >
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-600">
+                          {String(hour).padStart(2, "0")}:00
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {vehicles.map((vehicle) => {
+                const vehicleBookings =
+                  bookingsByVehicle.get(vehicle.id) || [];
+
+                return (
+                  <div
+                    key={vehicle.id}
+                    className="flex border-b border-slate-200 last:border-b-0"
+                    style={{
+                      minHeight: ROW_HEIGHT,
+                    }}
+                  >
+                    <div
+                      className="sticky left-0 z-20 flex shrink-0 items-center border-r border-slate-300 bg-white px-5"
+                      style={{
+                        width: VEHICLE_COLUMN_WIDTH,
+                        height: ROW_HEIGHT,
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Truck
+                            size={18}
+                            className="shrink-0 text-[#E55300]"
+                          />
+
+                          <p className="truncate text-sm font-bold text-slate-950">
+                            {vehicle.name}
+                          </p>
+                        </div>
+
+                        <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+                          {vehicle.registration || "No registration"}
+                        </p>
+
+                        <p className="mt-1 truncate text-[11px] text-slate-400">
+                          {vehicle.vehicleType}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className="relative shrink-0 bg-white"
+                      style={{
+                        width: timelineWidth,
+                        height: ROW_HEIGHT,
+                      }}
+                    >
+                      {hours.map((hour, index) => (
+                        <div
+                          key={`${vehicle.id}-${hour}`}
+                          className="pointer-events-none absolute top-0 h-full border-l border-slate-200"
+                          style={{
+                            left: index * HOUR_WIDTH,
+                          }}
+                        />
+                      ))}
+
+                      {vehicleBookings.map((booking) => (
+                        <BookingBlock
+                          key={booking.id}
+                          booking={booking}
+                          onClick={() => setSelectedBooking(booking)}
+                        />
+                      ))}
+
+                      {vehicleBookings.length === 0 ? (
+                        <div className="pointer-events-none absolute inset-0 flex items-center px-5">
+                          <span className="text-xs font-medium text-slate-300">
+                            Available
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
-
-        {!loading && bookings.length > 0 ? (
-          <div className="flex flex-col gap-4 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-sm text-slate-500">
-              Showing {(pagination.page - 1) * pagination.pageSize + 1}–
-              {Math.min(
-                pagination.page * pagination.pageSize,
-                pagination.total,
-              )}{" "}
-              of {pagination.total}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40"
-              >
-                <ChevronLeft size={17} />
-                Previous
-              </button>
-              <button
-                type="button"
-                disabled={page >= pagination.totalPages}
-                onClick={() =>
-                  setPage((current) =>
-                    Math.min(pagination.totalPages, current + 1),
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40"
-              >
-                Next
-                <ChevronRight size={17} />
-              </button>
-            </div>
-          </div>
-        ) : null}
       </section>
 
-      {selected ? (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-          <section className="max-h-[95vh] w-full max-w-5xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
-                  Manage booking
+      {!loading && unassignedBookings.length > 0 ? (
+        <section className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+              <Truck size={19} />
+            </span>
+
+            <div>
+              <h2 className="font-bold text-amber-950">
+                Unassigned Bookings
+              </h2>
+
+              <p className="mt-1 text-sm text-amber-800">
+                These bookings do not currently have a vehicle assigned, so
+                they cannot be placed on a vehicle row.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {unassignedBookings.map((booking) => (
+              <button
+                key={booking.id}
+                type="button"
+                onClick={() => setSelectedBooking(booking)}
+                className="rounded-2xl border border-amber-200 bg-white p-4 text-left transition hover:border-amber-300 hover:shadow-sm"
+              >
+                <p className="text-sm font-bold text-slate-950">
+                  {bookingCustomerName(booking)}
                 </p>
-                <h2 className="mt-1 text-2xl font-bold text-slate-950">
-                  {selected.reference}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
-              >
-                <X size={20} />
+
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {booking.reference}
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  {bookingTimeText(booking)}
+                </p>
               </button>
-            </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-            <div className="space-y-6 p-5 sm:p-6">
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                <SelectField
-                  label="Booking status"
-                  value={editStatus}
-                  onChange={setEditStatus}
-                  options={[
-                    "PENDING_PAYMENT",
-                    "CONFIRMED",
-                    "ASSIGNED",
-                    "IN_PROGRESS",
-                    "COMPLETED",
-                    "CANCELLED",
-                    "EXPIRED",
-                  ]}
-                />
-                <SelectField
-                  label="Vehicle"
-                  value={editVehicleId}
-                  onChange={setEditVehicleId}
-                  options={vehicles.map((vehicle) => ({
-                    value: vehicle.id,
-                    label: `${vehicle.name}${
-                      vehicle.registration
-                        ? ` - ${vehicle.registration}`
-                        : ""
-                    }`,
-                  }))}
-                  allowEmpty
-                />
-                <SelectField
-                  label="Driver"
-                  value={editDriverId}
-                  onChange={setEditDriverId}
-                  options={drivers.map((driver) => ({
-                    value: driver.id,
-                    label: driver.name,
-                  }))}
-                  allowEmpty
-                />
-                <Field
-                  label="Collection date"
-                  type="date"
-                  value={editCollectionDate}
-                  onChange={setEditCollectionDate}
-                />
-                <Field
-                  label="Collection window"
-                  value={editCollectionWindow}
-                  onChange={setEditCollectionWindow}
-                />
-                <Field
-                  label="Total price"
-                  type="number"
-                  value={editTotalPrice}
-                  onChange={setEditTotalPrice}
-                />
-                <Field
-                  label="Collection address"
-                  value={editCollectionAddress}
-                  onChange={setEditCollectionAddress}
-                />
-                <Field
-                  label="Delivery address"
-                  value={editDeliveryAddress}
-                  onChange={setEditDeliveryAddress}
-                />
-                <Field
-                  label="Return address"
-                  value={editReturnAddress}
-                  onChange={setEditReturnAddress}
-                />
-                <Field
-                  label="Customer reference"
-                  value={editCustomerReference}
-                  onChange={setEditCustomerReference}
-                />
-                <Field
-                  label="Purchase order number"
-                  value={editPurchaseOrderNumber}
-                  onChange={setEditPurchaseOrderNumber}
-                />
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <TextArea
-                  label="Internal notes"
-                  value={editInternalNotes}
-                  onChange={setEditInternalNotes}
-                />
-                <TextArea
-                  label="Dispatch notes"
-                  value={editDispatchNotes}
-                  onChange={setEditDispatchNotes}
-                />
-              </div>
-
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void updateBooking()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
-              >
-                <Pencil size={18} />
-                Save booking changes
-              </button>
-
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <InfoCard
-                  label="Payment"
-                  value={
-                    selected.payments?.[0]
-                      ? `${selected.payments[0].status} · ${money(
-                          selected.payments[0].amount,
-                        )}`
-                      : "No payment"
-                  }
-                  icon={WalletCards}
-                />
-                <InfoCard
-                  label="Invoice"
-                  value={
-                    selected.invoices?.[0]
-                      ? `${selected.invoices[0].invoiceNumber} · ${selected.invoices[0].status}`
-                      : "No invoice"
-                  }
-                  icon={ClipboardList}
-                />
-                <InfoCard
-                  label="Proof of delivery"
-                  value={selected.pod?.status || "Not uploaded"}
-                  icon={CheckCircle2}
-                />
-                <InfoCard
-                  label="Tracking"
-                  value={
-                    selected.trackingStartedAt
-                      ? selected.trackingEndedAt
-                        ? "Completed"
-                        : "Active"
-                      : "Not started"
-                  }
-                  icon={Truck}
-                />
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {selected.user?.id ? (
-                  <Link
-                    href={`/admin/customers/${selected.user.id}`}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  >
-                    Open customer profile
-                    <ArrowRight size={17} />
-                  </Link>
-                ) : null}
-
-                {selected.quote?.id ? (
-                  <Link
-                    href="/admin/quotes"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  >
-                    Open quote management
-                    <ArrowRight size={17} />
-                  </Link>
-                ) : null}
-              </div>
-
-              <div className="border-t border-slate-200 pt-6">
-                <h3 className="font-bold text-slate-950">
-                  Tracking timeline
-                </h3>
-                <div className="mt-4 space-y-3">
-                  {(selected.trackingEvents || []).map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded-2xl border border-slate-200 p-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="font-bold text-slate-950">
-                          {event.title}
-                        </p>
-                        <Badge className={statusClass(event.status)}>
-                          {event.status}
-                        </Badge>
-                      </div>
-                      {event.description ? (
-                        <p className="mt-2 text-sm text-slate-500">
-                          {event.description}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 text-xs text-slate-400">
-                        {date(event.createdAt)}
-                      </p>
-                    </div>
-                  ))}
-                  {(selected.trackingEvents || []).length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                      No tracking events recorded.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
+      {selectedBooking ? (
+        <BookingDetailsModal
+          booking={selectedBooking}
+          onClose={() => setSelectedBooking(null)}
+        />
       ) : null}
     </div>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
+function BookingBlock({
+  booking,
+  onClick,
 }: {
-  label: string;
-  value: number;
-  icon: typeof CalendarDays;
+  booking: Booking;
+  onClick: () => void;
 }) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">{value}</p>
-        </div>
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={21} />
-        </span>
-      </div>
-    </article>
-  );
-}
+  const startMinutes = minutesFromStartOfDay(booking.estimatedStartTime);
+  const endMinutes = minutesFromStartOfDay(booking.estimatedEndTime);
 
-function Badge({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className: string;
-}) {
+  if (startMinutes === null || endMinutes === null) {
+    return null;
+  }
+
+  const timelineStartMinutes = START_HOUR * 60;
+  const timelineEndMinutes = END_HOUR * 60;
+
+  const visibleStart = Math.max(startMinutes, timelineStartMinutes);
+  const visibleEnd = Math.min(endMinutes, timelineEndMinutes);
+
+  if (visibleEnd <= timelineStartMinutes || visibleStart >= timelineEndMinutes) {
+    return null;
+  }
+
+  if (visibleEnd <= visibleStart) {
+    return null;
+  }
+
+  const left =
+    ((visibleStart - timelineStartMinutes) / 60) * HOUR_WIDTH;
+
+  const width =
+    ((visibleEnd - visibleStart) / 60) * HOUR_WIDTH;
+
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 ring-inset ${className}`}
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${bookingCustomerName(booking)} · ${bookingTimeText(booking)}`}
+      className={`absolute top-3 z-10 overflow-hidden rounded-xl border-l-4 px-3 py-2 text-left shadow-sm transition hover:z-20 hover:-translate-y-0.5 hover:shadow-md ${statusClasses(
+        booking.status,
+      )}`}
+      style={{
+        left: left + 3,
+        width: Math.max(width - 6, 46),
+        height: ROW_HEIGHT - 24,
+      }}
     >
-      {children}
-    </span>
+      <p className="truncate text-sm font-extrabold">
+        {bookingCustomerName(booking)}
+      </p>
+
+      <p className="mt-1 truncate text-[11px] font-bold opacity-75">
+        {bookingTimeText(booking)}
+      </p>
+
+      {width >= 125 ? (
+        <p className="mt-0.5 truncate text-[10px] font-semibold opacity-60">
+          {booking.reference}
+        </p>
+      ) : null}
+    </button>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
+function BookingDetailsModal({
+  booking,
+  onClose,
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
+  booking: Booking;
+  onClose: () => void;
 }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      />
-    </label>
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
+              Existing Booking
+            </p>
+
+            <h2 className="mt-1 text-2xl font-bold text-slate-950">
+              {bookingCustomerName(booking)}
+            </h2>
+
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              {booking.reference}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+            aria-label="Close booking"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-5 sm:p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-bold ${statusClasses(
+                booking.status,
+              )}`}
+            >
+              {statusLabel(booking.status)}
+            </span>
+
+            <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
+              <Clock3 size={16} className="text-[#E55300]" />
+              {bookingTimeText(booking)}
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <DetailItem
+              label="Date"
+              value={displayDate(booking.collectionDate)}
+            />
+
+            <DetailItem
+              label="Price"
+              value={money(booking.totalPrice)}
+            />
+
+            <DetailItem
+              label="Vehicle"
+              value={
+                booking.vehicle
+                  ? `${booking.vehicle.name}${
+                      booking.vehicle.registration
+                        ? ` · ${booking.vehicle.registration}`
+                        : ""
+                    }`
+                  : "Unassigned"
+              }
+            />
+
+            <DetailItem
+              label="Driver"
+              value={booking.driver?.name || "Unassigned"}
+            />
+
+            <DetailItem
+              label="Collection Address"
+              value={booking.collectionAddress}
+            />
+
+            <DetailItem
+              label="Delivery Address"
+              value={booking.deliveryAddress}
+            />
+
+            {booking.returnAddress ? (
+              <DetailItem
+                label="Return Address"
+                value={booking.returnAddress}
+              />
+            ) : null}
+
+            {booking.customerReference ? (
+              <DetailItem
+                label="Customer Reference"
+                value={booking.customerReference}
+              />
+            ) : null}
+
+            {booking.purchaseOrderNumber ? (
+              <DetailItem
+                label="Purchase Order Number"
+                value={booking.purchaseOrderNumber}
+              />
+            ) : null}
+          </div>
+
+          {booking.internalNotes || booking.dispatchNotes ? (
+            <div className="mt-6 border-t border-slate-200 pt-6">
+              <h3 className="text-sm font-bold text-slate-950">
+                Booking Notes
+              </h3>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {booking.internalNotes ? (
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                      Internal Notes
+                    </p>
+
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {booking.internalNotes}
+                    </p>
+                  </div>
+                ) : null}
+
+                {booking.dispatchNotes ? (
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                      Dispatch Notes
+                    </p>
+
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {booking.dispatchNotes}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
-function TextArea({
+function DetailItem({
   label,
   value,
-  onChange,
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <textarea
-        rows={5}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  allowEmpty = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[] | { value: string; label: string }[];
-  allowEmpty?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      >
-        {allowEmpty ? <option value="">Not assigned</option> : null}
-        {options.map((option) =>
-          typeof option === "string" ? (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ) : (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ),
-        )}
-      </select>
-    </label>
-  );
-}
-
-function InfoCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon: typeof WalletCards;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 p-4">
-      <div className="flex items-center gap-3">
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={19} />
-        </span>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-            {label}
-          </p>
-          <p className="mt-1 text-sm font-bold text-slate-800">{value}</p>
-        </div>
-      </div>
+      <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+        {label}
+      </p>
+
+      <p className="mt-2 break-words text-sm font-bold leading-6 text-slate-800">
+        {value}
+      </p>
     </div>
   );
 }
