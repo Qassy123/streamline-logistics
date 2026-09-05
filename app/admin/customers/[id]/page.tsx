@@ -1,85 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  Ban,
-  Building2,
-  CalendarDays,
   CheckCircle2,
   CircleAlert,
-  CircleDollarSign,
-  ClipboardList,
-  CreditCard,
-  FileText,
   Loader2,
-  MapPin,
   Pencil,
-  ReceiptText,
   RefreshCw,
   Save,
-  ShieldCheck,
-  Truck,
-  UserRound,
-  WalletCards,
   X,
 } from "lucide-react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 
 type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
-
-type TradeAccount = {
-  id: string;
-  status: string;
-  creditLimit: string | number | null;
-  currentBalance: string | number | null;
-  paymentTermsDays: number;
-  approvedAt?: string | null;
-  rejectedAt?: string | null;
-  suspendedAt?: string | null;
-  reactivatedAt?: string | null;
-};
-
-type Quote = {
-  id: string;
-  status: string;
-  deliveryType: string;
-  journeyType?: string | null;
-  vehicleSize: string;
-  collectionDate: string;
-  collectionAddress: string;
-  deliveryAddress: string;
-  totalPrice?: string | number | null;
-  createdAt: string;
-};
-
-type Booking = {
-  id: string;
-  reference: string;
-  status: string;
-  collectionDate: string;
-  collectionWindow: string;
-  collectionAddress: string;
-  deliveryAddress: string;
-  totalPrice: string | number;
-  createdAt: string;
-  vehicle?: {
-    name: string;
-    registration?: string | null;
-  } | null;
-  driver?: {
-    name: string;
-  } | null;
-};
 
 type Invoice = {
   id: string;
@@ -89,104 +39,54 @@ type Invoice = {
   vatAmount: string | number;
   total: string | number;
   dueDate?: string | null;
+  issuedAt?: string | null;
+  finalisedAt?: string | null;
   paidAt?: string | null;
-  createdAt: string;
-};
-
-type Payment = {
-  id: string;
-  provider: string;
-  paymentMethod?: string;
-  status: string;
-  amount: string | number;
-  currency: string;
-  paidAt?: string | null;
-  createdAt: string;
-};
-
-type SavedRoute = {
-  id: string;
-  name?: string | null;
-  collectionAddress: string;
-  deliveryAddress: string;
-  vehicleSize?: string | null;
-  createdAt: string;
-};
-
-type CustomerNote = {
-  id: string;
-  body: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type DocumentRecord = {
-  id: string;
-  name: string;
-  type: string;
-  fileUrl: string;
   createdAt: string;
 };
 
 type Customer = {
   id: string;
+
   accountNumber?: string | null;
   accountType: AccountType;
   accountStatus: AccountStatus;
+
   companyName?: string | null;
-  name: string;
-  email: string;
-  username?: string | null;
-  phone?: string | null;
   legalEntity?: string | null;
   tradingName?: string | null;
-  companyRegistrationNumber?: string | null;
-  vatNumber?: string | null;
-  businessType?: string | null;
-  industry?: string | null;
-  companyWebsite?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  jobTitle?: string | null;
+
+  name: string;
+  email: string;
+  phone?: string | null;
+
   accountsEmail?: string | null;
   alternativeContactNumber?: string | null;
   mainContactName?: string | null;
+
+  companyRegistrationNumber?: string | null;
+  vatNumber?: string | null;
+
   registeredAddressLine1?: string | null;
   registeredAddressLine2?: string | null;
   registeredTownCity?: string | null;
   registeredCounty?: string | null;
   registeredPostcode?: string | null;
   registeredCountry?: string | null;
+
   tradingAddressDifferent: boolean;
+
   tradingAddressLine1?: string | null;
   tradingAddressLine2?: string | null;
   tradingTownCity?: string | null;
   tradingCounty?: string | null;
   tradingPostcode?: string | null;
   tradingCountry?: string | null;
-  estimatedShipmentsPerMonth?: string | null;
-  typicalShipmentType?: string | null;
-  internalNote?: string | null;
-  adminCreated: boolean;
+
+  invoices?: Invoice[];
+
   createdAt: string;
   updatedAt: string;
-  tradeAccount?: TradeAccount | null;
-  quotes?: Quote[];
-  bookings?: Booking[];
-  invoices?: Invoice[];
-  payments?: Payment[];
-  savedRoutes?: SavedRoute[];
-  notes?: CustomerNote[];
-  documents?: DocumentRecord[];
-  _count?: {
-    quotes: number;
-    bookings: number;
-    invoices: number;
-    payments: number;
-    savedRoutes: number;
-    notes: number;
-    documents: number;
-  };
 };
 
 type CustomerPayload = {
@@ -197,57 +97,56 @@ type CustomerPayload = {
 type EditForm = {
   accountType: AccountType;
   accountStatus: AccountStatus;
+
   companyName: string;
   name: string;
+
   email: string;
-  username: string;
-  phone: string;
-  legalEntity: string;
-  tradingName: string;
-  companyRegistrationNumber: string;
-  vatNumber: string;
-  businessType: string;
-  industry: string;
-  companyWebsite: string;
-  firstName: string;
-  lastName: string;
-  jobTitle: string;
   accountsEmail: string;
+
+  phone: string;
   alternativeContactNumber: string;
   mainContactName: string;
+
+  companyRegistrationNumber: string;
+  vatNumber: string;
+
   registeredAddressLine1: string;
   registeredAddressLine2: string;
   registeredTownCity: string;
   registeredCounty: string;
   registeredPostcode: string;
   registeredCountry: string;
+
   tradingAddressDifferent: boolean;
+
   tradingAddressLine1: string;
   tradingAddressLine2: string;
   tradingTownCity: string;
   tradingCounty: string;
   tradingPostcode: string;
   tradingCountry: string;
-  estimatedShipmentsPerMonth: string;
-  typicalShipmentType: string;
-  internalNote: string;
 };
 
-function money(value: string | number | null | undefined, currency = "GBP") {
+function money(value: string | number | null | undefined) {
   const amount = Number(value ?? 0);
 
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
-    currency,
+    currency: "GBP",
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
-function date(value?: string | null) {
-  if (!value) return "Not recorded";
+function formatDate(value?: string | null) {
+  if (!value) {
+    return "Not recorded";
+  }
 
   const parsed = new Date(value);
 
-  if (Number.isNaN(parsed.getTime())) return "Not recorded";
+  if (Number.isNaN(parsed.getTime())) {
+    return "Not recorded";
+  }
 
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -256,111 +155,168 @@ function date(value?: string | null) {
   }).format(parsed);
 }
 
-function statusClass(status: string) {
+function displayAccountType(type: AccountType) {
+  if (type === "TRADE") {
+    return "Trade Credit Account";
+  }
+
+  if (type === "BUSINESS") {
+    return "Business Account";
+  }
+
+  return "Private Account";
+}
+
+function displayAccountStatus(status: AccountStatus) {
+  if (status === "ACTIVE") {
+    return "Live";
+  }
+
+  if (status === "INACTIVE") {
+    return "Blocked";
+  }
+
+  return "Suspended";
+}
+
+function statusClasses(status: AccountStatus) {
+  if (status === "ACTIVE") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (status === "SUSPENDED") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-red-200 bg-red-50 text-red-700";
+}
+
+function invoiceStatusClasses(status: string) {
   const normalized = status.toUpperCase();
 
-  if (
-    ["ACTIVE", "APPROVED", "PAID", "COMPLETED", "CONFIRMED"].includes(
-      normalized,
-    )
-  ) {
-    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  if (normalized === "PAID") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
 
-  if (
-    ["SUSPENDED", "FAILED", "CANCELLED", "OVERDUE", "REJECTED"].includes(
-      normalized,
-    )
-  ) {
-    return "bg-red-50 text-red-700 ring-red-200";
+  if (normalized === "OVERDUE") {
+    return "border-red-200 bg-red-50 text-red-700";
   }
 
-  if (
-    [
-      "PENDING",
-      "PENDING_PAYMENT",
-      "UNDER_REVIEW",
-      "ISSUED",
-      "ASSIGNED",
-    ].includes(normalized)
-  ) {
-    return "bg-amber-50 text-amber-700 ring-amber-200";
-  }
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
 
-  return "bg-slate-100 text-slate-600 ring-slate-200";
+function customerDisplayName(customer: Customer) {
+  return (
+    customer.companyName ||
+    customer.legalEntity ||
+    customer.tradingName ||
+    customer.name
+  );
 }
 
 function toEditForm(customer: Customer): EditForm {
   return {
     accountType: customer.accountType,
     accountStatus: customer.accountStatus,
-    companyName: customer.companyName || "",
+
+    companyName:
+      customer.companyName ||
+      customer.legalEntity ||
+      customer.name ||
+      "",
+
     name: customer.name || "",
+
     email: customer.email || "",
-    username: customer.username || "",
-    phone: customer.phone || "",
-    legalEntity: customer.legalEntity || "",
-    tradingName: customer.tradingName || "",
-    companyRegistrationNumber: customer.companyRegistrationNumber || "",
-    vatNumber: customer.vatNumber || "",
-    businessType: customer.businessType || "",
-    industry: customer.industry || "",
-    companyWebsite: customer.companyWebsite || "",
-    firstName: customer.firstName || "",
-    lastName: customer.lastName || "",
-    jobTitle: customer.jobTitle || "",
     accountsEmail: customer.accountsEmail || "",
-    alternativeContactNumber: customer.alternativeContactNumber || "",
+
+    phone: customer.phone || "",
+    alternativeContactNumber:
+      customer.alternativeContactNumber || "",
+
     mainContactName: customer.mainContactName || "",
-    registeredAddressLine1: customer.registeredAddressLine1 || "",
-    registeredAddressLine2: customer.registeredAddressLine2 || "",
-    registeredTownCity: customer.registeredTownCity || "",
-    registeredCounty: customer.registeredCounty || "",
-    registeredPostcode: customer.registeredPostcode || "",
-    registeredCountry: customer.registeredCountry || "",
-    tradingAddressDifferent: customer.tradingAddressDifferent,
-    tradingAddressLine1: customer.tradingAddressLine1 || "",
-    tradingAddressLine2: customer.tradingAddressLine2 || "",
-    tradingTownCity: customer.tradingTownCity || "",
-    tradingCounty: customer.tradingCounty || "",
-    tradingPostcode: customer.tradingPostcode || "",
-    tradingCountry: customer.tradingCountry || "",
-    estimatedShipmentsPerMonth: customer.estimatedShipmentsPerMonth || "",
-    typicalShipmentType: customer.typicalShipmentType || "",
-    internalNote: customer.internalNote || "",
+
+    companyRegistrationNumber:
+      customer.companyRegistrationNumber || "",
+
+    vatNumber: customer.vatNumber || "",
+
+    registeredAddressLine1:
+      customer.registeredAddressLine1 || "",
+
+    registeredAddressLine2:
+      customer.registeredAddressLine2 || "",
+
+    registeredTownCity:
+      customer.registeredTownCity || "",
+
+    registeredCounty:
+      customer.registeredCounty || "",
+
+    registeredPostcode:
+      customer.registeredPostcode || "",
+
+    registeredCountry:
+      customer.registeredCountry || "United Kingdom",
+
+    tradingAddressDifferent:
+      customer.tradingAddressDifferent,
+
+    tradingAddressLine1:
+      customer.tradingAddressLine1 || "",
+
+    tradingAddressLine2:
+      customer.tradingAddressLine2 || "",
+
+    tradingTownCity:
+      customer.tradingTownCity || "",
+
+    tradingCounty:
+      customer.tradingCounty || "",
+
+    tradingPostcode:
+      customer.tradingPostcode || "",
+
+    tradingCountry:
+      customer.tradingCountry || "United Kingdom",
   };
 }
 
-export default function CustomerProfilePage() {
+export default function CustomerAccountPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const customerId = params?.id;
+  const customerId = params.id;
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
-  const [editing, setEditing] = useState(false);
+
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [editing, setEditing] = useState(false);
+
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
   const loadCustomer = useCallback(
     async (refresh = false) => {
-      if (!customerId) return;
+      if (!customerId) {
+        return;
+      }
 
       const adminKey =
-        window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+        window.localStorage
+          .getItem(ADMIN_KEY_STORAGE_KEY)
+          ?.trim() || "";
 
       if (!adminKey) {
         setLoading(false);
-        setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
-        );
+        setError("Admin key is required.");
         return;
       }
 
       refresh ? setRefreshing(true) : setLoading(true);
+
       setError("");
 
       try {
@@ -374,18 +330,20 @@ export default function CustomerProfilePage() {
           },
         );
 
-        const payload = (await response.json()) as CustomerPayload;
+        const payload =
+          (await response.json()) as CustomerPayload;
 
-        if (!response.ok) {
+        if (!response.ok || !payload.customer) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            window.localStorage.removeItem(
+              ADMIN_KEY_STORAGE_KEY,
+            );
           }
 
-          throw new Error(payload.error || "Unable to load customer account.");
-        }
-
-        if (!payload.customer) {
-          throw new Error("Customer account not found.");
+          throw new Error(
+            payload.error ||
+              "Unable to load customer account.",
+          );
         }
 
         setCustomer(payload.customer);
@@ -408,18 +366,34 @@ export default function CustomerProfilePage() {
     void loadCustomer();
   }, [loadCustomer]);
 
-  const displayName = useMemo(() => {
-    if (!customer) return "Customer account";
+  const pendingInvoices = useMemo(() => {
+    if (!customer?.invoices) {
+      return [];
+    }
 
-    return (
-      customer.companyName ||
-      customer.legalEntity ||
-      customer.tradingName ||
-      customer.name
+    return customer.invoices.filter((invoice) =>
+      ["DRAFT", "OVERDUE", "PENDING"].includes(
+        invoice.status.toUpperCase(),
+      ),
     );
   }, [customer]);
 
-  function updateField<K extends keyof EditForm>(field: K, value: EditForm[K]) {
+  const issuedInvoices = useMemo(() => {
+    if (!customer?.invoices) {
+      return [];
+    }
+
+    return customer.invoices.filter((invoice) =>
+      ["ISSUED", "PAID", "FINALISED", "FINALIZED"].includes(
+        invoice.status.toUpperCase(),
+      ),
+    );
+  }, [customer]);
+
+  function update<K extends keyof EditForm>(
+    field: K,
+    value: EditForm[K],
+  ) {
     setForm((current) =>
       current
         ? {
@@ -430,13 +404,19 @@ export default function CustomerProfilePage() {
     );
   }
 
-  async function saveCustomer(event: React.FormEvent<HTMLFormElement>) {
+  async function saveCustomer(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
 
-    if (!form || !customerId) return;
+    if (!customerId || !form) {
+      return;
+    }
 
     const adminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      window.localStorage
+        .getItem(ADMIN_KEY_STORAGE_KEY)
+        ?.trim() || "";
 
     if (!adminKey) {
       setError("Admin key is required.");
@@ -456,20 +436,36 @@ export default function CustomerProfilePage() {
             "Content-Type": "application/json",
             "x-admin-key": adminKey,
           },
-          body: JSON.stringify(form),
+
+          body: JSON.stringify({
+            ...form,
+
+            companyName: form.companyName,
+            legalEntity: form.companyName,
+            tradingName: form.companyName,
+
+            accountsEmail: form.accountsEmail,
+
+            alternativeContactNumber:
+              form.alternativeContactNumber,
+
+            mainContactName: form.mainContactName,
+          }),
         },
       );
 
-      const payload = (await response.json()) as CustomerPayload;
+      const payload =
+        (await response.json()) as CustomerPayload;
 
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to update customer account.");
+      if (!response.ok || !payload.customer) {
+        throw new Error(
+          payload.error ||
+            "Unable to update customer account.",
+        );
       }
 
-      if (payload.customer) {
-        setCustomer(payload.customer);
-        setForm(toEditForm(payload.customer));
-      }
+      setCustomer(payload.customer);
+      setForm(toEditForm(payload.customer));
 
       setEditing(false);
       setMessage("Customer account updated successfully.");
@@ -484,95 +480,12 @@ export default function CustomerProfilePage() {
     }
   }
 
-  async function changeStatus(status: AccountStatus) {
-    if (!form || !customerId) return;
-
-    const reason =
-      status === "ACTIVE"
-        ? window.prompt("Optional reactivation note:", "") || ""
-        : window.prompt(
-            status === "SUSPENDED"
-              ? "Enter the reason for suspending this account:"
-              : "Enter the reason for marking this account inactive:",
-            "",
-          );
-
-    const trimmedReason = reason?.trim() ?? "";
-
-    if (status !== "ACTIVE" && trimmedReason.length < 5) {
-      setError("A reason of at least five characters is required.");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      status === "ACTIVE"
-        ? "Reactivate this customer account?"
-        : status === "SUSPENDED"
-          ? "Suspend this account? The customer will be blocked from new quotes, bookings and checkout."
-          : "Mark this account inactive?",
-    );
-
-    if (!confirmed) return;
-
-    const adminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
-
-    if (!adminKey) {
-      setError("Admin key is required.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/admin/customers/${customerId}/status`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
-          body: JSON.stringify({ status, reason: trimmedReason }),
-        },
-      );
-
-      const payload = (await response.json()) as CustomerPayload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to update account status.");
-      }
-
-      if (payload.customer) {
-        setCustomer(payload.customer);
-        setForm(toEditForm(payload.customer));
-      }
-
-      setMessage(
-        status === "ACTIVE"
-          ? "Customer account reactivated."
-          : status === "SUSPENDED"
-            ? "Customer account suspended."
-            : "Customer account marked inactive.",
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to update account status.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-[520px] items-center justify-center">
         <div className="text-center">
           <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#FF6A00]" />
+
           <p className="mt-3 text-sm font-semibold text-slate-600">
             Loading customer account
           </p>
@@ -583,20 +496,24 @@ export default function CustomerProfilePage() {
 
   if (!customer || !form) {
     return (
-      <div className="mx-auto max-w-2xl rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
-        <CircleAlert className="mx-auto h-10 w-10 text-red-600" />
+      <div className="mx-auto max-w-xl border border-red-200 bg-red-50 p-8 text-center">
+        <CircleAlert className="mx-auto h-9 w-9 text-red-600" />
+
         <h1 className="mt-4 text-2xl font-bold text-red-950">
           Customer account unavailable
         </h1>
-        <p className="mt-3 text-sm leading-6 text-red-700">
-          {error || "The requested customer could not be loaded."}
+
+        <p className="mt-3 text-sm text-red-700">
+          {error ||
+            "The requested customer account could not be loaded."}
         </p>
+
         <Link
           href="/admin/customers"
-          className="mt-6 inline-flex items-center gap-2 rounded-xl bg-red-900 px-4 py-3 text-sm font-bold text-white"
+          className="mt-6 inline-flex items-center gap-2 bg-slate-950 px-4 py-3 text-sm font-bold text-white"
         >
           <ArrowLeft size={17} />
-          Back to customers
+          Existing Customers
         </Link>
       </div>
     );
@@ -604,959 +521,747 @@ export default function CustomerProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-[1600px]">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Link
             href="/admin/customers"
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-950"
           >
             <ArrowLeft size={16} />
-            Customer accounts
+            Existing Customers
           </Link>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-              Customer profile
-            </p>
-            <Badge className={statusClass(customer.accountType)}>
-              {customer.accountType}
-            </Badge>
-            <Badge className={statusClass(customer.accountStatus)}>
-              {customer.accountStatus}
-            </Badge>
-          </div>
-
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            {displayName}
+          <h1 className="mt-4 text-3xl font-bold text-slate-950">
+            {customerDisplayName(customer)}
           </h1>
-          <p className="mt-3 text-sm text-slate-500">
-            {customer.accountNumber || "No account number"} · Created{" "}
-            {date(customer.createdAt)}
-          </p>
+
+          {customer.accountNumber ? (
+            <p className="mt-2 text-sm text-slate-500">
+              {customer.accountNumber}
+            </p>
+          ) : null}
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex gap-3">
           <button
             type="button"
             onClick={() => void loadCustomer(true)}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
           >
-            <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
+            <RefreshCw
+              size={17}
+              className={refreshing ? "animate-spin" : ""}
+            />
             Refresh
           </button>
 
           <button
             type="button"
-            onClick={() => setEditing((current) => !current)}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800"
+            onClick={() => {
+              setEditing((current) => !current);
+              setError("");
+              setMessage("");
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
           >
-            {editing ? <X size={18} /> : <Pencil size={18} />}
-            {editing ? "Close edit" : "Edit customer"}
+            {editing ? (
+              <X size={17} />
+            ) : (
+              <Pencil size={17} />
+            )}
+
+            {editing ? "Cancel Edit" : "Edit Account"}
           </button>
         </div>
       </div>
 
       {message ? (
-        <div className="mt-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
-          <CheckCircle2 size={19} />
+        <div className="mt-6 flex items-center gap-3 border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 size={18} />
           {message}
         </div>
       ) : null}
 
       {error ? (
-        <div className="mt-6 flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
-          <CircleAlert size={19} />
+        <div className="mt-6 flex items-center gap-3 border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+          <CircleAlert size={18} />
           {error}
         </div>
       ) : null}
 
-      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label="Quotes"
-          value={customer._count?.quotes ?? customer.quotes?.length ?? 0}
-          icon={ReceiptText}
-        />
-        <Metric
-          label="Bookings"
-          value={customer._count?.bookings ?? customer.bookings?.length ?? 0}
-          icon={CalendarDays}
-        />
-        <Metric
-          label="Invoices"
-          value={customer._count?.invoices ?? customer.invoices?.length ?? 0}
-          icon={FileText}
-        />
-        <Metric
-          label="Payments"
-          value={customer._count?.payments ?? customer.payments?.length ?? 0}
-          icon={WalletCards}
-        />
-      </section>
+      {editing ? (
+        <form
+          onSubmit={saveCustomer}
+          className="mt-7 border border-slate-300 bg-white"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
+            <EditRow label="Account Name">
+              <TextInput
+                value={form.companyName}
+                onChange={(value) =>
+                  update("companyName", value)
+                }
+              />
+            </EditRow>
 
-      <div className="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-6">
-          {editing ? (
-            <form onSubmit={saveCustomer} className="space-y-6">
-              <Section title="Account settings" icon={ShieldCheck}>
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <SelectField
-                    label="Account type"
-                    value={form.accountType}
-                    onChange={(value) =>
-                      updateField("accountType", value as AccountType)
-                    }
-                    options={["PRIVATE", "BUSINESS", "TRADE"]}
-                  />
-                  <SelectField
-                    label="Account status"
-                    value={form.accountStatus}
-                    onChange={(value) =>
-                      updateField("accountStatus", value as AccountStatus)
-                    }
-                    options={["ACTIVE", "SUSPENDED", "INACTIVE"]}
-                  />
-                  <Field
-                    label="Customer name"
-                    value={form.name}
-                    onChange={(value) => updateField("name", value)}
-                    required
-                  />
-                </div>
-              </Section>
+            <EditRow label="Account Status">
+              <select
+                value={form.accountStatus}
+                onChange={(event) =>
+                  update(
+                    "accountStatus",
+                    event.target.value as AccountStatus,
+                  )
+                }
+                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+              >
+                <option value="ACTIVE">Live</option>
+                <option value="INACTIVE">Blocked</option>
+                <option value="SUSPENDED">
+                  Suspended
+                </option>
+              </select>
+            </EditRow>
 
-              <Section title="Customer and business details" icon={Building2}>
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field
-                    label="Company name"
-                    value={form.companyName}
-                    onChange={(value) => updateField("companyName", value)}
-                  />
-                  <Field
-                    label="Legal entity"
-                    value={form.legalEntity}
-                    onChange={(value) => updateField("legalEntity", value)}
-                  />
-                  <Field
-                    label="Trading name"
-                    value={form.tradingName}
-                    onChange={(value) => updateField("tradingName", value)}
-                  />
-                  <Field
-                    label="First name"
-                    value={form.firstName}
-                    onChange={(value) => updateField("firstName", value)}
-                  />
-                  <Field
-                    label="Last name"
-                    value={form.lastName}
-                    onChange={(value) => updateField("lastName", value)}
-                  />
-                  <Field
-                    label="Main contact"
-                    value={form.mainContactName}
-                    onChange={(value) => updateField("mainContactName", value)}
-                  />
-                  <Field
-                    label="Job title"
-                    value={form.jobTitle}
-                    onChange={(value) => updateField("jobTitle", value)}
-                  />
-                  <Field
-                    label="Companies House number"
-                    value={form.companyRegistrationNumber}
-                    onChange={(value) =>
-                      updateField("companyRegistrationNumber", value)
-                    }
-                  />
-                  <Field
-                    label="VAT number"
-                    value={form.vatNumber}
-                    onChange={(value) => updateField("vatNumber", value)}
-                  />
-                  <Field
-                    label="Business type"
-                    value={form.businessType}
-                    onChange={(value) => updateField("businessType", value)}
-                  />
-                  <Field
-                    label="Industry"
-                    value={form.industry}
-                    onChange={(value) => updateField("industry", value)}
-                  />
-                  <Field
-                    label="Company website"
-                    value={form.companyWebsite}
-                    onChange={(value) => updateField("companyWebsite", value)}
-                  />
-                </div>
-              </Section>
+            <EditRow label="Account Type">
+              <select
+                value={form.accountType}
+                onChange={(event) =>
+                  update(
+                    "accountType",
+                    event.target.value as AccountType,
+                  )
+                }
+                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+              >
+                <option value="BUSINESS">
+                  Business Account
+                </option>
 
-              <Section title="Contact details" icon={UserRound}>
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field
-                    label="Email"
-                    type="email"
-                    value={form.email}
-                    onChange={(value) => updateField("email", value)}
-                    required
-                  />
-                  <Field
-                    label="Accounts email"
-                    type="email"
-                    value={form.accountsEmail}
-                    onChange={(value) => updateField("accountsEmail", value)}
-                  />
-                  <Field
-                    label="Phone"
-                    value={form.phone}
-                    onChange={(value) => updateField("phone", value)}
-                  />
-                  <Field
-                    label="Alternative phone"
-                    value={form.alternativeContactNumber}
-                    onChange={(value) =>
-                      updateField("alternativeContactNumber", value)
-                    }
-                  />
-                  <Field
-                    label="Username"
-                    value={form.username}
-                    onChange={(value) => updateField("username", value)}
-                  />
-                </div>
-              </Section>
+                <option value="TRADE">
+                  Trade Credit Account
+                </option>
 
-              <Section title="Registered address" icon={MapPin}>
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Field
-                    label="Address line 1"
-                    value={form.registeredAddressLine1}
-                    onChange={(value) =>
-                      updateField("registeredAddressLine1", value)
-                    }
-                  />
-                  <Field
-                    label="Address line 2"
-                    value={form.registeredAddressLine2}
-                    onChange={(value) =>
-                      updateField("registeredAddressLine2", value)
-                    }
-                  />
-                  <Field
-                    label="Town / City"
-                    value={form.registeredTownCity}
-                    onChange={(value) =>
-                      updateField("registeredTownCity", value)
-                    }
-                  />
-                  <Field
-                    label="County"
-                    value={form.registeredCounty}
-                    onChange={(value) => updateField("registeredCounty", value)}
-                  />
-                  <Field
-                    label="Postcode"
-                    value={form.registeredPostcode}
-                    onChange={(value) =>
-                      updateField("registeredPostcode", value)
-                    }
-                  />
-                  <Field
-                    label="Country"
-                    value={form.registeredCountry}
-                    onChange={(value) =>
-                      updateField("registeredCountry", value)
-                    }
-                  />
-                </div>
-              </Section>
+                {form.accountType === "PRIVATE" ? (
+                  <option value="PRIVATE">
+                    Private Account
+                  </option>
+                ) : null}
+              </select>
+            </EditRow>
 
-              <Section title="Trading address" icon={MapPin}>
-                <label className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <EditRow label="VAT No">
+              <TextInput
+                value={form.vatNumber}
+                onChange={(value) =>
+                  update("vatNumber", value)
+                }
+              />
+            </EditRow>
+
+            <EditRow label="Companies House Number">
+              <TextInput
+                value={form.companyRegistrationNumber}
+                onChange={(value) =>
+                  update(
+                    "companyRegistrationNumber",
+                    value,
+                  )
+                }
+              />
+            </EditRow>
+
+            <EditRow label="Registered Office Address">
+              <AddressInputs
+                line1={form.registeredAddressLine1}
+                line2={form.registeredAddressLine2}
+                townCity={form.registeredTownCity}
+                county={form.registeredCounty}
+                postcode={form.registeredPostcode}
+                country={form.registeredCountry}
+                onLine1={(value) =>
+                  update(
+                    "registeredAddressLine1",
+                    value,
+                  )
+                }
+                onLine2={(value) =>
+                  update(
+                    "registeredAddressLine2",
+                    value,
+                  )
+                }
+                onTownCity={(value) =>
+                  update("registeredTownCity", value)
+                }
+                onCounty={(value) =>
+                  update("registeredCounty", value)
+                }
+                onPostcode={(value) =>
+                  update("registeredPostcode", value)
+                }
+                onCountry={(value) =>
+                  update("registeredCountry", value)
+                }
+              />
+            </EditRow>
+
+            <EditRow label="Trading Address if different">
+              <div>
+                <label className="mb-4 flex items-center gap-3 text-sm font-medium text-slate-700">
                   <input
                     type="checkbox"
-                    checked={form.tradingAddressDifferent}
+                    checked={
+                      form.tradingAddressDifferent
+                    }
                     onChange={(event) =>
-                      updateField(
+                      update(
                         "tradingAddressDifferent",
                         event.target.checked,
                       )
                     }
                   />
-                  <span className="font-semibold text-slate-700">
-                    Trading address is different
-                  </span>
+
+                  Trading address is different
                 </label>
 
                 {form.tradingAddressDifferent ? (
-                  <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                    <Field
-                      label="Address line 1"
-                      value={form.tradingAddressLine1}
-                      onChange={(value) =>
-                        updateField("tradingAddressLine1", value)
-                      }
-                    />
-                    <Field
-                      label="Address line 2"
-                      value={form.tradingAddressLine2}
-                      onChange={(value) =>
-                        updateField("tradingAddressLine2", value)
-                      }
-                    />
-                    <Field
-                      label="Town / City"
-                      value={form.tradingTownCity}
-                      onChange={(value) =>
-                        updateField("tradingTownCity", value)
-                      }
-                    />
-                    <Field
-                      label="County"
-                      value={form.tradingCounty}
-                      onChange={(value) => updateField("tradingCounty", value)}
-                    />
-                    <Field
-                      label="Postcode"
-                      value={form.tradingPostcode}
-                      onChange={(value) =>
-                        updateField("tradingPostcode", value)
-                      }
-                    />
-                    <Field
-                      label="Country"
-                      value={form.tradingCountry}
-                      onChange={(value) => updateField("tradingCountry", value)}
-                    />
-                  </div>
-                ) : null}
-              </Section>
-
-              <Section title="Operational details" icon={Truck}>
-                <div className="grid gap-5 md:grid-cols-2">
-                  <Field
-                    label="Estimated shipments per month"
-                    value={form.estimatedShipmentsPerMonth}
-                    onChange={(value) =>
-                      updateField("estimatedShipmentsPerMonth", value)
+                  <AddressInputs
+                    line1={form.tradingAddressLine1}
+                    line2={form.tradingAddressLine2}
+                    townCity={form.tradingTownCity}
+                    county={form.tradingCounty}
+                    postcode={form.tradingPostcode}
+                    country={form.tradingCountry}
+                    onLine1={(value) =>
+                      update(
+                        "tradingAddressLine1",
+                        value,
+                      )
+                    }
+                    onLine2={(value) =>
+                      update(
+                        "tradingAddressLine2",
+                        value,
+                      )
+                    }
+                    onTownCity={(value) =>
+                      update(
+                        "tradingTownCity",
+                        value,
+                      )
+                    }
+                    onCounty={(value) =>
+                      update(
+                        "tradingCounty",
+                        value,
+                      )
+                    }
+                    onPostcode={(value) =>
+                      update(
+                        "tradingPostcode",
+                        value,
+                      )
+                    }
+                    onCountry={(value) =>
+                      update(
+                        "tradingCountry",
+                        value,
+                      )
                     }
                   />
-                  <Field
-                    label="Typical shipment type"
-                    value={form.typicalShipmentType}
-                    onChange={(value) =>
-                      updateField("typicalShipmentType", value)
-                    }
-                  />
-                </div>
-
-                <label className="mt-5 block">
-                  <span className="mb-2 block text-sm font-bold text-slate-700">
-                    Internal office note
-                  </span>
-                  <textarea
-                    rows={5}
-                    value={form.internalNote}
-                    onChange={(event) =>
-                      updateField("internalNote", event.target.value)
-                    }
-                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-                  />
-                </label>
-              </Section>
-
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-60"
-                >
-                  {saving ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Save size={18} />
-                  )}
-                  Save customer changes
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              <Section title="Account overview" icon={UserRound}>
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  <Info label="Customer name" value={customer.name} />
-                  <Info
-                    label="Business name"
-                    value={
-                      customer.companyName ||
-                      customer.legalEntity ||
-                      "Not provided"
-                    }
-                  />
-                  <Info
-                    label="Main contact"
-                    value={customer.mainContactName || customer.name}
-                  />
-                  <Info label="Email" value={customer.email} />
-                  <Info
-                    label="Accounts email"
-                    value={customer.accountsEmail || "Not provided"}
-                  />
-                  <Info
-                    label="Phone"
-                    value={customer.phone || "Not provided"}
-                  />
-                  <Info
-                    label="VAT number"
-                    value={customer.vatNumber || "Not provided"}
-                  />
-                  <Info
-                    label="Companies House number"
-                    value={customer.companyRegistrationNumber || "Not provided"}
-                  />
-                  <Info label="Last updated" value={date(customer.updatedAt)} />
-                </div>
-              </Section>
-
-              <Section title="Addresses" icon={MapPin}>
-                <div className="grid gap-5 md:grid-cols-2">
-                  <AddressCard
-                    title="Registered address"
-                    lines={[
-                      customer.registeredAddressLine1,
-                      customer.registeredAddressLine2,
-                      customer.registeredTownCity,
-                      customer.registeredCounty,
-                      customer.registeredPostcode,
-                      customer.registeredCountry,
-                    ]}
-                  />
-                  <AddressCard
-                    title="Trading address"
-                    lines={
-                      customer.tradingAddressDifferent
-                        ? [
-                            customer.tradingAddressLine1,
-                            customer.tradingAddressLine2,
-                            customer.tradingTownCity,
-                            customer.tradingCounty,
-                            customer.tradingPostcode,
-                            customer.tradingCountry,
-                          ]
-                        : ["Same as registered address"]
-                    }
-                  />
-                </div>
-              </Section>
-
-              <HistorySection
-                title="Recent quotes"
-                href={`/admin/customers/${customer.id}/quotes`}
-                icon={ReceiptText}
-                empty="No quotes linked to this customer."
-              >
-                {(customer.quotes || []).slice(0, 5).map((quote) => (
-                  <HistoryRow
-                    key={quote.id}
-                    title={`${quote.deliveryType} · ${quote.vehicleSize}`}
-                    subtitle={`${quote.collectionAddress} → ${quote.deliveryAddress}`}
-                    meta={`${date(quote.collectionDate)} · ${money(quote.totalPrice)}`}
-                    status={quote.status}
-                  />
-                ))}
-              </HistorySection>
-
-              <HistorySection
-                title="Recent bookings"
-                href={`/admin/customers/${customer.id}/bookings`}
-                icon={CalendarDays}
-                empty="No bookings linked to this customer."
-              >
-                {(customer.bookings || []).slice(0, 5).map((booking) => (
-                  <HistoryRow
-                    key={booking.id}
-                    title={booking.reference}
-                    subtitle={`${booking.collectionAddress} → ${booking.deliveryAddress}`}
-                    meta={`${date(booking.collectionDate)} · ${money(booking.totalPrice)}`}
-                    status={booking.status}
-                  />
-                ))}
-              </HistorySection>
-
-              <HistorySection
-                title="Recent invoices"
-                href={`/admin/customers/${customer.id}/invoices`}
-                icon={FileText}
-                empty="No invoices linked to this customer."
-              >
-                {(customer.invoices || []).slice(0, 5).map((invoice) => (
-                  <HistoryRow
-                    key={invoice.id}
-                    title={invoice.invoiceNumber}
-                    subtitle={`Created ${date(invoice.createdAt)}${invoice.dueDate ? ` · Due ${date(invoice.dueDate)}` : ""}`}
-                    meta={money(invoice.total)}
-                    status={invoice.status}
-                  />
-                ))}
-              </HistorySection>
-
-              <HistorySection
-                title="Recent payments"
-                href={`/admin/customers/${customer.id}/payments`}
-                icon={CreditCard}
-                empty="No payments linked to this customer."
-              >
-                {(customer.payments || []).slice(0, 5).map((payment) => (
-                  <HistoryRow
-                    key={payment.id}
-                    title={`${payment.provider} · ${payment.paymentMethod || "Payment"}`}
-                    subtitle={
-                      payment.paidAt
-                        ? `Paid ${date(payment.paidAt)}`
-                        : `Created ${date(payment.createdAt)}`
-                    }
-                    meta={money(payment.amount, payment.currency)}
-                    status={payment.status}
-                  />
-                ))}
-              </HistorySection>
-            </>
-          )}
-        </div>
-
-        <aside className="space-y-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-950">Quick actions</h2>
-            <div className="mt-4 space-y-3">
-              {customer.accountStatus === "ACTIVE" ? (
-                <QuickLink
-                  href={`/admin/customers/${customer.id}/quotes`}
-                  label="Create quote"
-                  icon={ReceiptText}
-                />
-              ) : null}
-              {customer.accountStatus === "ACTIVE" ? (
-                <QuickLink
-                  href="/admin/planning-board"
-                  label="Create booking"
-                  icon={ClipboardList}
-                />
-              ) : null}
-              <QuickLink
-                href={`/admin/customers/${customer.id}/invoices`}
-                label="View invoices"
-                icon={FileText}
-              />
-              <QuickLink
-                href={`/admin/customers/${customer.id}/payments`}
-                label="View payments"
-                icon={WalletCards}
-              />
-            </div>
-          </section>
-
-          {customer.tradeAccount ? (
-            <section className="rounded-3xl border border-violet-200 bg-violet-50 p-6 shadow-sm">
-              <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-700 text-white">
-                  <CircleDollarSign size={21} />
-                </span>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-violet-600">
-                    Trade account
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Same as Registered Office Address
                   </p>
-                  <h2 className="text-lg font-bold text-violet-950">
-                    Credit control
-                  </h2>
-                </div>
+                )}
               </div>
+            </EditRow>
 
-              <div className="mt-5 grid gap-4">
-                <Info label="Status" value={customer.tradeAccount.status} />
-                <Info
-                  label="Credit limit"
-                  value={money(customer.tradeAccount.creditLimit)}
-                />
-                <Info
-                  label="Current balance"
-                  value={money(customer.tradeAccount.currentBalance)}
-                />
-                <Info
-                  label="Payment terms"
-                  value={`${customer.tradeAccount.paymentTermsDays} days`}
-                />
-              </div>
-            </section>
-          ) : null}
+            <EditRow label="Email">
+              <TextInput
+                type="email"
+                value={form.email}
+                onChange={(value) =>
+                  update("email", value)
+                }
+              />
+            </EditRow>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-950">
-              Account control
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Change customer availability without deleting their history.
-            </p>
+            <EditRow label="Accounts Email">
+              <TextInput
+                type="email"
+                value={form.accountsEmail}
+                onChange={(value) =>
+                  update("accountsEmail", value)
+                }
+              />
+            </EditRow>
 
-            <div className="mt-5 space-y-3">
-              {customer.accountStatus !== "ACTIVE" ? (
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void changeStatus("ACTIVE")}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  <CheckCircle2 size={18} />
-                  Reactivate account
-                </button>
+            <EditRow label="Contact Number 1">
+              <TextInput
+                value={form.phone}
+                onChange={(value) =>
+                  update("phone", value)
+                }
+              />
+            </EditRow>
+
+            <EditRow label="Contact Number 2">
+              <TextInput
+                value={
+                  form.alternativeContactNumber
+                }
+                onChange={(value) =>
+                  update(
+                    "alternativeContactNumber",
+                    value,
+                  )
+                }
+              />
+            </EditRow>
+
+            <EditRow label="Person to Contact">
+              <TextInput
+                value={form.mainContactName}
+                onChange={(value) =>
+                  update("mainContactName", value)
+                }
+              />
+            </EditRow>
+          </div>
+
+          <div className="flex justify-end border-t border-slate-300 px-6 py-5">
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#FF6A00] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#E85F00] disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2
+                  size={17}
+                  className="animate-spin"
+                />
               ) : (
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void changeStatus("SUSPENDED")}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-60"
-                >
-                  <Ban size={18} />
-                  Suspend account
-                </button>
+                <Save size={17} />
               )}
 
-              {customer.accountStatus !== "INACTIVE" ? (
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void changeStatus("INACTIVE")}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                >
-                  Mark inactive
-                </button>
-              ) : null}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+          <section className="overflow-hidden border border-slate-300 bg-white">
+            <div className="border-b border-slate-300 bg-slate-50 px-6 py-4">
+              <h2 className="font-bold text-slate-950">
+                Customer Account
+              </h2>
             </div>
+
+            <DetailRow
+              label="Account Name"
+              value={customerDisplayName(customer)}
+            />
+
+            <DetailRow
+              label="Account Status"
+              value={
+                <span
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${statusClasses(
+                    customer.accountStatus,
+                  )}`}
+                >
+                  {displayAccountStatus(
+                    customer.accountStatus,
+                  )}
+                </span>
+              }
+            />
+
+            <DetailRow
+              label="Account Type"
+              value={displayAccountType(
+                customer.accountType,
+              )}
+            />
+
+            <DetailRow
+              label="VAT No"
+              value={
+                customer.vatNumber ||
+                "Not provided"
+              }
+            />
+
+            <DetailRow
+              label="Companies House Number"
+              value={
+                customer.companyRegistrationNumber ||
+                "Not provided"
+              }
+            />
+
+            <DetailRow
+              label="Registered Office Address"
+              value={
+                <AddressDisplay
+                  lines={[
+                    customer.registeredAddressLine1,
+                    customer.registeredAddressLine2,
+                    customer.registeredTownCity,
+                    customer.registeredCounty,
+                    customer.registeredPostcode,
+                    customer.registeredCountry,
+                  ]}
+                />
+              }
+            />
+
+            <DetailRow
+              label="Trading Address if different"
+              value={
+                customer.tradingAddressDifferent ? (
+                  <AddressDisplay
+                    lines={[
+                      customer.tradingAddressLine1,
+                      customer.tradingAddressLine2,
+                      customer.tradingTownCity,
+                      customer.tradingCounty,
+                      customer.tradingPostcode,
+                      customer.tradingCountry,
+                    ]}
+                  />
+                ) : (
+                  "Same as Registered Office Address"
+                )
+              }
+            />
+
+            <DetailRow
+              label="Email"
+              value={customer.email}
+            />
+
+            <DetailRow
+              label="Accounts Email"
+              value={
+                customer.accountsEmail ||
+                "Not provided"
+              }
+            />
+
+            <DetailRow
+              label="Contact Number 1"
+              value={
+                customer.phone || "Not provided"
+              }
+            />
+
+            <DetailRow
+              label="Contact Number 2"
+              value={
+                customer.alternativeContactNumber ||
+                "Not provided"
+              }
+            />
+
+            <DetailRow
+              label="Person to Contact"
+              value={
+                customer.mainContactName ||
+                customer.name ||
+                "Not provided"
+              }
+              last
+            />
           </section>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-950">Saved routes</h2>
-            <div className="mt-4 space-y-3">
-              {(customer.savedRoutes || []).slice(0, 5).map((route) => (
-                <div
-                  key={route.id}
-                  className="rounded-2xl border border-slate-200 p-4"
-                >
-                  <p className="font-bold text-slate-900">
-                    {route.name || "Saved route"}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-500">
-                    {route.collectionAddress} → {route.deliveryAddress}
-                  </p>
-                </div>
-              ))}
-              {(customer.savedRoutes || []).length === 0 ? (
-                <p className="text-sm text-slate-500">No saved routes.</p>
-              ) : null}
-            </div>
-          </section>
+          <aside className="space-y-6">
+            <InvoiceSection
+              title="Pending Invoices"
+              invoices={pendingInvoices}
+              customerId={customer.id}
+              emptyMessage="No pending invoices."
+            />
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-950">Documents</h2>
-            <div className="mt-4 space-y-3">
-              {(customer.documents || []).slice(0, 5).map((document) => (
-                <a
-                  key={document.id}
-                  href={document.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50"
-                >
-                  <span className="truncate">{document.name}</span>
-                  <ArrowRight size={16} />
-                </a>
-              ))}
-              {(customer.documents || []).length === 0 ? (
-                <p className="text-sm text-slate-500">No documents uploaded.</p>
-              ) : null}
-            </div>
-          </section>
+            <InvoiceSection
+              title="All Finalized + Issued Invoices"
+              invoices={issuedInvoices}
+              customerId={customer.id}
+              emptyMessage="No finalized or issued invoices."
+            />
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-950">Internal notes</h2>
-            <div className="mt-4 space-y-3">
-              {customer.internalNote ? (
-                <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-                  {customer.internalNote}
-                </div>
-              ) : null}
-              {(customer.notes || []).slice(0, 5).map((note) => (
-                <div
-                  key={note.id}
-                  className="rounded-2xl border border-slate-200 p-4"
-                >
-                  <p className="text-sm leading-6 text-slate-700">
-                    {note.body}
-                  </p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    {date(note.createdAt)}
-                  </p>
-                </div>
-              ))}
-              {!customer.internalNote && (customer.notes || []).length === 0 ? (
-                <p className="text-sm text-slate-500">No internal notes.</p>
-              ) : null}
-            </div>
-          </section>
-        </aside>
+function DetailRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]",
+        last
+          ? ""
+          : "border-b border-slate-300",
+      ].join(" ")}
+    >
+      <div className="border-b border-slate-300 bg-slate-50 px-5 py-5 text-sm font-bold text-slate-800 lg:border-b-0 lg:border-r">
+        {label}
+      </div>
+
+      <div className="px-5 py-5 text-sm font-medium leading-6 text-slate-700">
+        {value}
       </div>
     </div>
   );
 }
 
-function Section({
+function InvoiceSection({
   title,
-  icon: Icon,
-  children,
+  invoices,
+  customerId,
+  emptyMessage,
 }: {
   title: string;
-  icon: typeof UserRound;
-  children: React.ReactNode;
+  invoices: Invoice[];
+  customerId: string;
+  emptyMessage: string;
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={21} />
-        </span>
-        <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+    <section className="border border-slate-300 bg-white">
+      <div className="flex items-center justify-between gap-4 border-b border-slate-300 bg-slate-50 px-5 py-4">
+        <h2 className="font-bold text-slate-950">
+          {title}
+        </h2>
+
+        <Link
+          href={`/admin/customers/${customerId}/invoices`}
+          className="text-sm font-bold text-[#E55300] hover:text-[#C94A00]"
+        >
+          View All
+        </Link>
       </div>
-      <div className="mt-5">{children}</div>
+
+      {invoices.length === 0 ? (
+        <div className="px-5 py-8 text-sm text-slate-500">
+          {emptyMessage}
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-200">
+          {invoices.map((invoice) => (
+            <Link
+              key={invoice.id}
+              href={`/admin/customers/${customerId}/invoices`}
+              className="block px-5 py-5 transition hover:bg-slate-50"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-bold text-slate-950">
+                    {invoice.invoiceNumber}
+                  </p>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Created{" "}
+                    {formatDate(invoice.createdAt)}
+                  </p>
+
+                  {invoice.dueDate ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Due{" "}
+                      {formatDate(invoice.dueDate)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="text-right">
+                  <p className="font-bold text-slate-950">
+                    {money(invoice.total)}
+                  </p>
+
+                  <span
+                    className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${invoiceStatusClasses(
+                      invoice.status,
+                    )}`}
+                  >
+                    {invoice.status.replace(
+                      /_/g,
+                      " ",
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 text-sm font-bold text-[#E55300]">
+                Open Invoice
+                <ArrowRight size={15} />
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function Metric({
-  label,
-  value,
-  icon: Icon,
+function AddressDisplay({
+  lines,
 }: {
-  label: string;
-  value: number;
-  icon: typeof ReceiptText;
+  lines: Array<string | null | undefined>;
 }) {
+  const visibleLines = lines.filter(
+    (line): line is string =>
+      Boolean(line?.trim()),
+  );
+
+  if (visibleLines.length === 0) {
+    return <>Not provided</>;
+  }
+
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">{value}</p>
-        </div>
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={21} />
-        </span>
-      </div>
-    </article>
+    <div className="space-y-1">
+      {visibleLines.map((line, index) => (
+        <p key={`${line}-${index}`}>{line}</p>
+      ))}
+    </div>
   );
 }
 
-function Field({
+function EditRow({
   label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <div className="border-b border-r border-slate-300 bg-slate-50 px-5 py-5 text-sm font-bold text-slate-800">
+        {label}
+      </div>
+
+      <div className="border-b border-slate-300 px-5 py-5">
+        {children}
+      </div>
+    </>
+  );
+}
+
+function TextInput({
   value,
   onChange,
   type = "text",
-  required = false,
 }: {
-  label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
-  required?: boolean;
 }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-        {required ? <span className="ml-1 text-red-500">*</span> : null}
-      </span>
+    <input
+      type={type}
+      value={value}
+      onChange={(event) =>
+        onChange(event.target.value)
+      }
+      className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-[#FF6A00]"
+    />
+  );
+}
+
+function AddressInputs({
+  line1,
+  line2,
+  townCity,
+  county,
+  postcode,
+  country,
+  onLine1,
+  onLine2,
+  onTownCity,
+  onCounty,
+  onPostcode,
+  onCountry,
+}: {
+  line1: string;
+  line2: string;
+  townCity: string;
+  county: string;
+  postcode: string;
+  country: string;
+
+  onLine1: (value: string) => void;
+  onLine2: (value: string) => void;
+  onTownCity: (value: string) => void;
+  onCounty: (value: string) => void;
+  onPostcode: (value: string) => void;
+  onCountry: (value: string) => void;
+}) {
+  return (
+    <div className="grid max-w-3xl gap-3 md:grid-cols-2">
       <input
-        type={type}
-        value={value}
-        required={required}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+        value={line1}
+        onChange={(event) =>
+          onLine1(event.target.value)
+        }
+        placeholder="Address Line 1"
+        className="border border-slate-300 px-3 py-3 text-sm md:col-span-2"
       />
-    </label>
-  );
-}
 
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+      <input
+        value={line2}
+        onChange={(event) =>
+          onLine2(event.target.value)
+        }
+        placeholder="Address Line 2"
+        className="border border-slate-300 px-3 py-3 text-sm md:col-span-2"
+      />
 
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-1 break-words font-semibold text-slate-800">{value}</p>
+      <input
+        value={townCity}
+        onChange={(event) =>
+          onTownCity(event.target.value)
+        }
+        placeholder="Town / City"
+        className="border border-slate-300 px-3 py-3 text-sm"
+      />
+
+      <input
+        value={county}
+        onChange={(event) =>
+          onCounty(event.target.value)
+        }
+        placeholder="County"
+        className="border border-slate-300 px-3 py-3 text-sm"
+      />
+
+      <input
+        value={postcode}
+        onChange={(event) =>
+          onPostcode(event.target.value)
+        }
+        placeholder="Postcode"
+        className="border border-slate-300 px-3 py-3 text-sm uppercase"
+      />
+
+      <input
+        value={country}
+        onChange={(event) =>
+          onCountry(event.target.value)
+        }
+        placeholder="Country"
+        className="border border-slate-300 px-3 py-3 text-sm"
+      />
     </div>
-  );
-}
-
-function AddressCard({
-  title,
-  lines,
-}: {
-  title: string;
-  lines: Array<string | null | undefined>;
-}) {
-  const visibleLines = lines.filter(Boolean);
-
-  return (
-    <div className="rounded-2xl border border-slate-200 p-5">
-      <h3 className="font-bold text-slate-950">{title}</h3>
-      <div className="mt-3 space-y-1 text-sm leading-6 text-slate-600">
-        {visibleLines.length > 0 ? (
-          visibleLines.map((line, index) => (
-            <p key={`${line}-${index}`}>{line}</p>
-          ))
-        ) : (
-          <p>Not provided</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function HistorySection({
-  title,
-  href,
-  icon: Icon,
-  empty,
-  children,
-}: {
-  title: string;
-  href: string;
-  icon: typeof ReceiptText;
-  empty: string;
-  children: React.ReactNode;
-}) {
-  const hasChildren = Array.isArray(children)
-    ? children.length > 0
-    : Boolean(children);
-
-  return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex items-center justify-between gap-4 border-b border-slate-200 pb-5">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-            <Icon size={21} />
-          </span>
-          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
-        </div>
-        <Link
-          href={href}
-          className="inline-flex items-center gap-2 text-sm font-bold text-[#E55300] hover:text-[#C94A00]"
-        >
-          View all
-          <ArrowRight size={16} />
-        </Link>
-      </div>
-      <div className="mt-4 space-y-3">
-        {hasChildren ? (
-          children
-        ) : (
-          <p className="text-sm text-slate-500">{empty}</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function HistoryRow({
-  title,
-  subtitle,
-  meta,
-  status,
-}: {
-  title: string;
-  subtitle: string;
-  meta: string;
-  status: string;
-}) {
-  return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
-      <div className="min-w-0">
-        <p className="font-bold text-slate-950">{title}</p>
-        <p className="mt-1 truncate text-sm text-slate-500">{subtitle}</p>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold text-slate-700">{meta}</span>
-        <Badge className={statusClass(status)}>{status}</Badge>
-      </div>
-    </div>
-  );
-}
-
-function Badge({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className: string;
-}) {
-  return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 ring-inset ${className}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function QuickLink({
-  href,
-  label,
-  icon: Icon,
-}: {
-  href: string;
-  label: string;
-  icon: typeof ReceiptText;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-[#E55300]"
-    >
-      <span className="flex items-center gap-3">
-        <Icon size={17} />
-        {label}
-      </span>
-      <ArrowRight size={16} />
-    </Link>
   );
 }
