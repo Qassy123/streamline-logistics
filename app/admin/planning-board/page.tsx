@@ -318,6 +318,7 @@ export default function AdminPlanningBoardPage() {
 
   const [calculation, setCalculation] = useState<Calculation | null>(null);
   const [planningOpen, setPlanningOpen] = useState(false);
+  const [boardOnly, setBoardOnly] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
   const [loadingCustomers, setLoadingCustomers] = useState(true);
@@ -591,6 +592,7 @@ export default function AdminPlanningBoardPage() {
       }
 
       setCalculation(payload.calculation);
+      setBoardOnly(false);
       setPlanningOpen(true);
       setMessage(
         "Journey calculated. Drag the booking onto an available vehicle and time.",
@@ -829,6 +831,7 @@ export default function AdminPlanningBoardPage() {
     setForm(initialForm);
     setExtraStops([]);
     setCalculation(null);
+    setBoardOnly(false);
     setPlanningOpen(false);
     setCreatedBookingId(null);
     setMessage("");
@@ -903,9 +906,16 @@ export default function AdminPlanningBoardPage() {
                           name="journeyType"
                           value={journeyType}
                           checked={form.journeyType === journeyType}
-                          onChange={() =>
-                            updateForm("journeyType", journeyType)
-                          }
+                          onChange={() => {
+                            setForm((current) => ({
+                              ...current,
+                              journeyType,
+                              returnAddress:
+                                journeyType === "Return"
+                                  ? current.collectionAddress
+                                  : current.returnAddress,
+                            }));
+                          }}
                           className="h-4 w-4 accent-[#FF6A00]"
                         />
                         {journeyType}
@@ -920,9 +930,18 @@ export default function AdminPlanningBoardPage() {
                   <textarea
                     rows={3}
                     value={form.collectionAddress}
-                    onChange={(event) =>
-                      updateForm("collectionAddress", event.target.value)
-                    }
+                    onChange={(event) => {
+                      const nextCollectionAddress = event.target.value;
+
+                      setForm((current) => ({
+                        ...current,
+                        collectionAddress: nextCollectionAddress,
+                        returnAddress:
+                          current.journeyType === "Return"
+                            ? nextCollectionAddress
+                            : current.returnAddress,
+                      }));
+                    }}
                     className="manual-input resize-none"
                   />
                 </FieldLabel>
@@ -1107,7 +1126,23 @@ export default function AdminPlanningBoardPage() {
 
           {error ? <ErrorBox text={error} /> : null}
 
-          <div className="mt-7 flex justify-end">
+          <div className="mt-7 flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setCalculation(null);
+                setCreatedBookingId(null);
+                setBoardOnly(true);
+                setPlanningOpen(true);
+                setMessage("");
+                setError("");
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              <Truck size={18} />
+              Open Planning Board
+            </button>
+
             <button
               type="button"
               disabled={calculating}
@@ -1125,6 +1160,7 @@ export default function AdminPlanningBoardPage() {
         </section>
       ) : (
         <>
+          {!boardOnly ? (
           <section className="mt-7 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1219,8 +1255,13 @@ export default function AdminPlanningBoardPage() {
               )}
             </div>
           </section>
+          ) : null}
 
-          <section className="mt-6 rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <section
+            className={`${
+              boardOnly ? "mt-7" : "mt-6"
+            } rounded-3xl border border-slate-200 bg-white shadow-sm`}
+          >
             <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -1446,6 +1487,7 @@ export default function AdminPlanningBoardPage() {
               type="button"
               onClick={() => {
                 setPlanningOpen(false);
+                setBoardOnly(false);
                 setCreatedBookingId(null);
                 setMessage("");
                 setError("");
