@@ -4,16 +4,18 @@ import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Loader2,
-  Lock,
-  LogOut,
   RefreshCw,
-  Shield,
-  Trash2,
+  ShieldAlert,
   Truck,
   UserPlus,
+  Users,
 } from "lucide-react";
 
-const API_BASE = "https://streamline-logistics-production.up.railway.app";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://streamline-logistics-production.up.railway.app";
+
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 
 type Vehicle = {
@@ -38,10 +40,9 @@ type Driver = {
 
 export default function AdminDriversPage() {
   const [adminKey, setAdminKey] = useState("");
-  const [adminKeyInput, setAdminKeyInput] = useState("");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
@@ -54,41 +55,25 @@ export default function AdminDriversPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  function adminHeaders() {
+  function adminHeaders(key = adminKey) {
     return {
       "Content-Type": "application/json",
-      "x-admin-key": adminKey,
+      "x-admin-key": key,
     };
   }
 
-  function saveAdminKey(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const cleanKey = adminKeyInput.trim();
-
-    if (!cleanKey) {
-      setError("Admin key is required");
-      return;
-    }
-
-    localStorage.setItem(ADMIN_KEY_STORAGE_KEY, cleanKey);
-    setAdminKey(cleanKey);
-    setError("");
-    setMessage("");
-  }
-
-  function clearAdminKey() {
-    localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+  function clearRejectedAdminKey() {
+    window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
     setAdminKey("");
-    setAdminKeyInput("");
     setDrivers([]);
     setVehicles([]);
-    setMessage("");
-    setError("");
   }
 
   async function loadData(activeAdminKey = adminKey) {
-    if (!activeAdminKey) return;
+    if (!activeAdminKey) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -99,8 +84,11 @@ export default function AdminDriversPage() {
           headers: {
             "x-admin-key": activeAdminKey,
           },
+          cache: "no-store",
         }),
-        fetch(`${API_BASE}/api/vehicles`),
+        fetch(`${API_BASE}/api/vehicles`, {
+          cache: "no-store",
+        }),
       ]);
 
       const driversPayload = await driversResponse.json();
@@ -108,15 +96,17 @@ export default function AdminDriversPage() {
 
       if (!driversResponse.ok) {
         if (driversResponse.status === 401) {
-          clearAdminKey();
-          throw new Error("Admin key rejected");
+          clearRejectedAdminKey();
+          throw new Error(
+            "Admin key rejected. Unlock the admin area from Driver Management.",
+          );
         }
 
-        throw new Error(driversPayload?.error || "Unable to load drivers");
+        throw new Error(driversPayload?.error || "Unable to load drivers.");
       }
 
       if (!vehiclesResponse.ok) {
-        throw new Error(vehiclesPayload?.error || "Unable to load vehicles");
+        throw new Error(vehiclesPayload?.error || "Unable to load vehicles.");
       }
 
       setDrivers(driversPayload.drivers || []);
@@ -128,8 +118,12 @@ export default function AdminDriversPage() {
         [];
 
       setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load admin data");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load driver management.",
+      );
     } finally {
       setLoading(false);
     }
@@ -139,7 +133,19 @@ export default function AdminDriversPage() {
     event.preventDefault();
 
     if (!adminKey) {
-      setError("Admin key is required");
+      setError(
+        "Admin key is missing. Unlock the admin area first, then return to Drivers.",
+      );
+      return;
+    }
+
+    if (!name.trim() || !username.trim() || !email.trim() || !password) {
+      setError("Full name, username, email and password are required.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
 
@@ -152,10 +158,10 @@ export default function AdminDriversPage() {
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify({
-          name,
-          username,
-          email,
-          phone,
+          name: name.trim(),
+          username: username.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
           password,
           vehicleId: vehicleId || undefined,
           availability: "AVAILABLE",
@@ -166,14 +172,16 @@ export default function AdminDriversPage() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          clearAdminKey();
-          throw new Error("Admin key rejected");
+          clearRejectedAdminKey();
+          throw new Error("Admin key rejected.");
         }
 
-        throw new Error(payload?.error || "Unable to create driver");
+        throw new Error(payload?.error || "Unable to create driver.");
       }
 
-      setMessage(`Driver created. Login: ${username} / Password: ${password}`);
+      setMessage(
+        `Driver created. Login username: ${username.trim()}.`,
+      );
 
       setName("");
       setUsername("");
@@ -182,316 +190,356 @@ export default function AdminDriversPage() {
       setPassword("");
       setVehicleId("");
 
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create driver");
+      await loadData(adminKey);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to create driver.",
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function deactivateDriver(driverId: string) {
+  async function deactivateDriver(driver: Driver) {
     if (!adminKey) {
-      setError("Admin key is required");
+      setError("Admin key is required.");
       return;
     }
+
+    const confirmed = window.confirm(
+      `Deactivate ${driver.name}? They will no longer be able to receive jobs or use their current session.`,
+    );
+
+    if (!confirmed) return;
 
     setError("");
     setMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/drivers/${driverId}`, {
-        method: "DELETE",
-        headers: {
-          "x-admin-key": adminKey,
+      const response = await fetch(
+        `${API_BASE}/api/admin/drivers/${driver.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-admin-key": adminKey,
+          },
         },
-      });
+      );
 
       const payload = await response.json();
 
       if (!response.ok) {
         if (response.status === 401) {
-          clearAdminKey();
-          throw new Error("Admin key rejected");
+          clearRejectedAdminKey();
+          throw new Error("Admin key rejected.");
         }
 
-        throw new Error(payload?.error || "Unable to deactivate driver");
+        throw new Error(payload?.error || "Unable to deactivate driver.");
       }
 
-      setMessage("Driver deactivated");
-      await loadData();
-    } catch (err) {
+      setMessage(`${driver.name} was deactivated.`);
+      await loadData(adminKey);
+    } catch (requestError) {
       setError(
-        err instanceof Error ? err.message : "Unable to deactivate driver",
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to deactivate driver.",
       );
     }
   }
 
   useEffect(() => {
-    const storedAdminKey = localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+    const storedAdminKey =
+      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
 
-    if (storedAdminKey) {
-      setAdminKey(storedAdminKey);
-      setAdminKeyInput(storedAdminKey);
-      loadData(storedAdminKey);
+    setAdminKey(storedAdminKey);
+
+    if (!storedAdminKey) {
+      setLoading(false);
+      setError(
+        "Admin key is missing. Unlock the admin area from Driver Management before using this page.",
+      );
+      return;
     }
+
+    void loadData(storedAdminKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (adminKey) {
-      loadData(adminKey);
-    }
-  }, [adminKey]);
+  return (
+    <div className="mx-auto w-full max-w-[1280px]">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+            Tab 6
+          </p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+            Drivers
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            Add drivers for the driver portal and manage who can receive jobs.
+          </p>
+        </div>
 
-  if (!adminKey) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-5 text-slate-950">
-        <section className="w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#18a8ff] text-white">
-              <Lock className="h-6 w-6" />
-            </div>
+        <button
+          type="button"
+          onClick={() => void loadData()}
+          disabled={loading || !adminKey}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw
+            size={17}
+            className={loading ? "animate-spin" : ""}
+          />
+          Refresh
+        </button>
+      </div>
+
+      {message ? (
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 className="mt-0.5 shrink-0" size={18} />
+          <span>{message}</span>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-6 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
+          <ShieldAlert className="mt-0.5 shrink-0" size={18} />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      <div className="mt-7 grid gap-6 lg:grid-cols-[390px_minmax(0,1fr)]">
+        <section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-6 flex items-center gap-3 border-b border-slate-200 pb-5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+              <UserPlus size={21} />
+            </span>
 
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-blue-600">
-                Admin
+              <h2 className="text-xl font-bold text-slate-950">
+                Add Driver
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Create their driver portal login.
               </p>
-              <h1 className="text-3xl font-bold tracking-tight">
-                Driver Management
-              </h1>
             </div>
           </div>
 
-          {error && (
-            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={saveAdminKey} className="space-y-4">
+          <form onSubmit={createDriver} className="space-y-4">
             <Input
-              label="Admin key"
-              type="password"
-              value={adminKeyInput}
-              onChange={setAdminKeyInput}
+              label="Full Name"
+              value={name}
+              onChange={setName}
               required
             />
 
+            <Input
+              label="Username"
+              value={username}
+              onChange={setUsername}
+              required
+            />
+
+            <Input
+              label="Email"
+              type="email"
+              value={email}
+              onChange={setEmail}
+              required
+            />
+
+            <Input
+              label="Phone Number"
+              value={phone}
+              onChange={setPhone}
+            />
+
+            <Input
+              label="Password"
+              type="password"
+              value={password}
+              onChange={setPassword}
+              required
+            />
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-700">
+                Assigned Vehicle
+              </span>
+
+              <select
+                value={vehicleId}
+                onChange={(event) => setVehicleId(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+              >
+                <option value="">No vehicle assigned</option>
+
+                {vehicles.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.registration
+                      ? `${vehicle.registration} — ${vehicle.vehicleType}`
+                      : `${vehicle.name} — ${vehicle.vehicleType}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <button
               type="submit"
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-[#07182f] px-5 py-3 text-sm font-bold text-white hover:bg-[#0b2445]"
+              disabled={saving || !adminKey}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Shield className="h-4 w-4" />
-              Unlock admin
+              {saving ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Adding Driver...
+                </>
+              ) : (
+                <>
+                  <UserPlus size={18} />
+                  Add Driver
+                </>
+              )}
             </button>
           </form>
         </section>
-      </main>
-    );
-  }
 
-  return (
-    <main className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="bg-[#07182f] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#18a8ff]">
-              <Shield className="h-6 w-6" />
-            </div>
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-6 flex items-center gap-3 border-b border-slate-200 pb-5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#006CFF]">
+              <Users size={21} />
+            </span>
+
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-blue-200">
-                Admin
+              <h2 className="text-xl font-bold text-slate-950">
+                Existing Drivers
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Driver portal accounts and current vehicle assignments.
               </p>
-              <h1 className="text-4xl font-bold tracking-tight">
-                Driver Management
-              </h1>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={clearAdminKey}
-            className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
-          >
-            <LogOut className="h-4 w-4" />
-            Lock admin
-          </button>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl px-5 py-8">
-        {message && (
-          <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
-            {message}
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-          <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-6 flex items-center gap-3">
-              <UserPlus className="h-6 w-6 text-[#18a8ff]" />
-              <div>
-                <h2 className="text-xl font-bold">Create driver</h2>
-                <p className="text-sm text-slate-500">
-                  Creates a real login account for the driver portal.
-                </p>
+          {loading ? (
+            <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-dashed border-slate-300">
+              <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">
+                <Loader2 size={20} className="animate-spin" />
+                Loading drivers...
               </div>
             </div>
-
-            <form onSubmit={createDriver} className="space-y-4">
-              <Input label="Full name" value={name} onChange={setName} required />
-              <Input
-                label="Username"
-                value={username}
-                onChange={setUsername}
-                required
-              />
-              <Input
-                label="Email"
-                type="email"
-                value={email}
-                onChange={setEmail}
-                required
-              />
-              <Input label="Phone" value={phone} onChange={setPhone} />
-              <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={setPassword}
-                required
-              />
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-bold text-slate-700">
-                  Assigned vehicle
-                </span>
-                <select
-                  value={vehicleId}
-                  onChange={(event) => setVehicleId(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
-                >
-                  <option value="">No vehicle assigned</option>
-                  {vehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.name}
-                      {vehicle.registration ? ` - ${vehicle.registration}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-[#07182f] px-5 py-3 text-sm font-bold text-white hover:bg-[#0b2445] disabled:opacity-60"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Create driver
-                  </>
-                )}
-              </button>
-            </form>
-          </section>
-
-          <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold">Drivers</h2>
-                <p className="text-sm text-slate-500">
-                  Active and deactivated driver accounts.
-                </p>
-              </div>
-
-              <button
-                onClick={() => loadData()}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Refresh
-              </button>
+          ) : drivers.length === 0 ? (
+            <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-dashed border-slate-300 px-6 text-center text-sm font-semibold text-slate-500">
+              No drivers have been added yet.
             </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="overflow-x-auto">
+                <table className="min-w-[760px] w-full border-collapse">
+                  <thead className="bg-slate-50">
+                    <tr className="text-left text-xs font-bold uppercase tracking-[0.1em] text-slate-500">
+                      <th className="px-4 py-3">Driver</th>
+                      <th className="px-4 py-3">Contact</th>
+                      <th className="px-4 py-3">Assigned Vehicle</th>
+                      <th className="px-4 py-3">Availability</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
 
-            {loading ? (
-              <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-300 p-10">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-              </div>
-            ) : drivers.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
-                No drivers created yet.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {drivers.map((driver) => (
-                  <div
-                    key={driver.id}
-                    className="rounded-2xl border border-slate-200 p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-bold">{driver.name}</h3>
+                  <tbody className="divide-y divide-slate-200">
+                    {drivers.map((driver) => (
+                      <tr key={driver.id} className="align-top">
+                        <td className="px-4 py-4">
+                          <p className="font-bold text-slate-950">
+                            {driver.name}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-slate-500">
+                            @{driver.username}
+                          </p>
+                        </td>
+
+                        <td className="px-4 py-4 text-sm">
+                          <p className="font-semibold text-slate-700">
+                            {driver.email}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {driver.phone || "No phone number"}
+                          </p>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="flex items-start gap-2 text-sm text-slate-700">
+                            <Truck
+                              size={16}
+                              className="mt-0.5 shrink-0 text-slate-400"
+                            />
+
+                            <div>
+                              {driver.vehicle ? (
+                                <>
+                                  <p className="font-bold">
+                                    {driver.vehicle.registration ||
+                                      driver.vehicle.name}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {driver.vehicle.vehicleType}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="font-semibold text-slate-500">
+                                  Not assigned
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                            {formatAvailability(driver.availability)}
+                          </span>
+                        </td>
+
+                        <td className="px-4 py-4">
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
                               driver.active
-                                ? "bg-green-100 text-green-700"
-                                : "bg-slate-200 text-slate-600"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-slate-100 text-slate-500"
                             }`}
                           >
-                            {driver.active ? "ACTIVE" : "INACTIVE"}
+                            {driver.active ? "Active" : "Inactive"}
                           </span>
-                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
-                            {driver.availability}
-                          </span>
-                        </div>
+                        </td>
 
-                        <p className="mt-2 text-sm text-slate-500">
-                          {driver.username} · {driver.email}
-                        </p>
-
-                        <div className="mt-3 flex items-center gap-2 text-sm text-slate-600">
-                          <Truck className="h-4 w-4" />
-                          {driver.vehicle
-                            ? `${driver.vehicle.name}${
-                                driver.vehicle.registration
-                                  ? ` - ${driver.vehicle.registration}`
-                                  : ""
-                              }`
-                            : "No vehicle assigned"}
-                        </div>
-                      </div>
-
-                      {driver.active && (
-                        <button
-                          onClick={() => deactivateDriver(driver.id)}
-                          className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Deactivate
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                        <td className="px-4 py-4 text-right">
+                          {driver.active ? (
+                            <button
+                              type="button"
+                              onClick={() => void deactivateDriver(driver)}
+                              className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50"
+                            >
+                              Deactivate
+                            </button>
+                          ) : (
+                            <span className="text-xs font-semibold text-slate-400">
+                              Deactivated
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </section>
-        </div>
-      </section>
-    </main>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -512,14 +560,23 @@ function Input({
     <label className="block">
       <span className="mb-2 block text-sm font-bold text-slate-700">
         {label}
+        {required ? <span className="text-red-500"> *</span> : null}
       </span>
+
       <input
         type={type}
         value={value}
         required={required}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-[#18a8ff] focus:ring-4 focus:ring-blue-100"
+        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
       />
     </label>
   );
+}
+
+function formatAvailability(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
