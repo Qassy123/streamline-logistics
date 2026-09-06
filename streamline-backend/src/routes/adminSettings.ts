@@ -1,8 +1,41 @@
 import { Router, type Request, type Response } from "express";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
+
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (_request, file, callback) => {
+    const allowedMimeTypes = new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ]);
+
+    if (!allowedMimeTypes.has(file.mimetype)) {
+      callback(
+        new Error("Unsupported logo type. Upload JPG, PNG, WEBP or GIF."),
+      );
+      return;
+    }
+
+    callback(null, true);
+  },
+});
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true,
+});
 
 function requireAdminKey(
   request: Request,
@@ -110,6 +143,45 @@ function normaliseDecimal(
   return new Prisma.Decimal(parsed);
 }
 
+function uploadLogoBufferToCloudinary(
+  file: Express.Multer.File,
+): Promise<string> {
+  if (
+    !process.env.CLOUDINARY_CLOUD_NAME ||
+    !process.env.CLOUDINARY_API_KEY ||
+    !process.env.CLOUDINARY_API_SECRET
+  ) {
+    return Promise.reject(
+      new Error(
+        "Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.",
+      ),
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "streamline-logistics/company",
+        resource_type: "image",
+        public_id: `company-logo-${Date.now()}`,
+        use_filename: false,
+        unique_filename: true,
+        overwrite: false,
+      },
+      (error, result) => {
+        if (error || !result) {
+          reject(error || new Error("Cloudinary logo upload failed."));
+          return;
+        }
+
+        resolve(result.secure_url);
+      },
+    );
+
+    stream.end(file.buffer);
+  });
+}
+
 const settingsSelect = {
   id: true,
   companyName: true,
@@ -189,6 +261,76 @@ router.get("/", async (_request, response) => {
     });
   }
 });
+
+router.post(
+  "/logo",
+  logoUpload.single("logo"),
+  async (request, response) => {
+    try {
+      if (!request.file) {
+        response.status(400).json({
+          success: false,
+          message: "Select a logo to upload.",
+        });
+        return;
+      }
+
+      const existing = await getOrCreateSettings();
+      const logoUrl = await uploadLogoBufferToCloudinary(request.file);
+
+      const updated = await prisma.companySettings.update({
+        where: { id: existing.id },
+        data: {
+          logoUrl,
+        },
+        select: settingsSelect,
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          action: "COMPANY_LOGO_UPDATED",
+          entityType: "CompanySettings",
+          entityId: updated.id,
+          oldValue: {
+            logoUrl: existing.logoUrl,
+          },
+          newValue: {
+            logoUrl: updated.logoUrl,
+          },
+        },
+      });
+
+      response.json({
+        success: true,
+        settings: {
+          ...updated,
+          vatRate: updated.vatRate.toString(),
+        },
+      });
+    } catch (error) {
+      console.error("POST /api/admin/settings/logo failed", error);
+
+      if (error instanceof multer.MulterError) {
+        response.status(400).json({
+          success: false,
+          message:
+            error.code === "LIMIT_FILE_SIZE"
+              ? "The logo exceeds the 5 MB upload limit."
+              : error.message,
+        });
+        return;
+      }
+
+      response.status(400).json({
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to upload company logo.",
+      });
+    }
+  },
+);
 
 router.patch("/", async (request, response) => {
   try {

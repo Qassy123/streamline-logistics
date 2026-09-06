@@ -2,17 +2,14 @@
 
 import {
   Building2,
-  CheckCircle2,
-  CircleAlert,
   CreditCard,
+  FileImage,
   FileText,
   Loader2,
-  RefreshCw,
   Save,
-  Settings,
-  Truck,
+  Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -43,18 +40,9 @@ type CompanySettings = {
   updatedAt: string;
 };
 
-type EnvironmentStatus = {
-  cloudinaryConfigured: boolean;
-  stripeConfigured: boolean;
-  resendConfigured: boolean;
-  adminKeyConfigured: boolean;
-  databaseConfigured: boolean;
-};
-
 type SettingsResponse = {
   success: boolean;
   settings: CompanySettings;
-  environment: EnvironmentStatus;
   message?: string;
 };
 
@@ -73,12 +61,9 @@ type FormState = {
   invoicePrefix: string;
   nextInvoiceNumber: string;
   paymentTermsDays: string;
-  vehicleBlockHours: string;
   vatRate: string;
   currency: string;
   footerMessage: string;
-  logoUrl: string;
-  reason: string;
 };
 
 const emptyForm: FormState = {
@@ -96,12 +81,9 @@ const emptyForm: FormState = {
   invoicePrefix: "INV",
   nextInvoiceNumber: "1",
   paymentTermsDays: "30",
-  vehicleBlockHours: "6",
   vatRate: "20",
   currency: "GBP",
   footerMessage: "",
-  logoUrl: "",
-  reason: "",
 };
 
 function toForm(settings: CompanySettings): FormState {
@@ -120,23 +102,21 @@ function toForm(settings: CompanySettings): FormState {
     invoicePrefix: settings.invoicePrefix,
     nextInvoiceNumber: String(settings.nextInvoiceNumber),
     paymentTermsDays: String(settings.paymentTermsDays),
-    vehicleBlockHours: String(settings.vehicleBlockHours),
     vatRate: String(settings.vatRate),
     currency: settings.currency,
     footerMessage: settings.footerMessage || "",
-    logoUrl: settings.logoUrl || "",
-    reason: "",
   };
 }
 
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
-  const [environment, setEnvironment] = useState<EnvironmentStatus | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAdminKey = useCallback(() => {
     return window.localStorage.getItem("streamline_admin_key") || "";
@@ -161,7 +141,6 @@ export default function AdminSettingsPage() {
       }
 
       setSettings(data.settings);
-      setEnvironment(data.environment);
       setForm(toForm(data.settings));
     } catch (loadError) {
       setError(
@@ -183,6 +162,47 @@ export default function AdminSettingsPage() {
       ...current,
       [field]: value,
     }));
+  }
+
+  async function uploadLogo(file: File) {
+    setUploadingLogo(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const body = new FormData();
+      body.append("logo", file);
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/settings/logo`, {
+        method: "POST",
+        headers: {
+          "x-admin-key": getAdminKey(),
+        },
+        body,
+      });
+
+      const data = (await response.json()) as SettingsResponse;
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Unable to upload company logo.");
+      }
+
+      setSettings(data.settings);
+      setForm(toForm(data.settings));
+      setSuccessMessage("Company logo uploaded.");
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Unable to upload company logo.",
+      );
+    } finally {
+      setUploadingLogo(false);
+
+      if (logoInputRef.current) {
+        logoInputRef.current.value = "";
+      }
+    }
   }
 
   async function saveSettings(event: React.FormEvent<HTMLFormElement>) {
@@ -213,16 +233,13 @@ export default function AdminSettingsPage() {
           invoicePrefix: form.invoicePrefix,
           nextInvoiceNumber: Number(form.nextInvoiceNumber),
           paymentTermsDays: Number(form.paymentTermsDays),
-          vehicleBlockHours: Number(form.vehicleBlockHours),
           vatRate: Number(form.vatRate),
           currency: form.currency,
           footerMessage: form.footerMessage,
-          logoUrl: form.logoUrl,
-          reason: form.reason || undefined,
         }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as SettingsResponse;
 
       if (!response.ok || !data.success) {
         throw new Error(data.message || "Unable to update company settings.");
@@ -245,10 +262,7 @@ export default function AdminSettingsPage() {
   if (loading) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white py-24 text-center shadow-sm">
-        <Loader2
-          size={30}
-          className="mx-auto animate-spin text-[#FF6A00]"
-        />
+        <Loader2 size={30} className="mx-auto animate-spin text-[#FF6A00]" />
         <p className="mt-3 text-sm font-medium text-slate-500">
           Loading company settings
         </p>
@@ -258,33 +272,13 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Administration
-          </p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">
-            Company Settings
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Manage company identity, invoice defaults, banking information,
-            branding and integration status.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void loadSettings()}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-        >
-          <RefreshCw size={18} />
-          Reload
-        </button>
-      </div>
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-        This page exposes configuration status only. Secret API keys and
-        environment values are never returned to the frontend.
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+          Tab 11
+        </p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">
+          Company Info / Settings
+        </h1>
       </div>
 
       {error ? (
@@ -299,41 +293,10 @@ export default function AdminSettingsPage() {
         </div>
       ) : null}
 
-      {environment ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-              <Settings size={20} />
-            </span>
-            <div>
-              <h2 className="font-bold text-slate-950">Integration status</h2>
-              <p className="text-sm text-slate-500">
-                Configuration presence only; secret values remain hidden.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Status label="Database" active={environment.databaseConfigured} />
-            <Status label="Admin key" active={environment.adminKeyConfigured} />
-            <Status
-              label="Cloudinary"
-              active={environment.cloudinaryConfigured}
-            />
-            <Status label="Stripe" active={environment.stripeConfigured} />
-            <Status label="Resend" active={environment.resendConfigured} />
-          </div>
-        </section>
-      ) : null}
-
       <form onSubmit={saveSettings} className="space-y-6">
-        <Section
-          title="Company identity"
-          description="Public company and contact information."
-          icon={Building2}
-        >
+        <Section title="Business" icon={Building2}>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Company name">
+            <Field label="Company Name">
               <input
                 value={form.companyName}
                 onChange={(event) =>
@@ -344,7 +307,20 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="Telephone">
+            <div className="md:col-span-2">
+              <Field label="Address">
+                <textarea
+                  value={form.companyAddress}
+                  onChange={(event) =>
+                    updateField("companyAddress", event.target.value)
+                  }
+                  rows={4}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+
+            <Field label="Tel">
               <input
                 value={form.telephone}
                 onChange={(event) =>
@@ -373,7 +349,7 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="Company registration number">
+            <Field label="Company Registration Number">
               <input
                 value={form.companyRegistrationNumber}
                 onChange={(event) =>
@@ -386,7 +362,7 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="VAT number">
+            <Field label="VAT Number">
               <input
                 value={form.vatNumber}
                 onChange={(event) =>
@@ -395,41 +371,110 @@ export default function AdminSettingsPage() {
                 className={inputClass}
               />
             </Field>
+          </div>
+        </Section>
 
-            <div className="md:col-span-2">
-              <Field label="Company address">
-                <textarea
-                  value={form.companyAddress}
-                  onChange={(event) =>
-                    updateField("companyAddress", event.target.value)
-                  }
-                  rows={4}
-                  className={inputClass}
+        <Section title="Bank" icon={CreditCard}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Bank Name">
+              <input
+                value={form.bankName}
+                onChange={(event) =>
+                  updateField("bankName", event.target.value)
+                }
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Account Name">
+              <input
+                value={form.bankAccountName}
+                onChange={(event) =>
+                  updateField("bankAccountName", event.target.value)
+                }
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Sort Code">
+              <input
+                value={form.sortCode}
+                onChange={(event) =>
+                  updateField("sortCode", event.target.value)
+                }
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Account Number">
+              <input
+                value={form.accountNumber}
+                onChange={(event) =>
+                  updateField("accountNumber", event.target.value)
+                }
+                className={inputClass}
+              />
+            </Field>
+          </div>
+        </Section>
+
+        <Section title="Logo" icon={FileImage}>
+          <div className="grid gap-5 md:grid-cols-[220px_1fr] md:items-center">
+            <div className="flex min-h-36 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              {settings?.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={settings.logoUrl}
+                  alt="Company logo"
+                  className="max-h-28 max-w-full object-contain"
                 />
-              </Field>
+              ) : (
+                <div className="text-center text-sm text-slate-500">
+                  <FileImage size={30} className="mx-auto mb-2" />
+                  No logo uploaded
+                </div>
+              )}
             </div>
 
-            <div className="md:col-span-2">
-              <Field label="Logo URL">
-                <input
-                  value={form.logoUrl}
-                  onChange={(event) =>
-                    updateField("logoUrl", event.target.value)
+            <div>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+
+                  if (file) {
+                    void uploadLogo(file);
                   }
-                  className={inputClass}
-                />
-              </Field>
+                }}
+              />
+
+              <button
+                type="button"
+                disabled={uploadingLogo}
+                onClick={() => logoInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                {uploadingLogo ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Upload size={18} />
+                )}
+                {settings?.logoUrl ? "Replace Logo" : "Upload Logo"}
+              </button>
+
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                JPG, PNG, WEBP or GIF. Maximum file size 5 MB.
+              </p>
             </div>
           </div>
         </Section>
 
-        <Section
-          title="Invoice defaults"
-          description="Default numbering, payment terms, VAT and currency."
-          icon={FileText}
-        >
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <Field label="Invoice prefix">
+        <Section title="Invoice" icon={FileText}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Invoice Prefix">
               <input
                 value={form.invoicePrefix}
                 onChange={(event) =>
@@ -440,7 +485,7 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="Next invoice number">
+            <Field label="Starting Invoice Number">
               <input
                 type="number"
                 min="0"
@@ -454,7 +499,17 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="Payment terms (days)">
+            <Field label="Account Name">
+              <input
+                value={form.bankAccountName}
+                onChange={(event) =>
+                  updateField("bankAccountName", event.target.value)
+                }
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Payment Term">
               <input
                 type="number"
                 min="0"
@@ -468,7 +523,7 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <Field label="VAT rate (%)">
+            <Field label="VAT Rate">
               <input
                 type="number"
                 min="0"
@@ -494,8 +549,8 @@ export default function AdminSettingsPage() {
               />
             </Field>
 
-            <div className="md:col-span-2 xl:col-span-5">
-              <Field label="Invoice footer message">
+            <div className="md:col-span-2">
+              <Field label="Footer Message">
                 <textarea
                   value={form.footerMessage}
                   onChange={(event) =>
@@ -509,105 +564,10 @@ export default function AdminSettingsPage() {
           </div>
         </Section>
 
-        <Section
-          title="Bank details"
-          description="Payment details shown on invoices and account documents."
-          icon={CreditCard}
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Bank name">
-              <input
-                value={form.bankName}
-                onChange={(event) =>
-                  updateField("bankName", event.target.value)
-                }
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="Account name">
-              <input
-                value={form.bankAccountName}
-                onChange={(event) =>
-                  updateField("bankAccountName", event.target.value)
-                }
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="Sort code">
-              <input
-                value={form.sortCode}
-                onChange={(event) =>
-                  updateField("sortCode", event.target.value)
-                }
-                className={inputClass}
-              />
-            </Field>
-
-            <Field label="Account number">
-              <input
-                value={form.accountNumber}
-                onChange={(event) =>
-                  updateField("accountNumber", event.target.value)
-                }
-                className={inputClass}
-              />
-            </Field>
-          </div>
-        </Section>
-
-        <Section
-          title="Fleet availability"
-          description="Control how long a vehicle remains unavailable from the selected collection time."
-          icon={Truck}
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Vehicle block duration (hours)">
-              <input
-                type="number"
-                min="1"
-                max="48"
-                step="1"
-                value={form.vehicleBlockHours}
-                onChange={(event) =>
-                  updateField("vehicleBlockHours", event.target.value)
-                }
-                required
-                className={inputClass}
-              />
-            </Field>
-
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
-              A vehicle is blocked from the start of its collection window for
-              this many hours. The default is 6 hours. Changes apply to both
-              public and admin availability checks and to newly confirmed
-              bookings.
-            </div>
-          </div>
-        </Section>
-
-        <Section
-          title="Change record"
-          description="Optional reason stored in the audit log."
-          icon={Settings}
-        >
-          <Field label="Reason for change">
-            <textarea
-              value={form.reason}
-              onChange={(event) =>
-                updateField("reason", event.target.value)
-              }
-              rows={3}
-              className={inputClass}
-            />
-          </Field>
-        </Section>
-
-        <div className="sticky bottom-4 flex justify-end">
+        <div className="flex justify-end">
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || uploadingLogo}
             className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-[#E85F00] disabled:opacity-50"
           >
             {saving ? (
@@ -615,62 +575,16 @@ export default function AdminSettingsPage() {
             ) : (
               <Save size={18} />
             )}
-            Save settings
+            Save Settings
           </button>
         </div>
       </form>
-
-      {settings ? (
-        <p className="text-xs text-slate-500">
-          Last updated{" "}
-          {new Intl.DateTimeFormat("en-GB", {
-            dateStyle: "medium",
-            timeStyle: "short",
-          }).format(new Date(settings.updatedAt))}
-        </p>
-      ) : null}
     </div>
   );
 }
 
 const inputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-2 focus:ring-orange-100";
-
-function Status({
-  label,
-  active,
-}: {
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <div
-      className={[
-        "flex items-center gap-3 rounded-xl border p-4",
-        active
-          ? "border-emerald-200 bg-emerald-50"
-          : "border-amber-200 bg-amber-50",
-      ].join(" ")}
-    >
-      {active ? (
-        <CheckCircle2 size={19} className="text-emerald-700" />
-      ) : (
-        <CircleAlert size={19} className="text-amber-700" />
-      )}
-      <div>
-        <p className="text-sm font-bold text-slate-800">{label}</p>
-        <p
-          className={[
-            "text-xs font-semibold",
-            active ? "text-emerald-700" : "text-amber-700",
-          ].join(" ")}
-        >
-          {active ? "Configured" : "Not configured"}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function Field({
   label,
@@ -691,12 +605,10 @@ function Field({
 
 function Section({
   title,
-  description,
   icon: Icon,
   children,
 }: {
   title: string;
-  description: string;
   icon: typeof Building2;
   children: React.ReactNode;
 }) {
@@ -706,11 +618,9 @@ function Section({
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
           <Icon size={20} />
         </span>
-        <div>
-          <h2 className="font-bold text-slate-950">{title}</h2>
-          <p className="text-sm text-slate-500">{description}</p>
-        </div>
+        <h2 className="font-bold text-slate-950">{title}</h2>
       </div>
+
       <div className="p-5">{children}</div>
     </section>
   );
