@@ -1,31 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  CalendarDays,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
   FileText,
   Loader2,
-  Pencil,
-  Plus,
   RefreshCw,
   Search,
-  WalletCards,
   X,
 } from "lucide-react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
 
 type InvoiceStatus =
   | "DRAFT"
@@ -96,22 +86,18 @@ type Invoice = {
 
 type Payload = {
   invoices?: Invoice[];
-  invoice?: Invoice;
   pagination?: {
     page: number;
     pageSize: number;
     total: number;
     totalPages: number;
   };
-  summary?: {
-    byStatus?: Record<string, number>;
-    totals?: {
-      subtotal: string | number;
-      vatAmount: string | number;
-      total: string | number;
-    };
-  };
   error?: string;
+};
+
+type AccountOption = {
+  key: string;
+  label: string;
 };
 
 function money(value: string | number | null | undefined) {
@@ -137,146 +123,99 @@ function date(value?: string | null) {
   }).format(parsed);
 }
 
-function dateInput(value?: string | null) {
-  if (!value) return "";
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) return "";
-
-  return parsed.toISOString().slice(0, 10);
+function formatStatus(status: string) {
+  return status
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function statusClass(status: InvoiceStatus) {
-  switch (status) {
-    case "PAID":
-      return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-    case "OVERDUE":
-      return "bg-red-50 text-red-700 ring-red-200";
-    case "CANCELLED":
-      return "bg-slate-100 text-slate-600 ring-slate-200";
-    case "ISSUED":
-      return "bg-blue-50 text-blue-700 ring-blue-200";
-    default:
-      return "bg-amber-50 text-amber-700 ring-amber-200";
-  }
+function accountKey(invoice: Invoice) {
+  return invoice.user?.id || "GUESTS";
+}
+
+function accountLabel(invoice: Invoice) {
+  if (!invoice.user) return "Guests";
+
+  return (
+    invoice.user.companyName ||
+    invoice.user.name ||
+    invoice.user.email ||
+    "Customer"
+  );
 }
 
 export default function AdminInvoicesPage() {
   const [adminKey, setAdminKey] = useState("");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [selected, setSelected] = useState<Invoice | null>(null);
-
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("ALL");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [overdueOnly, setOverdueOnly] = useState(false);
-  const [page, setPage] = useState(1);
-
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: PAGE_SIZE,
-    total: 0,
-    totalPages: 1,
-  });
-
-  const [summary, setSummary] = useState<Record<string, number>>({});
-  const [totals, setTotals] = useState({
-    subtotal: 0,
-    vatAmount: 0,
-    total: 0,
-  });
-
-  const [editStatus, setEditStatus] = useState<InvoiceStatus>("DRAFT");
-  const [editSubtotal, setEditSubtotal] = useState("");
-  const [editVatAmount, setEditVatAmount] = useState("");
-  const [editTotal, setEditTotal] = useState("");
-  const [editDueDate, setEditDueDate] = useState("");
-
+  const [selectedAccount, setSelectedAccount] = useState("ALL");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
-    );
+    const storedKey =
+      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+
+    setAdminKey(storedKey);
+
+    if (!storedKey) {
+      setLoading(false);
+      setError(
+        "Admin key is missing. Unlock the admin area first, then return to Invoices.",
+      );
+    }
   }, []);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
-    }, 350);
-
-    return () => window.clearTimeout(timeout);
-  }, [searchInput]);
 
   const loadInvoices = useCallback(
     async (refresh = false) => {
-      if (!adminKey) {
-        setLoading(false);
-        setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
-        );
-        return;
-      }
+      if (!adminKey) return;
 
       refresh ? setRefreshing(true) : setLoading(true);
       setError("");
 
       try {
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: String(PAGE_SIZE),
-          status,
-          overdueOnly: String(overdueOnly),
-        });
+        const allInvoices: Invoice[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
 
-        if (search) params.set("search", search);
-        if (dateFrom) params.set("dateFrom", dateFrom);
-        if (dateTo) params.set("dateTo", dateTo);
+        do {
+          const params = new URLSearchParams({
+            page: String(currentPage),
+            pageSize: String(PAGE_SIZE),
+            status: "ALL",
+            overdueOnly: "false",
+          });
 
-        const response = await fetch(
-          `${API_BASE}/api/invoices/admin/list?${params.toString()}`,
-          {
-            headers: {
-              "x-admin-key": adminKey,
+          const response = await fetch(
+            `${API_BASE}/api/invoices/admin/list?${params.toString()}`,
+            {
+              headers: {
+                "x-admin-key": adminKey,
+              },
+              cache: "no-store",
             },
-            cache: "no-store",
-          },
-        );
+          );
 
-        const payload = (await response.json()) as Payload;
+          const payload = (await response.json()) as Payload;
 
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
-            setAdminKey("");
+          if (!response.ok) {
+            if (response.status === 401) {
+              window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+              setAdminKey("");
+            }
+
+            throw new Error(payload.error || "Unable to load invoices.");
           }
 
-          throw new Error(payload.error || "Unable to load invoices.");
-        }
+          allInvoices.push(...(payload.invoices || []));
+          totalPages = payload.pagination?.totalPages || 1;
+          currentPage += 1;
+        } while (currentPage <= totalPages);
 
-        setInvoices(payload.invoices || []);
-        setPagination(
-          payload.pagination || {
-            page,
-            pageSize: PAGE_SIZE,
-            total: 0,
-            totalPages: 1,
-          },
-        );
-        setSummary(payload.summary?.byStatus || {});
-        setTotals({
-          subtotal: Number(payload.summary?.totals?.subtotal || 0),
-          vatAmount: Number(payload.summary?.totals?.vatAmount || 0),
-          total: Number(payload.summary?.totals?.total || 0),
-        });
+        setInvoices(allInvoices);
       } catch (requestError) {
         setInvoices([]);
         setError(
@@ -289,124 +228,77 @@ export default function AdminInvoicesPage() {
         setRefreshing(false);
       }
     },
-    [adminKey, dateFrom, dateTo, overdueOnly, page, search, status],
+    [adminKey],
   );
 
   useEffect(() => {
     if (adminKey) {
       void loadInvoices();
-    } else {
-      setLoading(false);
     }
   }, [adminKey, loadInvoices]);
 
-  const activeFilters = useMemo(() => {
-    let count = 0;
-    if (search) count += 1;
-    if (status !== "ALL") count += 1;
-    if (dateFrom) count += 1;
-    if (dateTo) count += 1;
-    if (overdueOnly) count += 1;
-    return count;
-  }, [dateFrom, dateTo, overdueOnly, search, status]);
+  const accountOptions = useMemo(() => {
+    const accountMap = new Map<string, string>();
 
-  function openInvoice(invoice: Invoice) {
-    setSelected(invoice);
-    setEditStatus(invoice.status);
-    setEditSubtotal(String(invoice.subtotal ?? ""));
-    setEditVatAmount(String(invoice.vatAmount ?? ""));
-    setEditTotal(String(invoice.total ?? ""));
-    setEditDueDate(dateInput(invoice.dueDate));
-    setError("");
-    setMessage("");
-  }
+    for (const invoice of invoices) {
+      const key = accountKey(invoice);
+      const label = accountLabel(invoice);
 
-  async function updateInvoice(nextStatus?: InvoiceStatus) {
-    if (!selected || !adminKey) return;
-
-    setSaving(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/invoices/admin/${selected.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
-          body: JSON.stringify({
-            status: nextStatus || editStatus,
-            subtotal: editSubtotal,
-            vatAmount: editVatAmount,
-            total: editTotal,
-            dueDate: editDueDate || null,
-          }),
-        },
-      );
-
-      const payload = (await response.json()) as Payload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to update invoice.");
+      if (!accountMap.has(key)) {
+        accountMap.set(key, label);
       }
-
-      if (payload.invoice) {
-        setSelected(payload.invoice);
-        setEditStatus(payload.invoice.status);
-        setInvoices((current) =>
-          current.map((invoice) =>
-            invoice.id === payload.invoice?.id
-              ? payload.invoice
-              : invoice,
-          ),
-        );
-      }
-
-      setMessage("Invoice updated successfully.");
-      await loadInvoices(true);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to update invoice.",
-      );
-    } finally {
-      setSaving(false);
     }
-  }
+
+    const options: AccountOption[] = [];
+
+    if (accountMap.has("GUESTS")) {
+      options.push({
+        key: "GUESTS",
+        label: "Guests",
+      });
+    }
+
+    const customerOptions = Array.from(accountMap.entries())
+      .filter(([key]) => key !== "GUESTS")
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    return [...options, ...customerOptions];
+  }, [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const invoiceSearch = invoiceNumber.trim().toLowerCase();
+
+    return invoices.filter((invoice) => {
+      const matchesAccount =
+        selectedAccount === "ALL" ||
+        accountKey(invoice) === selectedAccount;
+
+      const matchesInvoiceNumber =
+        !invoiceSearch ||
+        invoice.invoiceNumber.toLowerCase().includes(invoiceSearch);
+
+      return matchesAccount && matchesInvoiceNumber;
+    });
+  }, [invoiceNumber, invoices, selectedAccount]);
 
   return (
-    <div className="mx-auto w-full max-w-[1600px]">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+    <div className="mx-auto w-full max-w-[1280px]">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Link
-            href="/admin"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-950"
-          >
-            <ArrowLeft size={16} />
-            Admin dashboard
-          </Link>
-
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Finance operations
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+            Tab 8
           </p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Invoice management
+            Invoices
           </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            Review invoice status, values, due dates, linked bookings,
-            customers and payment activity.
-          </p>
         </div>
 
         <button
           type="button"
           onClick={() => void loadInvoices(true)}
-          disabled={refreshing || !adminKey}
-          className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+          disabled={refreshing || loading || !adminKey}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw
             size={17}
@@ -416,562 +308,231 @@ export default function AdminInvoicesPage() {
         </button>
       </div>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard
-          label="All invoices"
-          value={pagination.total}
-          icon={FileText}
-        />
-        <SummaryCard
-          label="Issued"
-          value={summary.ISSUED || 0}
-          icon={CalendarDays}
-        />
-        <SummaryCard
-          label="Paid"
-          value={summary.PAID || 0}
-          icon={CheckCircle2}
-        />
-        <SummaryCard
-          label="Overdue"
-          value={summary.OVERDUE || 0}
-          icon={CircleAlert}
-        />
-        <SummaryCard
-          label="Invoice value"
-          value={money(totals.total)}
-          icon={WalletCards}
-        />
-      </section>
-
-      <section className="mt-6 grid gap-4 md:grid-cols-3">
-        <ValueCard label="Net subtotal" value={money(totals.subtotal)} />
-        <ValueCard label="VAT total" value={money(totals.vatAmount)} />
-        <ValueCard label="Gross total" value={money(totals.total)} />
-      </section>
-
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto_auto]">
-          <label className="relative">
-            <Search
-              size={18}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              type="search"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search invoice number, booking, customer, company, email or account number"
-              className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-            />
-          </label>
-
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700"
-          >
-            <option value="ALL">All statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="ISSUED">Issued</option>
-            <option value="PAID">Paid</option>
-            <option value="OVERDUE">Overdue</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => {
-              setDateFrom(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          />
-
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => {
-              setDateTo(event.target.value);
-              setPage(1);
-            }}
-            className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
-          />
-
-          <label className="flex items-center gap-3 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700">
-            <input
-              type="checkbox"
-              checked={overdueOnly}
-              onChange={(event) => {
-                setOverdueOnly(event.target.checked);
-                setPage(1);
-              }}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            Overdue only
-          </label>
-
-          {activeFilters > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchInput("");
-                setSearch("");
-                setStatus("ALL");
-                setDateFrom("");
-                setDateTo("");
-                setOverdueOnly(false);
-                setPage(1);
-              }}
-              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
-      </section>
-
       {error ? (
         <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
           {error}
         </div>
       ) : null}
 
-      {message ? (
-        <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
-          {message}
-        </div>
-      ) : null}
+      <div className="mt-7 grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
+        <section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <h2 className="text-lg font-bold text-slate-950">Select Account</h2>
 
-      <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5 sm:px-6">
-          <div>
-            <h2 className="text-lg font-bold text-slate-950">Invoices</h2>
+          <label className="mt-5 block">
+            <span className="mb-2 block text-sm font-bold text-slate-700">
+              Account
+            </span>
+
+            <select
+              value={selectedAccount}
+              onChange={(event) => setSelectedAccount(event.target.value)}
+              disabled={loading}
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+            >
+              <option value="ALL">All Accounts</option>
+
+              {accountOptions.map((account) => (
+                <option key={account.key} value={account.key}>
+                  {account.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="mt-5 block">
+            <span className="mb-2 block text-sm font-bold text-slate-700">
+              Invoice No
+            </span>
+
+            <div className="relative">
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+
+              <input
+                type="search"
+                value={invoiceNumber}
+                onChange={(event) => setInvoiceNumber(event.target.value)}
+                placeholder="12345"
+                className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
+              />
+            </div>
+          </label>
+
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+              Matching Invoices
+            </p>
+            <p className="mt-2 text-3xl font-bold text-slate-950">
+              {filteredInvoices.length}
+            </p>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
+            <h2 className="text-lg font-bold text-slate-950">
+              List of Invoices Generated
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              {pagination.total} matching invoice
-              {pagination.total === 1 ? "" : "s"}
+              Click an invoice to view its details.
             </p>
           </div>
 
-          <p className="text-sm text-slate-500">
-            Page {pagination.page} of {pagination.totalPages}
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="flex min-h-[360px] items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-[#FF6A00]" />
-          </div>
-        ) : invoices.length === 0 ? (
-          <div className="flex min-h-[360px] items-center justify-center px-6 text-center">
-            <div>
-              <FileText className="mx-auto h-12 w-12 text-slate-300" />
-              <h3 className="mt-4 text-lg font-bold text-slate-950">
-                No invoices found
-              </h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Change the filters or wait for new invoice activity.
-              </p>
+          {loading ? (
+            <div className="flex min-h-[420px] items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-[#FF6A00]" />
             </div>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-200">
-            {invoices.map((invoice) => (
-              <article
-                key={invoice.id}
-                className="grid gap-5 p-5 sm:p-6 xl:grid-cols-[minmax(0,1fr)_220px_180px_180px_auto] xl:items-center"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-bold text-slate-950">
+          ) : filteredInvoices.length === 0 ? (
+            <div className="flex min-h-[420px] items-center justify-center px-6 text-center">
+              <div>
+                <FileText className="mx-auto h-12 w-12 text-slate-300" />
+                <h3 className="mt-4 text-lg font-bold text-slate-950">
+                  No invoices found
+                </h3>
+                <p className="mt-2 text-sm text-slate-500">
+                  Choose another account or invoice number.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-200">
+              {filteredInvoices.map((invoice) => (
+                <button
+                  key={invoice.id}
+                  type="button"
+                  onClick={() => setSelectedInvoice(invoice)}
+                  className="grid w-full gap-4 px-5 py-5 text-left transition hover:bg-slate-50 sm:px-6 md:grid-cols-[minmax(0,1fr)_150px_140px] md:items-center"
+                >
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-slate-950">
                       {invoice.invoiceNumber}
-                    </h3>
-                    <Badge className={statusClass(invoice.status)}>
-                      {invoice.status}
-                    </Badge>
+                    </p>
+
+                    <p className="mt-1 text-sm font-semibold text-slate-600">
+                      {accountLabel(invoice)}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      Booking {invoice.booking.reference}
+                    </p>
                   </div>
 
-                  <p className="mt-2 text-sm text-slate-500">
-                    {invoice.user?.companyName ||
-                      invoice.user?.name ||
-                      invoice.booking.quote?.companyName ||
-                      invoice.booking.quote?.customerName ||
-                      "Guest customer"}
-                  </p>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                      Status
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-700">
+                      {formatStatus(invoice.status)}
+                    </p>
+                  </div>
 
-                  <p className="mt-1 text-xs font-semibold text-slate-400">
-                    Booking {invoice.booking.reference}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Amount
-                  </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    {money(invoice.total)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    VAT {money(invoice.vatAmount)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Due date
-                  </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    {date(invoice.dueDate)}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-                    Payment
-                  </p>
-                  <p className="mt-1 font-bold text-slate-950">
-                    {invoice.booking.payments?.[0]?.status || "No payment"}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {invoice.booking.payments?.[0]
-                      ? money(
-                          invoice.booking.payments[0].amount,
-                        )
-                      : "Not recorded"}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => openInvoice(invoice)}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
-                >
-                  <Pencil size={17} />
-                  Manage
+                  <div className="md:text-right">
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                      Total
+                    </p>
+                    <p className="mt-1 font-bold text-slate-950">
+                      {money(invoice.total)}
+                    </p>
+                  </div>
                 </button>
-              </article>
-            ))}
-          </div>
-        )}
-
-        {!loading && invoices.length > 0 ? (
-          <div className="flex flex-col gap-4 border-t border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <p className="text-sm text-slate-500">
-              Showing {(pagination.page - 1) * pagination.pageSize + 1}–
-              {Math.min(
-                pagination.page * pagination.pageSize,
-                pagination.total,
-              )}{" "}
-              of {pagination.total}
-            </p>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40"
-              >
-                <ChevronLeft size={17} />
-                Previous
-              </button>
-
-              <button
-                type="button"
-                disabled={page >= pagination.totalPages}
-                onClick={() =>
-                  setPage((current) =>
-                    Math.min(pagination.totalPages, current + 1),
-                  )
-                }
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-40"
-              >
-                Next
-                <ChevronRight size={17} />
-              </button>
+              ))}
             </div>
-          </div>
-        ) : null}
-      </section>
+          )}
+        </section>
+      </div>
 
-      {selected ? (
+      {selectedInvoice ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-          <section className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+          <section className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
-                  Manage invoice
+                  Invoice
                 </p>
                 <h2 className="mt-1 text-2xl font-bold text-slate-950">
-                  {selected.invoiceNumber}
+                  {selectedInvoice.invoiceNumber}
                 </h2>
               </div>
 
               <button
                 type="button"
-                onClick={() => setSelected(null)}
+                onClick={() => setSelectedInvoice(null)}
                 className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                aria-label="Close invoice"
               >
                 <X size={20} />
               </button>
             </div>
 
             <div className="space-y-6 p-5 sm:p-6">
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                <SelectField
-                  label="Invoice status"
-                  value={editStatus}
-                  onChange={(value) =>
-                    setEditStatus(value as InvoiceStatus)
-                  }
-                  options={[
-                    "DRAFT",
-                    "ISSUED",
-                    "PAID",
-                    "OVERDUE",
-                    "CANCELLED",
-                  ]}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <InfoCard
+                  label="Account"
+                  value={accountLabel(selectedInvoice)}
                 />
-
-                <Field
-                  label="Subtotal"
-                  type="number"
-                  value={editSubtotal}
-                  onChange={setEditSubtotal}
+                <InfoCard
+                  label="Status"
+                  value={formatStatus(selectedInvoice.status)}
                 />
-
-                <Field
-                  label="VAT amount"
-                  type="number"
-                  value={editVatAmount}
-                  onChange={setEditVatAmount}
+                <InfoCard
+                  label="Invoice Date"
+                  value={date(selectedInvoice.createdAt)}
                 />
-
-                <Field
-                  label="Total"
-                  type="number"
-                  value={editTotal}
-                  onChange={setEditTotal}
+                <InfoCard
+                  label="Due Date"
+                  value={date(selectedInvoice.dueDate)}
                 />
-
-                <Field
-                  label="Due date"
-                  type="date"
-                  value={editDueDate}
-                  onChange={setEditDueDate}
-                />
-              </div>
-
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void updateInvoice()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
-              >
-                <Pencil size={18} />
-                Save invoice changes
-              </button>
-
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <InfoCard
                   label="Booking"
-                  value={selected.booking.reference}
+                  value={selectedInvoice.booking.reference}
                 />
                 <InfoCard
-                  label="Booking status"
-                  value={selected.booking.status}
-                />
-                <InfoCard
-                  label="Vehicle"
-                  value={selected.booking.vehicle?.name || "Not assigned"}
-                />
-                <InfoCard
-                  label="Driver"
-                  value={selected.booking.driver?.name || "Not assigned"}
+                  label="Payment"
+                  value={
+                    selectedInvoice.booking.payments?.[0]?.status
+                      ? formatStatus(
+                          selectedInvoice.booking.payments[0].status,
+                        )
+                      : "Not recorded"
+                  }
                 />
               </div>
 
               <div className="rounded-2xl border border-slate-200 p-5">
-                <p className="font-bold text-slate-950">
-                  {selected.booking.collectionAddress}
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                  Journey
+                </p>
+
+                <p className="mt-3 font-bold text-slate-950">
+                  {selectedInvoice.booking.collectionAddress}
                 </p>
                 <p className="my-2 text-sm text-slate-400">to</p>
                 <p className="font-bold text-slate-950">
-                  {selected.booking.deliveryAddress}
+                  {selectedInvoice.booking.deliveryAddress}
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Link
-                  href="/admin/bookings"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                >
-                  Open booking management
-                  <ArrowRight size={17} />
-                </Link>
-
-                {selected.user?.id ? (
-                  <Link
-                    href={`/admin/customers/${selected.user.id}`}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  >
-                    Open customer profile
-                    <ArrowRight size={17} />
-                  </Link>
-                ) : null}
-              </div>
-
-              <div className="border-t border-slate-200 pt-6">
-                <p className="text-sm font-bold text-slate-950">
-                  Quick status actions
-                </p>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  {(
-                    [
-                      "DRAFT",
-                      "ISSUED",
-                      "PAID",
-                      "OVERDUE",
-                      "CANCELLED",
-                    ] as InvoiceStatus[]
-                  ).map((nextStatus) => (
-                    <button
-                      key={nextStatus}
-                      type="button"
-                      disabled={saving}
-                      onClick={() => void updateInvoice(nextStatus)}
-                      className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                    >
-                      {nextStatus}
-                    </button>
-                  ))}
-                </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <AmountCard
+                  label="Subtotal"
+                  value={money(selectedInvoice.subtotal)}
+                />
+                <AmountCard
+                  label="VAT"
+                  value={money(selectedInvoice.vatAmount)}
+                />
+                <AmountCard
+                  label="Total"
+                  value={money(selectedInvoice.total)}
+                />
               </div>
             </div>
           </section>
         </div>
       ) : null}
     </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number | string;
-  icon: typeof FileText;
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-950">{value}</p>
-        </div>
-
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          <Icon size={21} />
-        </span>
-      </div>
-    </article>
-  );
-}
-
-function ValueCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
-    </article>
-  );
-}
-
-function Badge({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className: string;
-}) {
-  return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 ring-inset ${className}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 
@@ -988,6 +549,23 @@ function InfoCard({
         {label}
       </p>
       <p className="mt-2 text-sm font-bold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function AmountCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-2 text-xl font-bold text-slate-950">{value}</p>
     </div>
   );
 }
