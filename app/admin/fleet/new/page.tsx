@@ -5,17 +5,15 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
-  ClipboardCheck,
   Loader2,
   Plus,
-  ShieldCheck,
+  Search,
   Truck,
-  UserRound,
-  Wrench,
 } from "lucide-react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
@@ -26,15 +24,7 @@ const VEHICLE_TYPES = [
   "LWB High Roof Van",
   "XLWB High Roof Van",
   "Luton Tail Lift Van",
-];
-
-const VEHICLE_STATUSES = [
-  { value: "AVAILABLE", label: "Available" },
-  { value: "BOOKED", label: "Booked" },
-  { value: "OUT_ON_JOB", label: "Out on job" },
-  { value: "MAINTENANCE", label: "Maintenance" },
-  { value: "INACTIVE", label: "Inactive" },
-];
+] as const;
 
 const FUEL_TYPES = [
   "Diesel",
@@ -43,7 +33,7 @@ const FUEL_TYPES = [
   "Hybrid",
   "Plug-in Hybrid",
   "Other",
-];
+] as const;
 
 const EURO_STATUSES = [
   "Euro 4",
@@ -52,19 +42,20 @@ const EURO_STATUSES = [
   "Euro 6d",
   "Zero Emission",
   "Not recorded",
-];
+] as const;
 
-type Driver = {
-  id: string;
-  name: string;
-  email: string;
-  availability: string;
-  vehicleId?: string | null;
-};
-
-type FleetListPayload = {
-  drivers?: Driver[];
-  error?: string;
+type FormState = {
+  registration: string;
+  vehicleType: string;
+  make: string;
+  colour: string;
+  fuelType: string;
+  engineCapacity: string;
+  co2Emissions: string;
+  dateOfFirstRegistration: string;
+  taxDueDate: string;
+  motExpiry: string;
+  euroEmissionsStatus: string;
 };
 
 type CreateVehiclePayload = {
@@ -76,40 +67,10 @@ type CreateVehiclePayload = {
   error?: string;
 };
 
-type FormState = {
-  name: string;
-  vehicleType: string;
-  vehicleCategory: string;
-  registration: string;
-  make: string;
-  model: string;
-  colour: string;
-  fuelType: string;
-  engineCapacity: string;
-  co2Emissions: string;
-  dateOfFirstRegistration: string;
-  taxDueDate: string;
-  motExpiry: string;
-  euroEmissionsStatus: string;
-  mileage: string;
-  insuranceProvider: string;
-  insurancePolicyNumber: string;
-  insuranceExpiry: string;
-  serviceDueDate: string;
-  maintenanceNotes: string;
-  gpsDeviceId: string;
-  driverId: string;
-  status: string;
-  active: boolean;
-};
-
 const INITIAL_FORM: FormState = {
-  name: "",
-  vehicleType: VEHICLE_TYPES[0],
-  vehicleCategory: VEHICLE_TYPES[0],
   registration: "",
+  vehicleType: VEHICLE_TYPES[0],
   make: "",
-  model: "",
   colour: "",
   fuelType: "",
   engineCapacity: "",
@@ -118,24 +79,13 @@ const INITIAL_FORM: FormState = {
   taxDueDate: "",
   motExpiry: "",
   euroEmissionsStatus: "",
-  mileage: "",
-  insuranceProvider: "",
-  insurancePolicyNumber: "",
-  insuranceExpiry: "",
-  serviceDueDate: "",
-  maintenanceNotes: "",
-  gpsDeviceId: "",
-  driverId: "",
-  status: "AVAILABLE",
-  active: true,
 };
 
 export default function AddFleetVehiclePage() {
   const [adminKey, setAdminKey] = useState("");
-  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
-  const [loadingDrivers, setLoadingDrivers] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -146,48 +96,11 @@ export default function AddFleetVehiclePage() {
     setAdminKey(storedKey);
 
     if (!storedKey) {
-      setLoadingDrivers(false);
       setError(
         "Admin key is required. Unlock the admin area from Driver Management.",
       );
-      return;
     }
-
-    void loadDrivers(storedKey);
   }, []);
-
-  async function loadDrivers(key: string) {
-    setLoadingDrivers(true);
-    setError("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/vehicles/admin/list?page=1&pageSize=100`,
-        {
-          headers: {
-            "x-admin-key": key,
-          },
-          cache: "no-store",
-        },
-      );
-
-      const payload = (await response.json()) as FleetListPayload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to load drivers.");
-      }
-
-      setDrivers(payload.drivers || []);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load drivers.",
-      );
-    } finally {
-      setLoadingDrivers(false);
-    }
-  }
 
   function updateForm<K extends keyof FormState>(
     key: K,
@@ -199,6 +112,24 @@ export default function AddFleetVehiclePage() {
     }));
   }
 
+  function normaliseRegistration(value: string) {
+    return value.toUpperCase().replace(/\s+/g, " ");
+  }
+
+  function handleRegistrationLookup() {
+    setError("");
+    setLookupMessage("");
+
+    if (!form.registration.trim()) {
+      setError("Enter a registration number first.");
+      return;
+    }
+
+    setLookupMessage(
+      "Vehicle lookup is ready for DVLA integration. Enter the vehicle details manually for now.",
+    );
+  }
+
   async function createVehicle(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -207,12 +138,15 @@ export default function AddFleetVehiclePage() {
       return;
     }
 
-    if (
-      !form.name.trim() ||
-      !form.vehicleType.trim() ||
-      !form.registration.trim()
-    ) {
-      setError("Vehicle name, vehicle type and registration are required.");
+    const registration = form.registration.trim().toUpperCase();
+
+    if (!registration) {
+      setError("Registration is required.");
+      return;
+    }
+
+    if (!form.vehicleType) {
+      setError("Select a vehicle category.");
       return;
     }
 
@@ -221,6 +155,8 @@ export default function AddFleetVehiclePage() {
     setMessage("");
 
     try {
+      const internalName = `${form.vehicleType} - ${registration}`;
+
       const response = await fetch(`${API_BASE}/api/vehicles/admin`, {
         method: "POST",
         headers: {
@@ -228,12 +164,11 @@ export default function AddFleetVehiclePage() {
           "x-admin-key": adminKey,
         },
         body: JSON.stringify({
-          ...form,
-          name: form.name.trim(),
-          vehicleCategory: form.vehicleCategory.trim() || form.vehicleType,
-          registration: form.registration.trim().toUpperCase(),
+          name: internalName,
+          vehicleType: form.vehicleType,
+          vehicleCategory: form.vehicleType,
+          registration,
           make: form.make.trim() || null,
-          model: form.model.trim() || null,
           colour: form.colour.trim() || null,
           fuelType: form.fuelType || null,
           engineCapacity: form.engineCapacity.trim() || null,
@@ -242,22 +177,15 @@ export default function AddFleetVehiclePage() {
           taxDueDate: form.taxDueDate || null,
           motExpiry: form.motExpiry || null,
           euroEmissionsStatus: form.euroEmissionsStatus || null,
-          mileage: form.mileage || null,
-          insuranceProvider: form.insuranceProvider.trim() || null,
-          insurancePolicyNumber:
-            form.insurancePolicyNumber.trim() || null,
-          insuranceExpiry: form.insuranceExpiry || null,
-          serviceDueDate: form.serviceDueDate || null,
-          maintenanceNotes: form.maintenanceNotes.trim() || null,
-          gpsDeviceId: form.gpsDeviceId.trim() || null,
-          driverId: form.driverId || null,
+          status: "AVAILABLE",
+          active: true,
         }),
       });
 
       const payload = (await response.json()) as CreateVehiclePayload;
 
       if (!response.ok) {
-        throw new Error(payload.error || "Unable to create vehicle.");
+        throw new Error(payload.error || "Unable to add vehicle to fleet.");
       }
 
       setMessage(
@@ -265,13 +193,14 @@ export default function AddFleetVehiclePage() {
           ? `${payload.vehicle.name} was added to the fleet.`
           : "Vehicle was added to the fleet.",
       );
+      setLookupMessage("");
       setForm(INITIAL_FORM);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to create vehicle.",
+          : "Unable to add vehicle to fleet.",
       );
       window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
@@ -280,26 +209,24 @@ export default function AddFleetVehiclePage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1200px]">
-      <Link
-        href="/admin/fleet"
-        className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-slate-950"
-      >
-        <ArrowLeft size={16} />
-        Fleet management
-      </Link>
+    <div className="mx-auto w-full max-w-[1180px]">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+            Tab 5
+          </p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
+            Fleet / Add Vehicle to Fleet
+          </h1>
+        </div>
 
-      <div className="mt-5">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-          Fleet administration
-        </p>
-        <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-          Add fleet vehicle
-        </h1>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-          Create the full vehicle, compliance, insurance, maintenance and
-          operational record required by the fleet plan.
-        </p>
+        <Link
+          href="/admin/fleet"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+        >
+          <ArrowLeft size={17} />
+          All Vehicles
+        </Link>
       </div>
 
       {error ? (
@@ -315,411 +242,151 @@ export default function AddFleetVehiclePage() {
         </div>
       ) : null}
 
-      <form onSubmit={createVehicle} className="mt-6 space-y-6">
-        <Section
-          icon={<Truck size={21} />}
-          title="Vehicle identity"
-          description="Core fleet identity, category and registration details."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field
-              label="Vehicle name"
-              value={form.name}
-              onChange={(value) => updateForm("name", value)}
-              placeholder="Example: Birmingham Van 01"
-              required
-            />
-
-            <SelectField
-              label="Vehicle category"
-              value={form.vehicleCategory}
-              onChange={(value) => {
-                updateForm("vehicleCategory", value);
-                updateForm("vehicleType", value);
-              }}
-              options={VEHICLE_TYPES}
-              required
-            />
-
-            <SelectField
-              label="Vehicle type"
-              value={form.vehicleType}
-              onChange={(value) => updateForm("vehicleType", value)}
-              options={VEHICLE_TYPES}
-              required
-            />
-
-            <Field
-              label="Registration number"
-              value={form.registration}
-              onChange={(value) =>
-                updateForm("registration", value.toUpperCase())
-              }
-              placeholder="Example: AB12 CDE"
-              required
-            />
-
-            <Field
-              label="Make"
-              value={form.make}
-              onChange={(value) => updateForm("make", value)}
-              placeholder="Example: Ford"
-            />
-
-            <Field
-              label="Model"
-              value={form.model}
-              onChange={(value) => updateForm("model", value)}
-              placeholder="Example: Transit"
-            />
-
-            <Field
-              label="Colour"
-              value={form.colour}
-              onChange={(value) => updateForm("colour", value)}
-              placeholder="Example: White"
-            />
-
-            <SelectField
-              label="Fuel type"
-              value={form.fuelType}
-              onChange={(value) => updateForm("fuelType", value)}
-              options={FUEL_TYPES}
-              allowBlank
-            />
-
-            <Field
-              label="Engine capacity"
-              value={form.engineCapacity}
-              onChange={(value) => updateForm("engineCapacity", value)}
-              placeholder="Example: 1997 cc"
-            />
-
-            <Field
-              label="CO₂ emissions"
-              value={form.co2Emissions}
-              onChange={(value) => updateForm("co2Emissions", value)}
-              placeholder="Example: 186 g/km"
-            />
-
-            <Field
-              label="Date of first registration"
-              type="date"
-              value={form.dateOfFirstRegistration}
-              onChange={(value) =>
-                updateForm("dateOfFirstRegistration", value)
-              }
-            />
-
-            <SelectField
-              label="Euro emissions status"
-              value={form.euroEmissionsStatus}
-              onChange={(value) =>
-                updateForm("euroEmissionsStatus", value)
-              }
-              options={EURO_STATUSES}
-              allowBlank
-            />
-
-            <Field
-              label="Current mileage"
-              type="number"
-              min="0"
-              value={form.mileage}
-              onChange={(value) => updateForm("mileage", value)}
-              placeholder="Example: 48250"
-            />
-
-            <Field
-              label="GPS device ID"
-              value={form.gpsDeviceId}
-              onChange={(value) => updateForm("gpsDeviceId", value)}
-              placeholder="Optional tracking device identifier"
-            />
-          </div>
-        </Section>
-
-        <Section
-          icon={<ShieldCheck size={21} />}
-          title="Compliance and insurance"
-          description="Tax, MOT, emissions and insurance information."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field
-              label="Tax due date"
-              type="date"
-              value={form.taxDueDate}
-              onChange={(value) => updateForm("taxDueDate", value)}
-            />
-
-            <Field
-              label="MOT expiry date"
-              type="date"
-              value={form.motExpiry}
-              onChange={(value) => updateForm("motExpiry", value)}
-            />
-
-            <Field
-              label="Insurance provider"
-              value={form.insuranceProvider}
-              onChange={(value) =>
-                updateForm("insuranceProvider", value)
-              }
-              placeholder="Example: Aviva"
-            />
-
-            <Field
-              label="Insurance policy number"
-              value={form.insurancePolicyNumber}
-              onChange={(value) =>
-                updateForm("insurancePolicyNumber", value)
-              }
-              placeholder="Enter policy reference"
-            />
-
-            <Field
-              label="Insurance expiry date"
-              type="date"
-              value={form.insuranceExpiry}
-              onChange={(value) =>
-                updateForm("insuranceExpiry", value)
-              }
-            />
-          </div>
-        </Section>
-
-        <Section
-          icon={<Wrench size={21} />}
-          title="Maintenance"
-          description="Service due date and operational maintenance notes."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field
-              label="Service due date"
-              type="date"
-              value={form.serviceDueDate}
-              onChange={(value) =>
-                updateForm("serviceDueDate", value)
-              }
-            />
-
-            <label className="block md:col-span-2">
-              <span className="mb-2 block text-sm font-bold text-slate-700">
-                Maintenance notes
-              </span>
-              <textarea
-                value={form.maintenanceNotes}
-                onChange={(event) =>
-                  updateForm("maintenanceNotes", event.target.value)
-                }
-                rows={5}
-                placeholder="Record known faults, planned work, service details or operational restrictions."
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-              />
-            </label>
-          </div>
-        </Section>
-
-        <Section
-          icon={<ClipboardCheck size={21} />}
-          title="Operational assignment"
-          description="Set status, availability and optional driver assignment."
-        >
-          <div className="grid gap-5 md:grid-cols-2">
-            <SelectField
-              label="Vehicle status"
-              value={form.status}
-              onChange={(value) => {
-                updateForm("status", value);
-                updateForm("active", value !== "INACTIVE");
-              }}
-              options={VEHICLE_STATUSES.map((item) => item.value)}
-              labels={Object.fromEntries(
-                VEHICLE_STATUSES.map((item) => [item.value, item.label]),
-              )}
-              required
-            />
-
-            <label className="block">
-              <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                <UserRound size={16} />
-                Assigned driver
-              </span>
-              <select
-                value={form.driverId}
-                onChange={(event) =>
-                  updateForm("driverId", event.target.value)
-                }
-                disabled={loadingDrivers}
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:bg-slate-50"
-              >
-                <option value="">
-                  {loadingDrivers ? "Loading drivers..." : "Not assigned"}
-                </option>
-                {drivers.map((driver) => (
-                  <option key={driver.id} value={driver.id}>
-                    {driver.name} · {driver.availability}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-300 px-4 py-4">
-            <input
-              type="checkbox"
-              checked={form.active}
-              onChange={(event) => {
-                const active = event.target.checked;
-                updateForm("active", active);
-
-                if (!active) {
-                  updateForm("status", "INACTIVE");
-                } else if (form.status === "INACTIVE") {
-                  updateForm("status", "AVAILABLE");
-                }
-              }}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            <span>
-              <span className="block text-sm font-bold text-slate-800">
-                Active vehicle
-              </span>
-              <span className="mt-1 block text-xs text-slate-500">
-                Active vehicles can be used for availability and booking
-                allocation.
-              </span>
+      <form
+        onSubmit={createVehicle}
+        className="mt-7 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7 lg:p-8"
+      >
+        <div className="border-b border-slate-200 pb-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+              <Truck size={22} />
             </span>
-          </label>
-        </Section>
+            <div>
+              <h2 className="text-xl font-bold text-slate-950">Add Vehicle to Fleet</h2>
+              <p className="mt-1 text-sm text-slate-500">Enter the vehicle details below.</p>
+            </div>
+          </div>
+        </div>
 
-        <div className="flex flex-col-reverse gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:justify-end">
-          <Link
-            href="/admin/fleet"
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
+        <div className="mt-7 space-y-5">
+          <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
+            <ManualLabel required>Registration</ManualLabel>
+            <div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  value={form.registration}
+                  onChange={(event) =>
+                    updateForm("registration", normaliseRegistration(event.target.value))
+                  }
+                  placeholder="Example: AB12 CDE"
+                  className="manual-input flex-1 uppercase"
+                />
+                <button
+                  type="button"
+                  onClick={handleRegistrationLookup}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-[#E55300]"
+                >
+                  <Search size={17} />
+                  Lookup
+                </button>
+              </div>
+              {lookupMessage ? (
+                <p className="mt-2 text-xs font-semibold text-slate-500">{lookupMessage}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <ManualRow label="Vehicle Category" required>
+            <select
+              value={form.vehicleType}
+              onChange={(event) => updateForm("vehicleType", event.target.value)}
+              className="manual-input"
+            >
+              {VEHICLE_TYPES.map((vehicleType) => (
+                <option key={vehicleType} value={vehicleType}>{vehicleType}</option>
+              ))}
+            </select>
+          </ManualRow>
+
+          <ManualRow label="Make">
+            <input value={form.make} onChange={(event) => updateForm("make", event.target.value)} className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="Colour">
+            <input value={form.colour} onChange={(event) => updateForm("colour", event.target.value)} className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="Fuel Type">
+            <select value={form.fuelType} onChange={(event) => updateForm("fuelType", event.target.value)} className="manual-input">
+              <option value="">Select fuel type</option>
+              {FUEL_TYPES.map((fuelType) => <option key={fuelType} value={fuelType}>{fuelType}</option>)}
+            </select>
+          </ManualRow>
+
+          <ManualRow label="Engine Capacity">
+            <input value={form.engineCapacity} onChange={(event) => updateForm("engineCapacity", event.target.value)} placeholder="Example: 1997 cc" className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="CO₂ Emissions">
+            <input value={form.co2Emissions} onChange={(event) => updateForm("co2Emissions", event.target.value)} placeholder="Example: 186 g/km" className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="Date of First Registration">
+            <input type="date" value={form.dateOfFirstRegistration} onChange={(event) => updateForm("dateOfFirstRegistration", event.target.value)} className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="Tax Due Date">
+            <input type="date" value={form.taxDueDate} onChange={(event) => updateForm("taxDueDate", event.target.value)} className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="MOT Expiry Date">
+            <input type="date" value={form.motExpiry} onChange={(event) => updateForm("motExpiry", event.target.value)} className="manual-input" />
+          </ManualRow>
+
+          <ManualRow label="Euro Emissions Status">
+            <select value={form.euroEmissionsStatus} onChange={(event) => updateForm("euroEmissionsStatus", event.target.value)} className="manual-input">
+              <option value="">Select emissions status</option>
+              {EURO_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </ManualRow>
+        </div>
+
+        <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-6">
+          <Link href="/admin/fleet" className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
             Cancel
           </Link>
-
-          <button
-            type="submit"
-            disabled={saving || !adminKey}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Plus size={18} />
-            )}
-            Add to fleet
+          <button type="submit" disabled={saving || !adminKey} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50">
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+            Add to Fleet
           </button>
         </div>
       </form>
+
+      <style jsx>{`
+        :global(.manual-input) {
+          width: 100%;
+          border-radius: 0.875rem;
+          border: 1px solid rgb(203 213 225);
+          background: white;
+          padding: 0.75rem 1rem;
+          font-size: 0.875rem;
+          color: rgb(15 23 42);
+          outline: none;
+          transition: border-color 150ms ease, box-shadow 150ms ease;
+        }
+        :global(.manual-input:focus) {
+          border-color: #ff6a00;
+          box-shadow: 0 0 0 4px rgb(255 237 213);
+        }
+      `}</style>
     </div>
   );
 }
 
-function Section({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
+function ManualRow({ label, required = false, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-      <div className="flex items-start gap-3 border-b border-slate-200 pb-5">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
-          {icon}
-        </span>
-        <div>
-          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-500">
-            {description}
-          </p>
-        </div>
-      </div>
-      <div className="mt-6">{children}</div>
-    </section>
+    <div className="grid gap-2 md:grid-cols-[220px_minmax(0,1fr)] md:items-center md:gap-4">
+      <ManualLabel required={required}>{label}</ManualLabel>
+      <div>{children}</div>
+    </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  required = false,
-  min,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  required?: boolean;
-  min?: string;
-}) {
+function ManualLabel({ required = false, children }: { required?: boolean; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </span>
-      <input
-        type={type}
-        min={min}
-        required={required}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      />
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  labels,
-  required = false,
-  allowBlank = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
-  labels?: Record<string, string>;
-  required?: boolean;
-  allowBlank?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">
-        {label}
-        {required ? <span className="text-red-500"> *</span> : null}
-      </span>
-      <select
-        required={required}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100"
-      >
-        {allowBlank ? <option value="">Not recorded</option> : null}
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {labels?.[option] || option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="pt-1 text-sm font-bold text-slate-700 md:pt-0">
+      {children}
+      {required ? <span className="text-red-500"> *</span> : null}
+    </div>
   );
 }
