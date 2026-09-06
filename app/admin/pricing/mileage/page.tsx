@@ -4,8 +4,9 @@ import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000";
+  "https://streamline-logistics-production.up.railway.app";
 
 type MileageBand = {
   id: string;
@@ -139,7 +140,9 @@ export default function MileagePage() {
       }
 
       setModalOpen(false);
-      setSuccessMessage(editing ? "Mileage band updated." : "Mileage band added.");
+      setSuccessMessage(
+        editing ? "Mileage band updated." : "Mileage band added.",
+      );
       await loadTariffs();
     } catch (saveError) {
       setError(
@@ -156,6 +159,8 @@ export default function MileagePage() {
     if (!window.confirm("Delete this mileage band?")) return;
 
     setWorkingId(band.id);
+    setError("");
+    setSuccessMessage("");
 
     try {
       const response = await fetch(
@@ -189,11 +194,11 @@ export default function MileagePage() {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Pricing
+            Tab 10 / Pricing
           </p>
-          <h1 className="mt-1 text-3xl font-bold text-slate-950">Mileage bands</h1>
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">Mileage</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Define distance ranges and price-per-mile values for each tariff.
+            Define mileage ranges and rate-per-mile values for each tariff.
           </p>
         </div>
         <button
@@ -201,7 +206,7 @@ export default function MileagePage() {
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-bold text-white"
         >
           <Plus size={18} />
-          Add mileage band
+          Add Mileage Band
         </button>
       </div>
 
@@ -246,7 +251,7 @@ export default function MileagePage() {
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold"
                 >
                   <Plus size={16} />
-                  Add band
+                  Add Band
                 </button>
               </div>
 
@@ -254,22 +259,28 @@ export default function MileagePage() {
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-white">
                     <tr>
-                      {["Minimum miles", "Maximum miles", "Rate per mile", "Actions"].map(
-                        (heading) => (
-                          <th
-                            key={heading}
-                            className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500"
-                          >
-                            {heading}
-                          </th>
-                        ),
-                      )}
+                      {[
+                        "Minimum Miles",
+                        "Maximum Miles",
+                        "Rate Per Mile",
+                        "Actions",
+                      ].map((heading) => (
+                        <th
+                          key={heading}
+                          className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500"
+                        >
+                          {heading}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {tariff.mileageBands.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-5 py-10 text-center text-sm text-slate-500">
+                        <td
+                          colSpan={4}
+                          className="px-5 py-10 text-center text-sm text-slate-500"
+                        >
                           No mileage bands configured.
                         </td>
                       </tr>
@@ -293,6 +304,7 @@ export default function MileagePage() {
                               <button
                                 onClick={() => openEdit(tariff.id, band)}
                                 className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                                aria-label="Edit mileage band"
                               >
                                 <Pencil size={17} />
                               </button>
@@ -300,9 +312,13 @@ export default function MileagePage() {
                                 onClick={() => void removeBand(band)}
                                 disabled={workingId === band.id}
                                 className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                                aria-label="Delete mileage band"
                               >
                                 {workingId === band.id ? (
-                                  <Loader2 size={17} className="animate-spin" />
+                                  <Loader2
+                                    size={17}
+                                    className="animate-spin"
+                                  />
                                 ) : (
                                   <Trash2 size={17} />
                                 )}
@@ -325,9 +341,13 @@ export default function MileagePage() {
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <h2 className="text-xl font-bold text-slate-950">
-                {editing ? "Edit mileage band" : "Add mileage band"}
+                {editing ? "Edit Mileage Band" : "Add Mileage Band"}
               </h2>
-              <button onClick={() => setModalOpen(false)} className="rounded-lg p-2">
+              <button
+                onClick={() => setModalOpen(false)}
+                className="rounded-lg p-2"
+                aria-label="Close"
+              >
                 <X size={21} />
               </button>
             </div>
@@ -357,7 +377,7 @@ export default function MileagePage() {
               ) : null}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Minimum miles">
+                <Field label="Minimum Miles">
                   <input
                     type="number"
                     min="0"
@@ -373,7 +393,7 @@ export default function MileagePage() {
                     className={inputClass}
                   />
                 </Field>
-                <Field label="Maximum miles">
+                <Field label="Maximum Miles">
                   <input
                     type="number"
                     min="0"
@@ -390,7 +410,7 @@ export default function MileagePage() {
                 </Field>
               </div>
 
-              <Field label="Rate per mile">
+              <Field label="Rate Per Mile">
                 <input
                   type="number"
                   min="0"
@@ -419,8 +439,10 @@ export default function MileagePage() {
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
                 >
-                  {saving ? <Loader2 size={17} className="animate-spin" /> : null}
-                  Save band
+                  {saving ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : null}
+                  Save Band
                 </button>
               </div>
             </form>
@@ -443,7 +465,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
+      <span className="mb-2 block text-sm font-bold text-slate-700">
+        {label}
+      </span>
       {children}
     </label>
   );

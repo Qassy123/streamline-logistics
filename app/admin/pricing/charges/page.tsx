@@ -1,65 +1,90 @@
 "use client";
 
-import {
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
-const VEHICLE_TYPES = [
-  "Small Van",
-  "SWB Van",
-  "LWB High Roof Van",
-  "XLWB High Roof Van",
-  "Luton Tail Lift Van",
-] as const;
+type Charge = {
+  id: string;
+  type: string;
+  name: string;
+  calculation: string;
+  amount: string;
+  active: boolean;
+  vatApplicable: boolean;
+};
 
 type Tariff = {
   id: string;
   name: string;
   vehicleType: string;
-  baseFare: string;
-  active: boolean;
-  vatApplicable: boolean;
-  createdAt: string;
-  updatedAt: string;
-  mileageBands: unknown[];
-  charges: unknown[];
+  charges: Charge[];
+};
+
+type Options = {
+  chargeTypes: string[];
+  chargeCalculations: string[];
 };
 
 type FormState = {
+  tariffId: string;
+  type: string;
   name: string;
-  vehicleType: string;
-  baseFare: string;
+  calculation: string;
+  amount: string;
   active: boolean;
   vatApplicable: boolean;
 };
 
 const emptyForm: FormState = {
+  tariffId: "",
+  type: "STOP",
   name: "",
-  vehicleType: VEHICLE_TYPES[0],
-  baseFare: "",
+  calculation: "FIXED",
+  amount: "",
   active: true,
   vatApplicable: true,
 };
 
-export default function BaseFaresPage() {
+function pretty(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function amountLabel(charge: Charge) {
+  const amount = Number(charge.amount);
+
+  if (charge.calculation === "PERCENTAGE") {
+    return `${amount}%`;
+  }
+
+  const money = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(amount);
+
+  if (charge.calculation === "PER_STOP") return `${money} / stop`;
+  if (charge.calculation === "PER_HOUR") return `${money} / hour`;
+  if (charge.calculation === "PER_MILE") return `${money} / mile`;
+
+  return money;
+}
+
+export default function ChargesPage() {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState("");
+  const [options, setOptions] = useState<Options>({
+    chargeTypes: [],
+    chargeCalculations: [],
+  });
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [editing, setEditing] = useState<Tariff | null>(null);
+  const [editing, setEditing] = useState<Charge | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -77,58 +102,69 @@ export default function BaseFaresPage() {
     setError("");
 
     try {
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (activeFilter) params.set("active", activeFilter);
-
-      const response = await fetch(
-        `${API_BASE_URL}/api/admin/tariffs?${params.toString()}`,
-        {
-          headers: { "x-admin-key": getAdminKey() },
-          cache: "no-store",
-        },
-      );
+      const response = await fetch(`${API_BASE_URL}/api/admin/tariffs`, {
+        headers: { "x-admin-key": getAdminKey() },
+        cache: "no-store",
+      });
 
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to load tariffs.");
+        throw new Error(data.message || "Unable to load charges.");
       }
 
-      setTariffs(data.tariffs);
+      setTariffs(data.tariffs || []);
+      setOptions({
+        chargeTypes: data.options?.chargeTypes || [],
+        chargeCalculations: data.options?.chargeCalculations || [],
+      });
     } catch (loadError) {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Unable to load tariffs.",
+          : "Unable to load charges.",
       );
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, getAdminKey, search]);
+  }, [getAdminKey]);
 
   useEffect(() => {
     void loadTariffs();
   }, [loadTariffs]);
 
-  function openCreate() {
+  const allCharges = useMemo(
+    () =>
+      tariffs.flatMap((tariff) =>
+        tariff.charges.map((charge) => ({
+          tariff,
+          charge,
+        })),
+      ),
+    [tariffs],
+  );
+
+  function openCreate(tariffId?: string) {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({
+      ...emptyForm,
+      tariffId: tariffId || tariffs[0]?.id || "",
+      type: options.chargeTypes[0] || "STOP",
+      calculation: options.chargeCalculations[0] || "FIXED",
+    });
     setModalOpen(true);
   }
 
-  function openEdit(tariff: Tariff) {
-    setEditing(tariff);
+  function openEdit(tariffId: string, charge: Charge) {
+    setEditing(charge);
     setForm({
-      name: tariff.name,
-      vehicleType: VEHICLE_TYPES.includes(
-        tariff.vehicleType as (typeof VEHICLE_TYPES)[number],
-      )
-        ? tariff.vehicleType
-        : VEHICLE_TYPES[0],
-      baseFare: tariff.baseFare,
-      active: tariff.active,
-      vatApplicable: tariff.vatApplicable,
+      tariffId,
+      type: charge.type,
+      name: charge.name,
+      calculation: charge.calculation,
+      amount: charge.amount,
+      active: charge.active,
+      vatApplicable: charge.vatApplicable,
     });
     setModalOpen(true);
   }
@@ -142,8 +178,8 @@ export default function BaseFaresPage() {
     try {
       const response = await fetch(
         editing
-          ? `${API_BASE_URL}/api/admin/tariffs/${editing.id}`
-          : `${API_BASE_URL}/api/admin/tariffs`,
+          ? `${API_BASE_URL}/api/admin/tariffs/charges/${editing.id}`
+          : `${API_BASE_URL}/api/admin/tariffs/${form.tariffId}/charges`,
         {
           method: editing ? "PATCH" : "POST",
           headers: {
@@ -151,8 +187,12 @@ export default function BaseFaresPage() {
             "x-admin-key": getAdminKey(),
           },
           body: JSON.stringify({
-            ...form,
-            baseFare: Number(form.baseFare),
+            type: form.type,
+            name: form.name,
+            calculation: form.calculation,
+            amount: Number(form.amount),
+            active: form.active,
+            vatApplicable: form.vatApplicable,
           }),
         },
       );
@@ -160,51 +200,52 @@ export default function BaseFaresPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to save tariff.");
+        throw new Error(data.message || "Unable to save charge.");
       }
 
       setModalOpen(false);
-      setSuccessMessage(editing ? "Base fare updated." : "Tariff created.");
+      setSuccessMessage(editing ? "Charge updated." : "Charge added.");
       await loadTariffs();
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Unable to save tariff.",
+          : "Unable to save charge.",
       );
     } finally {
       setSaving(false);
     }
   }
 
-  async function removeTariff(tariff: Tariff) {
-    if (!window.confirm(`Delete tariff "${tariff.name}"?`)) return;
+  async function removeCharge(charge: Charge) {
+    if (!window.confirm(`Delete charge "${charge.name}"?`)) return;
 
-    setWorkingId(tariff.id);
+    setWorkingId(charge.id);
     setError("");
     setSuccessMessage("");
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/admin/tariffs/${tariff.id}`,
+        `${API_BASE_URL}/api/admin/tariffs/charges/${charge.id}`,
         {
           method: "DELETE",
           headers: { "x-admin-key": getAdminKey() },
         },
       );
+
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to delete tariff.");
+        throw new Error(data.message || "Unable to delete charge.");
       }
 
-      setSuccessMessage("Tariff deleted.");
+      setSuccessMessage("Charge deleted.");
       await loadTariffs();
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "Unable to delete tariff.",
+          : "Unable to delete charge.",
       );
     } finally {
       setWorkingId(null);
@@ -218,18 +259,36 @@ export default function BaseFaresPage() {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
             Tab 10 / Pricing
           </p>
-          <h1 className="mt-1 text-3xl font-bold text-slate-950">Base Fares</h1>
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">Charges</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Manage vehicle tariffs, base fares and VAT status.
+            Manage added stops, waiting charges, surcharges and other additional
+            tariff charges.
           </p>
         </div>
+
         <button
-          onClick={openCreate}
+          onClick={() => openCreate()}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-bold text-white"
         >
           <Plus size={18} />
-          Add Tariff
+          Add Charge
         </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          "Added Stops",
+          "Waiting Charge",
+          "Night / Same Day",
+          "Additional Charges",
+        ].map((item) => (
+          <div
+            key={item}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-900 shadow-sm"
+          >
+            {item}
+          </div>
+        ))}
       </div>
 
       {error ? (
@@ -244,59 +303,25 @@ export default function BaseFaresPage() {
         </div>
       ) : null}
 
+      <button
+        onClick={() => void loadTariffs()}
+        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold"
+      >
+        <RefreshCw size={17} />
+        Refresh
+      </button>
+
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-5 lg:flex-row">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSearch(searchInput.trim());
-            }}
-            className="flex flex-1 gap-2"
-          >
-            <div className="relative flex-1">
-              <Search
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search tariff or vehicle type"
-                className="w-full rounded-xl border border-slate-300 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-[#FF6A00]"
-              />
-            </div>
-            <button className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">
-              Search
-            </button>
-          </form>
-
-          <select
-            value={activeFilter}
-            onChange={(event) => setActiveFilter(event.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
-          >
-            <option value="">All statuses</option>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
-
-          <button
-            onClick={() => void loadTariffs()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold"
-          >
-            <RefreshCw size={17} />
-            Refresh
-          </button>
-        </div>
-
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
                 {[
                   "Tariff",
-                  "Vehicle Type",
-                  "Base Fare",
+                  "Charge",
+                  "Type",
+                  "Calculation",
+                  "Amount",
                   "VAT",
                   "Status",
                   "Actions",
@@ -313,62 +338,73 @@ export default function BaseFaresPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center">
+                  <td colSpan={8} className="px-5 py-16 text-center">
                     <Loader2 className="mx-auto animate-spin text-[#FF6A00]" />
                   </td>
                 </tr>
-              ) : tariffs.length === 0 ? (
+              ) : allCharges.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center text-sm text-slate-500">
-                    No tariffs found.
+                  <td
+                    colSpan={8}
+                    className="px-5 py-16 text-center text-sm text-slate-500"
+                  >
+                    No charges configured.
                   </td>
                 </tr>
               ) : (
-                tariffs.map((tariff) => (
-                  <tr key={tariff.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4 text-sm font-bold text-slate-950">
-                      {tariff.name}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-slate-700">
-                      {tariff.vehicleType}
+                allCharges.map(({ tariff, charge }) => (
+                  <tr key={charge.id} className="hover:bg-slate-50">
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-bold text-slate-950">
+                        {tariff.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {tariff.vehicleType}
+                      </p>
                     </td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-900">
-                      {new Intl.NumberFormat("en-GB", {
-                        style: "currency",
-                        currency: "GBP",
-                      }).format(Number(tariff.baseFare))}
+                      {charge.name}
                     </td>
                     <td className="px-5 py-4 text-sm text-slate-700">
-                      {tariff.vatApplicable ? "Applicable" : "Exempt"}
+                      {pretty(charge.type)}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-slate-700">
+                      {pretty(charge.calculation)}
+                    </td>
+                    <td className="px-5 py-4 text-sm font-bold text-slate-900">
+                      {amountLabel(charge)}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-slate-700">
+                      {charge.vatApplicable ? "Applicable" : "Exempt"}
                     </td>
                     <td className="px-5 py-4">
                       <span
                         className={[
                           "rounded-full px-2.5 py-1 text-xs font-bold",
-                          tariff.active
+                          charge.active
                             ? "bg-emerald-50 text-emerald-700"
                             : "bg-slate-100 text-slate-600",
                         ].join(" ")}
                       >
-                        {tariff.active ? "Active" : "Inactive"}
+                        {charge.active ? "Active" : "Inactive"}
                       </span>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex gap-1">
                         <button
-                          onClick={() => openEdit(tariff)}
+                          onClick={() => openEdit(tariff.id, charge)}
                           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-                          aria-label={`Edit ${tariff.name}`}
+                          aria-label={`Edit ${charge.name}`}
                         >
                           <Pencil size={17} />
                         </button>
                         <button
-                          onClick={() => void removeTariff(tariff)}
-                          disabled={workingId === tariff.id}
+                          onClick={() => void removeCharge(charge)}
+                          disabled={workingId === charge.id}
                           className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-50"
-                          aria-label={`Delete ${tariff.name}`}
+                          aria-label={`Delete ${charge.name}`}
                         >
-                          {workingId === tariff.id ? (
+                          {workingId === charge.id ? (
                             <Loader2 size={17} className="animate-spin" />
                           ) : (
                             <Trash2 size={17} />
@@ -386,10 +422,10 @@ export default function BaseFaresPage() {
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h2 className="text-xl font-bold text-slate-950">
-                {editing ? "Edit Tariff" : "Add Tariff"}
+                {editing ? "Edit Charge" : "Add Charge"}
               </h2>
               <button
                 onClick={() => setModalOpen(false)}
@@ -401,52 +437,93 @@ export default function BaseFaresPage() {
             </div>
 
             <form onSubmit={save} className="space-y-5 p-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Tariff Name">
-                  <input
-                    value={form.name}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    required
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Vehicle Type">
+              {!editing ? (
+                <Field label="Tariff">
                   <select
-                    value={form.vehicleType}
+                    value={form.tariffId}
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        vehicleType: event.target.value,
+                        tariffId: event.target.value,
                       }))
                     }
                     required
                     className={inputClass}
                   >
-                    {VEHICLE_TYPES.map((vehicleType) => (
-                      <option key={vehicleType} value={vehicleType}>
-                        {vehicleType}
+                    <option value="">Select tariff</option>
+                    {tariffs.map((tariff) => (
+                      <option key={tariff.id} value={tariff.id}>
+                        {tariff.name} · {tariff.vehicleType}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Charge Type">
+                  <select
+                    value={form.type}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        type: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    {options.chargeTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {pretty(type)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Calculation">
+                  <select
+                    value={form.calculation}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        calculation: event.target.value,
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    {options.chargeCalculations.map((calculation) => (
+                      <option key={calculation} value={calculation}>
+                        {pretty(calculation)}
                       </option>
                     ))}
                   </select>
                 </Field>
               </div>
 
-              <Field label="Base Fare">
+              <Field label="Charge Name">
+                <input
+                  value={form.name}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  required
+                  className={inputClass}
+                />
+              </Field>
+
+              <Field label="Amount">
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={form.baseFare}
+                  value={form.amount}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      baseFare: event.target.value,
+                      amount: event.target.value,
                     }))
                   }
                   required
@@ -456,10 +533,13 @@ export default function BaseFaresPage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Check
-                  label="Active Tariff"
+                  label="Active Charge"
                   checked={form.active}
                   onChange={(checked) =>
-                    setForm((current) => ({ ...current, active: checked }))
+                    setForm((current) => ({
+                      ...current,
+                      active: checked,
+                    }))
                   }
                 />
                 <Check
@@ -489,7 +569,7 @@ export default function BaseFaresPage() {
                   {saving ? (
                     <Loader2 size={17} className="animate-spin" />
                   ) : null}
-                  Save Tariff
+                  Save Charge
                 </button>
               </div>
             </form>

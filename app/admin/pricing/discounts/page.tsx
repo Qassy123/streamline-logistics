@@ -4,14 +4,15 @@ import { Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-reac
 import { useCallback, useEffect, useState } from "react";
 
 const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000";
+  "https://streamline-logistics-production.up.railway.app";
 
 const DISCOUNT_TYPES = [
   "FIXED_AMOUNT",
   "PERCENTAGE",
   "CUSTOMER_LOYALTY",
-  "MONTHLY",
+  "PROMOTIONAL",
 ] as const;
 
 type DiscountType = (typeof DISCOUNT_TYPES)[number];
@@ -218,7 +219,9 @@ export default function DiscountsPage() {
       }
 
       setModalOpen(false);
-      setSuccessMessage(editing ? "Discount rule updated." : "Discount rule created.");
+      setSuccessMessage(
+        editing ? "Discount rule updated." : "Discount rule created.",
+      );
       await loadRules();
     } catch (saveError) {
       setError(
@@ -235,6 +238,8 @@ export default function DiscountsPage() {
     if (!window.confirm(`Delete discount rule "${rule.name}"?`)) return;
 
     setWorkingId(rule.id);
+    setError("");
+    setSuccessMessage("");
 
     try {
       const response = await fetch(
@@ -268,11 +273,12 @@ export default function DiscountsPage() {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Pricing
+            Tab 10 / Pricing
           </p>
           <h1 className="mt-1 text-3xl font-bold text-slate-950">Discounts</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Manage fixed, percentage, loyalty and monthly discount rules.
+            Manage fixed amount, percentage, customer loyalty and promotional
+            discounts.
           </p>
         </div>
         <button
@@ -280,12 +286,8 @@ export default function DiscountsPage() {
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-bold text-white"
         >
           <Plus size={18} />
-          Add discount
+          Add Discount
         </button>
-      </div>
-
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        These rules are stored in the database. They do not affect quote totals until the pricing engine explicitly applies them.
       </div>
 
       {error ? (
@@ -310,7 +312,10 @@ export default function DiscountsPage() {
             className="flex flex-1 gap-2"
           >
             <div className="relative flex-1">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
               <input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
@@ -359,16 +364,22 @@ export default function DiscountsPage() {
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
-                {["Name", "Type", "Value", "Customer", "Dates", "Status", "Actions"].map(
-                  (heading) => (
-                    <th
-                      key={heading}
-                      className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500"
-                    >
-                      {heading}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Name",
+                  "Type",
+                  "Value",
+                  "Customer",
+                  "Dates",
+                  "Status",
+                  "Actions",
+                ].map((heading) => (
+                  <th
+                    key={heading}
+                    className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-500"
+                  >
+                    {heading}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -380,15 +391,22 @@ export default function DiscountsPage() {
                 </tr>
               ) : rules.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-16 text-center text-sm text-slate-500">
+                  <td
+                    colSpan={7}
+                    className="px-5 py-16 text-center text-sm text-slate-500"
+                  >
                     No discount rules found.
                   </td>
                 </tr>
               ) : (
                 rules.map((rule) => (
                   <tr key={rule.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4 text-sm font-bold text-slate-950">{rule.name}</td>
-                    <td className="px-5 py-4 text-sm text-slate-700">{label(rule.type)}</td>
+                    <td className="px-5 py-4 text-sm font-bold text-slate-950">
+                      {rule.name}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-slate-700">
+                      {label(rule.type)}
+                    </td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-900">
                       {rule.type === "FIXED_AMOUNT"
                         ? new Intl.NumberFormat("en-GB", {
@@ -403,9 +421,13 @@ export default function DiscountsPage() {
                         : "All customers"}
                     </td>
                     <td className="px-5 py-4 text-sm text-slate-600">
-                      {rule.startsAt ? new Date(rule.startsAt).toLocaleDateString("en-GB") : "Any"}{" "}
+                      {rule.startsAt
+                        ? new Date(rule.startsAt).toLocaleDateString("en-GB")
+                        : "Any"}{" "}
                       –{" "}
-                      {rule.endsAt ? new Date(rule.endsAt).toLocaleDateString("en-GB") : "No end"}
+                      {rule.endsAt
+                        ? new Date(rule.endsAt).toLocaleDateString("en-GB")
+                        : "No end"}
                     </td>
                     <td className="px-5 py-4">
                       <span
@@ -424,6 +446,7 @@ export default function DiscountsPage() {
                         <button
                           onClick={() => openEdit(rule)}
                           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                          aria-label={`Edit ${rule.name}`}
                         >
                           <Pencil size={17} />
                         </button>
@@ -431,6 +454,7 @@ export default function DiscountsPage() {
                           onClick={() => void removeRule(rule)}
                           disabled={workingId === rule.id}
                           className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                          aria-label={`Delete ${rule.name}`}
                         >
                           {workingId === rule.id ? (
                             <Loader2 size={17} className="animate-spin" />
@@ -453,9 +477,13 @@ export default function DiscountsPage() {
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
             <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h2 className="text-xl font-bold text-slate-950">
-                {editing ? "Edit discount rule" : "Add discount rule"}
+                {editing ? "Edit Discount" : "Add Discount"}
               </h2>
-              <button onClick={() => setModalOpen(false)} className="rounded-lg p-2">
+              <button
+                onClick={() => setModalOpen(false)}
+                className="rounded-lg p-2"
+                aria-label="Close"
+              >
                 <X size={21} />
               </button>
             </div>
@@ -466,7 +494,10 @@ export default function DiscountsPage() {
                   <input
                     value={form.name}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, name: event.target.value }))
+                      setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
                     }
                     required
                     className={inputClass}
@@ -523,7 +554,8 @@ export default function DiscountsPage() {
                     <option value="">All customers</option>
                     {customers.map((customer) => (
                       <option key={customer.id} value={customer.id}>
-                        {customer.companyName || customer.name} · {customer.email}
+                        {customer.companyName || customer.name} ·{" "}
+                        {customer.email}
                       </option>
                     ))}
                   </select>
@@ -531,7 +563,7 @@ export default function DiscountsPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Starts at">
+                <Field label="Starts At">
                   <input
                     type="date"
                     value={form.startsAt}
@@ -544,7 +576,7 @@ export default function DiscountsPage() {
                     className={inputClass}
                   />
                 </Field>
-                <Field label="Ends at">
+                <Field label="Ends At">
                   <input
                     type="date"
                     value={form.endsAt}
@@ -585,7 +617,9 @@ export default function DiscountsPage() {
                   }
                   className="h-4 w-4 accent-[#FF6A00]"
                 />
-                <span className="text-sm font-bold text-slate-800">Active rule</span>
+                <span className="text-sm font-bold text-slate-800">
+                  Active Rule
+                </span>
               </label>
 
               <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
@@ -600,8 +634,10 @@ export default function DiscountsPage() {
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
                 >
-                  {saving ? <Loader2 size={17} className="animate-spin" /> : null}
-                  Save discount
+                  {saving ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : null}
+                  Save Discount
                 </button>
               </div>
             </form>

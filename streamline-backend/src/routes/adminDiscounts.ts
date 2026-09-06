@@ -103,6 +103,14 @@ function isDiscountType(value: unknown): value is DiscountType {
   );
 }
 
+function isPercentageDiscount(type: DiscountType) {
+  return (
+    type === DiscountType.PERCENTAGE ||
+    type === DiscountType.CUSTOMER_LOYALTY ||
+    type === DiscountType.PROMOTIONAL
+  );
+}
+
 function serialiseRule<
   T extends {
     value: Prisma.Decimal;
@@ -325,12 +333,7 @@ router.post("/", async (request, response) => {
       return;
     }
 
-    if (
-      (type === DiscountType.PERCENTAGE ||
-        type === DiscountType.CUSTOMER_LOYALTY ||
-        type === DiscountType.MONTHLY) &&
-      value.greaterThan(100)
-    ) {
+    if (isPercentageDiscount(type) && value.greaterThan(100)) {
       response.status(400).json({
         success: false,
         message: "Percentage-based discounts cannot exceed 100.",
@@ -439,12 +442,7 @@ router.patch("/:id", async (request, response) => {
       startsAt === undefined ? existing.startsAt : startsAt;
     const nextEndsAt = endsAt === undefined ? existing.endsAt : endsAt;
 
-    if (
-      (nextType === DiscountType.PERCENTAGE ||
-        nextType === DiscountType.CUSTOMER_LOYALTY ||
-        nextType === DiscountType.MONTHLY) &&
-      nextValue.greaterThan(100)
-    ) {
+    if (isPercentageDiscount(nextType) && nextValue.greaterThan(100)) {
       response.status(400).json({
         success: false,
         message: "Percentage-based discounts cannot exceed 100.",
