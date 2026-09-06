@@ -1,25 +1,22 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BarChart3,
   CalendarDays,
-  CheckCircle2,
-  CircleAlert,
-  Download,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   PoundSterling,
   RefreshCw,
+  TrendingDown,
   TrendingUp,
   Truck,
-  UserRound,
-  UsersRound,
 } from "lucide-react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
@@ -43,11 +40,6 @@ type ReportPayload = {
     activeDrivers: number;
     activeVehicles: number;
   };
-  statusBreakdowns: {
-    bookings: Record<string, number>;
-    invoices: Record<string, number>;
-    quotes: Record<string, number>;
-  };
   daily: {
     date: string;
     revenue: number;
@@ -62,25 +54,6 @@ type ReportPayload = {
     quotes: number;
     customers: number;
   }[];
-  topCustomers: {
-    customerId: string;
-    customerName: string;
-    email: string;
-    revenue: number;
-    payments: number;
-  }[];
-  revenueByVehicleType: {
-    vehicleType: string;
-    revenue: number;
-    bookings: number;
-  }[];
-  driverUtilisation: {
-    driverId: string;
-    name: string;
-    active: boolean;
-    availability: string;
-    bookings: number;
-  }[];
   vehicleUtilisation: {
     vehicleId: string;
     name: string;
@@ -89,13 +62,13 @@ type ReportPayload = {
     bookings: number;
     reservations: number;
   }[];
-  tradeAccounts: {
-    total: number;
-    totalCreditLimit: number;
-    totalCurrentBalance: number;
-    byStatus: Record<string, number>;
-  };
   error?: string;
+};
+
+type WeeklyPoint = {
+  key: string;
+  label: string;
+  bookings: number;
 };
 
 function money(value: number) {
@@ -106,21 +79,13 @@ function money(value: number) {
   }).format(value || 0);
 }
 
-function percent(value: number) {
-  return `${Number(value || 0).toFixed(1)}%`;
-}
-
 function dateInput(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
-function dateLabel(value: string) {
-  const parsed = new Date(`${value}T00:00:00`);
-
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-  }).format(parsed);
+function startOfCurrentYear() {
+  const now = new Date();
+  return dateInput(new Date(now.getFullYear(), 0, 1));
 }
 
 function monthLabel(value: string) {
@@ -132,16 +97,46 @@ function monthLabel(value: string) {
   }).format(parsed);
 }
 
+function weekStart(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+function weeklyBookings(
+  daily: ReportPayload["daily"],
+): WeeklyPoint[] {
+  const totals = new Map<string, number>();
+
+  daily.forEach((item) => {
+    const start = weekStart(item.date);
+    const key = dateInput(start);
+    totals.set(key, (totals.get(key) || 0) + item.bookings);
+  });
+
+  return Array.from(totals.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, bookings]) => ({
+      key,
+      bookings,
+      label: new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "short",
+      }).format(new Date(`${key}T00:00:00`)),
+    }));
+}
+
+function maxValue(values: number[]) {
+  return Math.max(1, ...values);
+}
+
 export default function AdminReportsPage() {
   const [adminKey, setAdminKey] = useState("");
-  const [dateFrom, setDateFrom] = useState(() => {
-    const value = new Date();
-    value.setDate(value.getDate() - 29);
-    return dateInput(value);
-  });
+  const [dateFrom, setDateFrom] = useState(startOfCurrentYear);
   const [dateTo, setDateTo] = useState(() => dateInput(new Date()));
   const [report, setReport] = useState<ReportPayload | null>(null);
-  const [view, setView] = useState<"daily" | "monthly">("daily");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -157,7 +152,7 @@ export default function AdminReportsPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Admin key is missing. Unlock the admin area first, then return to Reports.",
         );
         return;
       }
@@ -211,122 +206,74 @@ export default function AdminReportsPage() {
     }
   }, [adminKey, loadReport]);
 
-  const chartData = useMemo(() => {
-    if (!report) return [];
-
-    return view === "daily"
-      ? report.daily.map((item) => ({
-          label: dateLabel(item.date),
-          revenue: item.revenue,
-          bookings: item.bookings,
-        }))
-      : report.monthly.map((item) => ({
-          label: monthLabel(item.month),
-          revenue: item.revenue,
-          bookings: item.bookings,
-        }));
-  }, [report, view]);
-
-  const maxRevenue = Math.max(
-    1,
-    ...chartData.map((item) => item.revenue),
+  const weekly = useMemo(
+    () => (report ? weeklyBookings(report.daily) : []),
+    [report],
   );
 
-  async function exportCsv() {
-    if (!adminKey) return;
+  const monthly = report?.monthly || [];
 
-    setError("");
+  const busiestMonth = useMemo(() => {
+    if (!monthly.length) return null;
+    return [...monthly].sort((a, b) => b.bookings - a.bookings)[0];
+  }, [monthly]);
 
-    try {
-      const params = new URLSearchParams({
-        dateFrom,
-        dateTo,
-      });
+  const quietestMonth = useMemo(() => {
+    const monthsWithActivity = monthly.filter((item) => item.bookings > 0);
+    if (!monthsWithActivity.length) return null;
 
-      const response = await fetch(
-        `${API_BASE}/api/admin/reports/export.csv?${params.toString()}`,
-        {
-          headers: {
-            "x-admin-key": adminKey,
-          },
-        },
-      );
+    return [...monthsWithActivity].sort(
+      (a, b) => a.bookings - b.bookings,
+    )[0];
+  }, [monthly]);
 
-      if (!response.ok) {
-        const payload = (await response.json()) as {
-          error?: string;
-        };
+  const vehicles = report?.vehicleUtilisation || [];
+  const mostUsedVehicle = vehicles.length ? vehicles[0] : null;
+  const leastUsedVehicle = vehicles.length
+    ? [...vehicles].sort((a, b) => a.bookings - b.bookings)[0]
+    : null;
 
-        throw new Error(payload.error || "Unable to export report.");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-
-      anchor.href = url;
-      anchor.download = `streamline-report-${dateFrom}-to-${dateTo}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to export report.",
-      );
-    }
-  }
+  const maxMonthBookings = maxValue(
+    monthly.map((item) => item.bookings),
+  );
+  const maxWeekBookings = maxValue(
+    weekly.map((item) => item.bookings),
+  );
+  const maxMonthlyRevenue = maxValue(
+    monthly.map((item) => item.revenue),
+  );
+  const maxVehicleBookings = maxValue(
+    vehicles.map((item) => item.bookings),
+  );
 
   return (
     <div className="mx-auto w-full max-w-[1700px]">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <Link
-            href="/admin"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-950"
-          >
-            <ArrowLeft size={16} />
-            Admin dashboard
-          </Link>
-
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
-            Business intelligence
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
+            Tab 9
           </p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-            Reports and analytics
+            Reports
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            Monitor revenue, bookings, quotes, customers, trade accounts,
-            drivers and fleet utilisation.
+            See the busiest periods, vehicle usage, booking volume and turnover
+            so you can decide what needs improving and where to invest.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => void loadReport(true)}
-            disabled={refreshing || !adminKey}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw
-              size={17}
-              className={refreshing ? "animate-spin" : ""}
-            />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void exportCsv()}
-            disabled={!report || !adminKey}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            <Download size={17} />
-            Export CSV
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void loadReport(true)}
+          disabled={refreshing || !adminKey}
+          className="inline-flex w-fit items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw
+            size={17}
+            className={refreshing ? "animate-spin" : ""}
+          />
+          Refresh
+        </button>
       </div>
 
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -358,10 +305,11 @@ export default function AdminReportsPage() {
           <button
             type="button"
             onClick={() => void loadReport(true)}
-            className="inline-flex w-fit items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300]"
+            disabled={!adminKey}
+            className="inline-flex w-fit items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
           >
             <CalendarDays size={17} />
-            Apply date range
+            Apply Date Range
           </button>
         </div>
       </section>
@@ -379,223 +327,183 @@ export default function AdminReportsPage() {
       ) : report ? (
         <>
           <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Revenue"
-              value={money(report.overview.revenue)}
-              icon={PoundSterling}
-            />
-            <MetricCard
-              label="Bookings"
-              value={String(report.overview.bookings)}
-              icon={Truck}
-            />
-            <MetricCard
-              label="Quote conversion"
-              value={percent(report.overview.quoteConversionRate)}
+            <SummaryCard
+              label="Busiest Month"
+              value={
+                busiestMonth
+                  ? monthLabel(busiestMonth.month)
+                  : "No bookings"
+              }
+              detail={
+                busiestMonth
+                  ? `${busiestMonth.bookings} bookings`
+                  : "No activity in this range"
+              }
               icon={TrendingUp}
             />
-            <MetricCard
-              label="New customers"
-              value={String(report.overview.newCustomers)}
-              icon={UsersRound}
+            <SummaryCard
+              label="Quietest Month"
+              value={
+                quietestMonth
+                  ? monthLabel(quietestMonth.month)
+                  : "No bookings"
+              }
+              detail={
+                quietestMonth
+                  ? `${quietestMonth.bookings} bookings`
+                  : "No activity in this range"
+              }
+              icon={TrendingDown}
+            />
+            <SummaryCard
+              label="Monthly Turnover"
+              value={money(
+                monthly.length
+                  ? monthly[monthly.length - 1].revenue
+                  : 0,
+              )}
+              detail={
+                monthly.length
+                  ? monthLabel(monthly[monthly.length - 1].month)
+                  : "No data"
+              }
+              icon={PoundSterling}
+            />
+            <SummaryCard
+              label="Yearly Turnover"
+              value={money(report.overview.revenue)}
+              detail="Selected reporting period"
+              icon={BarChart3}
             />
           </section>
 
-          <section className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Paid invoices"
-              value={money(report.overview.paidInvoiceTotal)}
-              icon={CheckCircle2}
-            />
-            <MetricCard
-              label="Outstanding"
-              value={money(report.overview.outstandingInvoiceTotal)}
-              icon={CircleAlert}
-            />
-            <MetricCard
-              label="Overdue"
-              value={money(report.overview.overdueInvoiceTotal)}
-              icon={CircleAlert}
-            />
-            <MetricCard
-              label="Trade accounts"
-              value={String(report.overview.newTradeAccounts)}
-              icon={UserRound}
-            />
+          <section className="mt-6 grid min-w-0 gap-6 xl:grid-cols-2">
+            <ChartCard
+              title="Busy Months"
+              subtitle="Bookings by month"
+            >
+              <BarChart
+                items={monthly.map((item) => ({
+                  key: item.month,
+                  label: monthLabel(item.month),
+                  value: item.bookings,
+                  display: `${item.bookings}`,
+                }))}
+                max={maxMonthBookings}
+                empty="No monthly booking data in this range."
+              />
+            </ChartCard>
+
+            <ChartCard
+              title="Bookings Per Week"
+              subtitle="Weekly booking volume"
+            >
+              <BarChart
+                items={weekly.map((item) => ({
+                  key: item.key,
+                  label: item.label,
+                  value: item.bookings,
+                  display: `${item.bookings}`,
+                }))}
+                max={maxWeekBookings}
+                empty="No weekly booking data in this range."
+              />
+            </ChartCard>
+          </section>
+
+          <section className="mt-6 grid min-w-0 gap-6 xl:grid-cols-2">
+            <ChartCard
+              title="Bookings Per Month"
+              subtitle="Monthly booking volume"
+            >
+              <BarChart
+                items={monthly.map((item) => ({
+                  key: item.month,
+                  label: monthLabel(item.month),
+                  value: item.bookings,
+                  display: `${item.bookings}`,
+                }))}
+                max={maxMonthBookings}
+                empty="No monthly booking data in this range."
+              />
+            </ChartCard>
+
+            <ChartCard
+              title="Monthly Turnover"
+              subtitle="Revenue received by month"
+            >
+              <BarChart
+                items={monthly.map((item) => ({
+                  key: item.month,
+                  label: monthLabel(item.month),
+                  value: item.revenue,
+                  display: money(item.revenue),
+                }))}
+                max={maxMonthlyRevenue}
+                empty="No turnover data in this range."
+              />
+            </ChartCard>
           </section>
 
           <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-950">
-                  Revenue trend
+                  Van Usage
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Revenue and booking volume across the selected period.
+                  See which vans are going out more and which are going out less.
                 </p>
               </div>
 
-              <div className="flex rounded-xl border border-slate-300 p-1">
-                <button
-                  type="button"
-                  onClick={() => setView("daily")}
-                  className={`rounded-lg px-4 py-2 text-sm font-bold ${
-                    view === "daily"
-                      ? "bg-slate-950 text-white"
-                      : "text-slate-600"
-                  }`}
-                >
-                  Daily
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView("monthly")}
-                  className={`rounded-lg px-4 py-2 text-sm font-bold ${
-                    view === "monthly"
-                      ? "bg-slate-950 text-white"
-                      : "text-slate-600"
-                  }`}
-                >
-                  Monthly
-                </button>
+              <div className="grid gap-2 text-sm sm:grid-cols-2 sm:gap-6">
+                <p className="text-slate-600">
+                  <span className="font-bold text-slate-950">Most used:</span>{" "}
+                  {mostUsedVehicle
+                    ? `${mostUsedVehicle.name} (${mostUsedVehicle.bookings})`
+                    : "No data"}
+                </p>
+                <p className="text-slate-600">
+                  <span className="font-bold text-slate-950">Least used:</span>{" "}
+                  {leastUsedVehicle
+                    ? `${leastUsedVehicle.name} (${leastUsedVehicle.bookings})`
+                    : "No data"}
+                </p>
               </div>
             </div>
 
-            <div className="mt-8 overflow-x-auto">
-              <div className="flex min-w-[900px] items-end gap-3">
-                {chartData.map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex min-w-[48px] flex-1 flex-col items-center"
-                  >
-                    <div className="flex h-64 w-full items-end rounded-t-xl bg-slate-100 px-2">
-                      <div
-                        className="w-full rounded-t-lg bg-[#FF6A00]"
-                        style={{
-                          height: `${Math.max(
-                            4,
-                            (item.revenue / maxRevenue) * 100,
-                          )}%`,
-                        }}
-                        title={`${item.label}: ${money(item.revenue)}`}
-                      />
-                    </div>
-                    <p className="mt-3 text-center text-xs font-semibold text-slate-500">
-                      {item.label}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {item.bookings} bookings
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <section className="mt-6 grid gap-6 xl:grid-cols-2">
-            <DataCard title="Top customers">
-              <Table
-                headers={["Customer", "Payments", "Revenue"]}
-                rows={report.topCustomers.map((customer) => [
-                  <div key={customer.customerId}>
-                    <p className="font-bold text-slate-950">
-                      {customer.customerName}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {customer.email || "No email"}
-                    </p>
-                  </div>,
-                  customer.payments,
-                  money(customer.revenue),
-                ])}
-                empty="No customer revenue in this range."
-              />
-            </DataCard>
-
-            <DataCard title="Revenue by vehicle type">
-              <Table
-                headers={["Vehicle type", "Bookings", "Revenue"]}
-                rows={report.revenueByVehicleType.map((item) => [
-                  item.vehicleType,
-                  item.bookings,
-                  money(item.revenue),
-                ])}
-                empty="No vehicle revenue in this range."
-              />
-            </DataCard>
-          </section>
-
-          <section className="mt-6 grid gap-6 xl:grid-cols-2">
-            <DataCard title="Driver utilisation">
-              <Table
-                headers={["Driver", "Availability", "Bookings"]}
-                rows={report.driverUtilisation.slice(0, 15).map((driver) => [
-                  driver.name,
-                  driver.availability,
-                  driver.bookings,
-                ])}
-                empty="No driver records found."
-              />
-            </DataCard>
-
-            <DataCard title="Vehicle utilisation">
-              <Table
-                headers={["Vehicle", "Type", "Bookings", "Reservations"]}
-                rows={report.vehicleUtilisation.slice(0, 15).map((vehicle) => [
-                  vehicle.name,
-                  vehicle.vehicleType,
-                  vehicle.bookings,
-                  vehicle.reservations,
-                ])}
-                empty="No vehicle records found."
-              />
-            </DataCard>
-          </section>
-
-          <section className="mt-6 grid gap-6 xl:grid-cols-3">
-            <BreakdownCard
-              title="Booking statuses"
-              values={report.statusBreakdowns.bookings}
-            />
-            <BreakdownCard
-              title="Invoice statuses"
-              values={report.statusBreakdowns.invoices}
-            />
-            <BreakdownCard
-              title="Quote statuses"
-              values={report.statusBreakdowns.quotes}
-            />
-          </section>
-
-          <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-xl font-bold text-slate-950">
-              Trade account exposure
-            </h2>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <ValueCard
-                label="Accounts"
-                value={String(report.tradeAccounts.total)}
-              />
-              <ValueCard
-                label="Credit limits"
-                value={money(report.tradeAccounts.totalCreditLimit)}
-              />
-              <ValueCard
-                label="Current balances"
-                value={money(report.tradeAccounts.totalCurrentBalance)}
-              />
-              <ValueCard
-                label="Available credit"
-                value={money(
-                  Math.max(
-                    0,
-                    report.tradeAccounts.totalCreditLimit -
-                      report.tradeAccounts.totalCurrentBalance,
-                  ),
-                )}
+            <div className="mt-7">
+              <HorizontalBars
+                items={vehicles.map((vehicle) => ({
+                  key: vehicle.vehicleId,
+                  label: vehicle.name,
+                  detail: vehicle.vehicleType,
+                  value: vehicle.bookings,
+                }))}
+                max={maxVehicleBookings}
               />
             </div>
+          </section>
+
+          <section className="mt-6 grid min-w-0 gap-6 xl:grid-cols-2">
+            <InsightCard
+              title="What to Improve"
+              body={
+                leastUsedVehicle
+                  ? `${leastUsedVehicle.name} has the lowest recorded usage. Review whether this vehicle needs more work allocated to it or whether its running costs are justified.`
+                  : "More booking data is needed before the system can highlight a low-use vehicle."
+              }
+              icon={Truck}
+            />
+            <InsightCard
+              title="What to Invest In"
+              body={
+                mostUsedVehicle
+                  ? `${mostUsedVehicle.name} has the highest recorded usage. This is the first vehicle to review when deciding where extra fleet capacity may be useful.`
+                  : "More booking data is needed before the system can highlight the most-used vehicle."
+              }
+              icon={TrendingUp}
+            />
           </section>
         </>
       ) : null}
@@ -603,23 +511,26 @@ export default function AdminReportsPage() {
   );
 }
 
-function MetricCard({
+function SummaryCard({
   label,
   value,
+  detail,
   icon: Icon,
 }: {
   label: string;
   value: string;
+  detail: string;
   icon: typeof BarChart3;
 }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
+          <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
             {value}
           </p>
+          <p className="mt-1 text-xs text-slate-400">{detail}</p>
         </div>
 
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
@@ -630,126 +541,190 @@ function MetricCard({
   );
 }
 
-function ValueCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 p-5">
-      <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
-    </article>
-  );
-}
-
-function DataCard({
+function ChartCard({
   title,
+  subtitle,
   children,
 }: {
   title: string;
+  subtitle: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
-        <h2 className="text-lg font-bold text-slate-950">{title}</h2>
-      </div>
-      {children}
+    <section className="min-w-0 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+      <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+      <div className="mt-6 min-w-0">{children}</div>
     </section>
   );
 }
 
-function Table({
-  headers,
-  rows,
+function BarChart({
+  items,
+  max,
   empty,
 }: {
-  headers: string[];
-  rows: React.ReactNode[][];
+  items: {
+    key: string;
+    label: string;
+    value: number;
+    display: string;
+  }[];
+  max: number;
   empty: string;
 }) {
-  if (rows.length === 0) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  function scrollChart(direction: "left" | "right") {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    container.scrollBy({
+      left: direction === "right" ? 420 : -420,
+      behavior: "smooth",
+    });
+  }
+
+  if (items.length === 0) {
     return (
-      <div className="px-6 py-12 text-center text-sm text-slate-500">
+      <div className="py-14 text-center text-sm text-slate-500">
         {empty}
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full">
-        <thead className="bg-slate-50">
-          <tr>
-            {headers.map((header) => (
-              <th
-                key={header}
-                className="px-5 py-3 text-left text-xs font-bold uppercase tracking-[0.08em] text-slate-400"
-              >
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              {row.map((cell, cellIndex) => (
-                <td
-                  key={cellIndex}
-                  className="px-5 py-4 text-sm text-slate-700"
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
+    <div className="min-w-0 w-full">
+      <div className="mb-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => scrollChart("left")}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+          aria-label="Scroll chart left"
+          title="Scroll left"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => scrollChart("right")}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+          aria-label="Scroll chart right"
+          title="Scroll right"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      <div
+        ref={scrollRef}
+        className="max-w-full overflow-x-auto overflow-y-hidden scroll-smooth"
+      >
+        <div className="flex w-max min-w-full items-end gap-3">
+          {items.map((item) => (
+            <div
+              key={item.key}
+              className="flex w-[96px] shrink-0 flex-col items-center"
+            >
+              <p className="mb-2 text-center text-xs font-bold text-slate-700">
+                {item.display}
+              </p>
+
+              <div className="flex h-52 w-full items-end rounded-t-xl bg-slate-100 px-2">
+                <div
+                  className="w-full rounded-t-lg bg-[#FF6A00]"
+                  style={{
+                    height: `${Math.max(
+                      item.value > 0 ? 5 : 0,
+                      (item.value / max) * 100,
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              <p className="mt-3 text-center text-xs font-semibold text-slate-500">
+                {item.label}
+              </p>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   );
 }
 
-function BreakdownCard({
-  title,
-  values,
+function HorizontalBars({
+  items,
+  max,
 }: {
-  title: string;
-  values: Record<string, number>;
+  items: {
+    key: string;
+    label: string;
+    detail: string;
+    value: number;
+  }[];
+  max: number;
 }) {
-  const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
-  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (items.length === 0) {
+    return (
+      <div className="py-12 text-center text-sm text-slate-500">
+        No vehicle usage data available.
+      </div>
+    );
+  }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="text-lg font-bold text-slate-950">{title}</h2>
-
-      <div className="mt-5 space-y-4">
-        {entries.map(([label, value]) => (
-          <div key={label}>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-semibold text-slate-600">{label}</p>
-              <p className="text-sm font-bold text-slate-950">{value}</p>
+    <div className="space-y-4">
+      {items.map((item) => (
+        <div key={item.key}>
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-slate-950">
+                {item.label}
+              </p>
+              <p className="text-xs text-slate-400">{item.detail}</p>
             </div>
-            <div className="mt-2 h-2 rounded-full bg-slate-100">
-              <div
-                className="h-2 rounded-full bg-[#FF6A00]"
-                style={{
-                  width: `${total > 0 ? (value / total) * 100 : 0}%`,
-                }}
-              />
-            </div>
+            <p className="text-sm font-bold text-slate-700">
+              {item.value} bookings
+            </p>
           </div>
-        ))}
+          <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-[#FF6A00]"
+              style={{
+                width: `${Math.max(
+                  item.value > 0 ? 2 : 0,
+                  (item.value / max) * 100,
+                )}%`,
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-        {entries.length === 0 ? (
-          <p className="text-sm text-slate-500">No data in this range.</p>
-        ) : null}
+function InsightCard({
+  title,
+  body,
+  icon: Icon,
+}: {
+  title: string;
+  body: string;
+  icon: typeof Truck;
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex items-start gap-4">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#E55300]">
+          <Icon size={21} />
+        </span>
+        <div>
+          <h2 className="text-lg font-bold text-slate-950">{title}</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{body}</p>
+        </div>
       </div>
     </section>
   );
