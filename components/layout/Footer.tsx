@@ -117,10 +117,10 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-[#1F4D94]">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-7 text-sm text-white/70 md:flex-row">
+        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 px-6 py-7 text-sm text-white/70 md:flex-row md:items-center">
           <p>© 2026 Streamline Logistics Group. All rights reserved.</p>
 
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-x-6 gap-y-3">
             <Link
               href="/privacy"
               className="transition hover:text-[#2D8CFF]"
@@ -133,6 +133,13 @@ export default function Footer() {
               className="transition hover:text-[#2D8CFF]"
             >
               Terms
+            </Link>
+
+            <Link
+              href="/legal"
+              className="transition hover:text-[#2D8CFF]"
+            >
+              Legal & Compliance
             </Link>
 
             <Link
