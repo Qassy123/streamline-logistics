@@ -6,13 +6,19 @@ export default function Footer() {
     <footer className="bg-[#071D49] text-white">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-6 py-14 md:grid-cols-4">
         <div>
-          <Image
-            src="/images/logos/Logo.png"
-            alt="Streamline Logistics Group"
-            width={190}
-            height={70}
-            className="mb-5 rounded-xl bg-white p-3"
-          />
+          <Link
+            href="/"
+            className="mb-6 block w-[280px] max-w-full"
+            aria-label="Streamline Logistics Group home"
+          >
+            <Image
+              src="/images/logos/header-logo.png"
+              alt="Streamline Logistics Group"
+              width={480}
+              height={120}
+              className="h-auto w-full object-contain"
+            />
+          </Link>
 
           <p className="text-base leading-7 text-white/80">
             Streamline Logistics Group provides fast, reliable and professional
@@ -107,7 +113,7 @@ export default function Footer() {
 
             <a
               href="mailto:info@streamlinelogisticsgroup.co.uk"
-              className="transition hover:text-[#2D8CFF]"
+              className="break-words transition hover:text-[#2D8CFF]"
             >
               info@streamlinelogisticsgroup.co.uk
             </a>
