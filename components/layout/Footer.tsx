@@ -76,10 +76,10 @@ export default function Footer() {
             </Link>
 
             <Link
-              href="/services/full-day-half-day-rates"
+              href="/services/next-day-delivery"
               className="transition hover:text-[#2D8CFF]"
             >
-              Full Day & Half Day Rates
+              Next Day Delivery
             </Link>
 
             <Link
@@ -87,13 +87,6 @@ export default function Footer() {
               className="transition hover:text-[#2D8CFF]"
             >
               Multi-Drop Delivery
-            </Link>
-
-            <Link
-              href="/services/full-load"
-              className="transition hover:text-[#2D8CFF]"
-            >
-              Full Load
             </Link>
           </div>
         </div>
