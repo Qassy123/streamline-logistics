@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   FileText,
@@ -195,7 +195,7 @@ function requiresQuantity(calculation: string) {
   return ["PER_MILE", "PER_STOP", "PER_HOUR"].includes(calculation);
 }
 
-export default function AdminInvoicesPage() {
+function AdminInvoicesContent() {
   const searchParams = useSearchParams();
   const invoiceFromQuery = searchParams.get("invoice")?.trim() || "";
 
@@ -1074,5 +1074,22 @@ function AmountCard({
       </p>
       <p className="mt-2 text-xl font-bold text-slate-950">{value}</p>
     </div>
+  );
+}
+
+export default function AdminInvoicesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading invoices...
+          </div>
+        </div>
+      }
+    >
+      <AdminInvoicesContent />
+    </Suspense>
   );
 }
