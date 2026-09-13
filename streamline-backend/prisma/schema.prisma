@@ -533,10 +533,33 @@ model Invoice {
   documents   Document[]
   emailLogs   EmailLog[]
   creditNotes CreditNote[]
+  adjustments InvoiceAdjustment[]
 
   @@index([userId])
   @@index([status])
   @@index([dueDate])
+}
+
+model InvoiceAdjustment {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  sourceType    String
+  sourceId      String?
+  name          String
+  calculation   String?
+  quantity      Decimal  @default(1)
+  unitAmount    Decimal
+  netAmount     Decimal
+  vatApplicable Boolean  @default(true)
+  vatAmount     Decimal  @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([sourceType])
+  @@index([sourceId])
 }
 
 model CreditNote {

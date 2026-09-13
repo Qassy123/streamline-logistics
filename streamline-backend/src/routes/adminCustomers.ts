@@ -204,72 +204,17 @@ router.get("/", async (req, res) => {
 
     if (search) {
       where.OR = [
-        {
-          name: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          companyName: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          legalEntity: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          tradingName: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          email: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          accountsEmail: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          phone: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          alternativeContactNumber: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          accountNumber: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          vatNumber: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
-        {
-          companyRegistrationNumber: {
-            contains: search,
-            mode: "insensitive",
-          },
-        },
+        { name: { contains: search, mode: "insensitive" } },
+        { companyName: { contains: search, mode: "insensitive" } },
+        { legalEntity: { contains: search, mode: "insensitive" } },
+        { tradingName: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { accountsEmail: { contains: search, mode: "insensitive" } },
+        { phone: { contains: search, mode: "insensitive" } },
+        { alternativeContactNumber: { contains: search, mode: "insensitive" } },
+        { accountNumber: { contains: search, mode: "insensitive" } },
+        { vatNumber: { contains: search, mode: "insensitive" } },
+        { companyRegistrationNumber: { contains: search, mode: "insensitive" } },
       ];
     }
 
@@ -298,30 +243,20 @@ router.get("/", async (req, res) => {
         where,
         select: customerSelect(),
         orderBy: [
-          {
-            createdAt: "desc",
-          },
-          {
-            name: "asc",
-          },
+          { createdAt: "desc" },
+          { name: "asc" },
         ],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      prisma.user.count({
-        where,
-      }),
+      prisma.user.count({ where }),
       prisma.user.groupBy({
         by: ["accountType"],
-        _count: {
-          _all: true,
-        },
+        _count: { _all: true },
       }),
       prisma.user.groupBy({
         by: ["accountStatus"],
-        _count: {
-          _all: true,
-        },
+        _count: { _all: true },
       }),
     ]);
 
@@ -487,12 +422,8 @@ router.post("/", async (req, res) => {
     }
 
     const existingUser = await prisma.user.findUnique({
-      where: {
-        email,
-      },
-      select: {
-        id: true,
-      },
+      where: { email },
+      select: { id: true },
     });
 
     if (existingUser) {
@@ -505,12 +436,8 @@ router.post("/", async (req, res) => {
 
     if (username) {
       const existingUsername = await prisma.user.findUnique({
-        where: {
-          username,
-        },
-        select: {
-          id: true,
-        },
+        where: { username },
+        select: { id: true },
       });
 
       if (existingUsername) {
@@ -688,31 +615,21 @@ router.get("/:id", async (req, res) => {
 
   try {
     const customer = await prisma.user.findUnique({
-      where: {
-        id: req.params.id,
-      },
+      where: { id: req.params.id },
       select: {
         ...customerSelect(),
         notes: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
         },
         documents: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
         },
         quotes: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 20,
         },
         bookings: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 20,
           include: {
             vehicle: true,
@@ -720,21 +637,15 @@ router.get("/:id", async (req, res) => {
           },
         },
         invoices: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 20,
         },
         payments: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 20,
         },
         savedRoutes: {
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy: { createdAt: "desc" },
           take: 20,
         },
       },
@@ -758,7 +669,6 @@ router.get("/:id", async (req, res) => {
     });
   }
 });
-
 
 router.post("/:id/status", async (req, res) => {
   const admin = requireAdmin(req);
@@ -805,7 +715,10 @@ router.post("/:id/status", async (req, res) => {
               suspendedAt: new Date(),
             },
           });
-        } else if (statusValue === AccountStatus.ACTIVE && existingCustomer.tradeAccount.status === "SUSPENDED") {
+        } else if (
+          statusValue === AccountStatus.ACTIVE &&
+          existingCustomer.tradeAccount.status === "SUSPENDED"
+        ) {
           await transaction.tradeAccount.update({
             where: { id: existingCustomer.tradeAccount.id },
             data: {
@@ -863,12 +776,8 @@ router.patch("/:id", async (req, res) => {
 
   try {
     const existingCustomer = await prisma.user.findUnique({
-      where: {
-        id: req.params.id,
-      },
-      include: {
-        tradeAccount: true,
-      },
+      where: { id: req.params.id },
+      include: { tradeAccount: true },
     });
 
     if (!existingCustomer) {
@@ -943,9 +852,7 @@ router.patch("/:id", async (req, res) => {
     }
 
     const updatedCustomer = await prisma.user.update({
-      where: {
-        id: req.params.id,
-      },
+      where: { id: req.params.id },
       data: {
         accountType: accountTypeValue
           ? (accountTypeValue as AccountType)
@@ -1230,6 +1137,75 @@ router.patch("/:id", async (req, res) => {
 
     res.status(500).json({
       error: "Unable to update customer account.",
+    });
+  }
+});
+
+router.delete("/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const customer = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        accountNumber: true,
+        email: true,
+      },
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        error: "Customer account not found.",
+      });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.quote.updateMany({
+        where: { userId: customer.id },
+        data: { userId: null },
+      });
+
+      await transaction.booking.updateMany({
+        where: { userId: customer.id },
+        data: { userId: null },
+      });
+
+      await transaction.invoice.updateMany({
+        where: { userId: customer.id },
+        data: { userId: null },
+      });
+
+      await transaction.payment.updateMany({
+        where: { userId: customer.id },
+        data: { userId: null },
+      });
+
+      await transaction.document.updateMany({
+        where: { userId: customer.id },
+        data: { userId: null },
+      });
+
+      await transaction.user.delete({
+        where: { id: customer.id },
+      });
+    });
+
+    res.json({
+      success: true,
+      message: "Customer account deleted.",
+    });
+  } catch (error) {
+    console.error("Admin customer deletion error:", error);
+
+    res.status(500).json({
+      error: "Unable to delete customer account.",
     });
   }
 });

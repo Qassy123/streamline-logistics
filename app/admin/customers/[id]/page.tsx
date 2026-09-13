@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   FormEvent,
   useCallback,
@@ -12,12 +12,14 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  Ban,
   CheckCircle2,
   CircleAlert,
   Loader2,
   Pencil,
   RefreshCw,
   Save,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -47,79 +49,64 @@ type Invoice = {
 
 type Customer = {
   id: string;
-
   accountNumber?: string | null;
   accountType: AccountType;
   accountStatus: AccountStatus;
-
   companyName?: string | null;
   legalEntity?: string | null;
   tradingName?: string | null;
-
   name: string;
   email: string;
   phone?: string | null;
-
   accountsEmail?: string | null;
   alternativeContactNumber?: string | null;
   mainContactName?: string | null;
-
   companyRegistrationNumber?: string | null;
   vatNumber?: string | null;
-
   registeredAddressLine1?: string | null;
   registeredAddressLine2?: string | null;
   registeredTownCity?: string | null;
   registeredCounty?: string | null;
   registeredPostcode?: string | null;
   registeredCountry?: string | null;
-
   tradingAddressDifferent: boolean;
-
   tradingAddressLine1?: string | null;
   tradingAddressLine2?: string | null;
   tradingTownCity?: string | null;
   tradingCounty?: string | null;
   tradingPostcode?: string | null;
   tradingCountry?: string | null;
-
   invoices?: Invoice[];
-
   createdAt: string;
   updatedAt: string;
 };
 
 type CustomerPayload = {
+  success?: boolean;
   customer?: Customer;
   error?: string;
+  message?: string;
 };
 
 type EditForm = {
   accountType: AccountType;
   accountStatus: AccountStatus;
-
   companyName: string;
   name: string;
-
   email: string;
   accountsEmail: string;
-
   phone: string;
   alternativeContactNumber: string;
   mainContactName: string;
-
   companyRegistrationNumber: string;
   vatNumber: string;
-
   registeredAddressLine1: string;
   registeredAddressLine2: string;
   registeredTownCity: string;
   registeredCounty: string;
   registeredPostcode: string;
   registeredCountry: string;
-
   tradingAddressDifferent: boolean;
-
   tradingAddressLine1: string;
   tradingAddressLine2: string;
   tradingTownCity: string;
@@ -218,65 +205,45 @@ function toEditForm(customer: Customer): EditForm {
   return {
     accountType: customer.accountType,
     accountStatus: customer.accountStatus,
-
     companyName:
       customer.companyName ||
       customer.legalEntity ||
       customer.name ||
       "",
-
     name: customer.name || "",
-
     email: customer.email || "",
     accountsEmail: customer.accountsEmail || "",
-
     phone: customer.phone || "",
     alternativeContactNumber:
       customer.alternativeContactNumber || "",
-
     mainContactName: customer.mainContactName || "",
-
     companyRegistrationNumber:
       customer.companyRegistrationNumber || "",
-
     vatNumber: customer.vatNumber || "",
-
     registeredAddressLine1:
       customer.registeredAddressLine1 || "",
-
     registeredAddressLine2:
       customer.registeredAddressLine2 || "",
-
     registeredTownCity:
       customer.registeredTownCity || "",
-
     registeredCounty:
       customer.registeredCounty || "",
-
     registeredPostcode:
       customer.registeredPostcode || "",
-
     registeredCountry:
       customer.registeredCountry || "United Kingdom",
-
     tradingAddressDifferent:
       customer.tradingAddressDifferent,
-
     tradingAddressLine1:
       customer.tradingAddressLine1 || "",
-
     tradingAddressLine2:
       customer.tradingAddressLine2 || "",
-
     tradingTownCity:
       customer.tradingTownCity || "",
-
     tradingCounty:
       customer.tradingCounty || "",
-
     tradingPostcode:
       customer.tradingPostcode || "",
-
     tradingCountry:
       customer.tradingCountry || "United Kingdom",
   };
@@ -284,17 +251,18 @@ function toEditForm(customer: Customer): EditForm {
 
 export default function CustomerAccountPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const customerId = params.id;
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
-
+  const [accountAction, setAccountAction] = useState<
+    "SUSPEND" | "DELETE" | null
+  >(null);
   const [editing, setEditing] = useState(false);
-
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -316,7 +284,6 @@ export default function CustomerAccountPage() {
       }
 
       refresh ? setRefreshing(true) : setLoading(true);
-
       setError("");
 
       try {
@@ -342,6 +309,7 @@ export default function CustomerAccountPage() {
 
           throw new Error(
             payload.error ||
+              payload.message ||
               "Unable to load customer account.",
           );
         }
@@ -436,19 +404,14 @@ export default function CustomerAccountPage() {
             "Content-Type": "application/json",
             "x-admin-key": adminKey,
           },
-
           body: JSON.stringify({
             ...form,
-
             companyName: form.companyName,
             legalEntity: form.companyName,
             tradingName: form.companyName,
-
             accountsEmail: form.accountsEmail,
-
             alternativeContactNumber:
               form.alternativeContactNumber,
-
             mainContactName: form.mainContactName,
           }),
         },
@@ -460,13 +423,13 @@ export default function CustomerAccountPage() {
       if (!response.ok || !payload.customer) {
         throw new Error(
           payload.error ||
+            payload.message ||
             "Unable to update customer account.",
         );
       }
 
       setCustomer(payload.customer);
       setForm(toEditForm(payload.customer));
-
       setEditing(false);
       setMessage("Customer account updated successfully.");
     } catch (requestError) {
@@ -480,12 +443,155 @@ export default function CustomerAccountPage() {
     }
   }
 
+  async function suspendAccount() {
+    if (!customerId || !customer || customer.accountStatus === "SUSPENDED") {
+      return;
+    }
+
+    const reason = window.prompt(
+      "Enter the reason for suspending this account:",
+    );
+
+    if (reason === null) {
+      return;
+    }
+
+    const cleanReason = reason.trim();
+
+    if (cleanReason.length < 5) {
+      setError("Enter a suspension reason of at least five characters.");
+      return;
+    }
+
+    const adminKey =
+      window.localStorage
+        .getItem(ADMIN_KEY_STORAGE_KEY)
+        ?.trim() || "";
+
+    if (!adminKey) {
+      setError("Admin key is required.");
+      return;
+    }
+
+    setAccountAction("SUSPEND");
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/admin/customers/${customerId}/status`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            status: "SUSPENDED",
+            reason: cleanReason,
+          }),
+        },
+      );
+
+      const payload =
+        (await response.json()) as CustomerPayload;
+
+      if (!response.ok || !payload.customer) {
+        throw new Error(
+          payload.error ||
+            payload.message ||
+            "Unable to suspend customer account.",
+        );
+      }
+
+      setCustomer(payload.customer);
+      setForm(toEditForm(payload.customer));
+      setMessage("Customer account suspended successfully.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to suspend customer account.",
+      );
+    } finally {
+      setAccountAction(null);
+    }
+  }
+
+  async function deleteAccount() {
+    if (!customerId || !customer) {
+      return;
+    }
+
+    const firstConfirmation = window.confirm(
+      `Delete ${customerDisplayName(customer)}? This removes the customer account while keeping linked historical bookings, invoices, payments and quotes.`,
+    );
+
+    if (!firstConfirmation) {
+      return;
+    }
+
+    const finalConfirmation = window.confirm(
+      "This action cannot be undone. Delete this customer account?",
+    );
+
+    if (!finalConfirmation) {
+      return;
+    }
+
+    const adminKey =
+      window.localStorage
+        .getItem(ADMIN_KEY_STORAGE_KEY)
+        ?.trim() || "";
+
+    if (!adminKey) {
+      setError("Admin key is required.");
+      return;
+    }
+
+    setAccountAction("DELETE");
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/admin/customers/${customerId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-admin-key": adminKey,
+          },
+        },
+      );
+
+      const payload =
+        (await response.json()) as CustomerPayload;
+
+      if (!response.ok || !payload.success) {
+        throw new Error(
+          payload.error ||
+            payload.message ||
+            "Unable to delete customer account.",
+        );
+      }
+
+      router.push("/admin/customers");
+      router.refresh();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to delete customer account.",
+      );
+      setAccountAction(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[520px] items-center justify-center">
         <div className="text-center">
           <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#FF6A00]" />
-
           <p className="mt-3 text-sm font-semibold text-slate-600">
             Loading customer account
           </p>
@@ -498,16 +604,13 @@ export default function CustomerAccountPage() {
     return (
       <div className="mx-auto max-w-xl border border-red-200 bg-red-50 p-8 text-center">
         <CircleAlert className="mx-auto h-9 w-9 text-red-600" />
-
         <h1 className="mt-4 text-2xl font-bold text-red-950">
           Customer account unavailable
         </h1>
-
         <p className="mt-3 text-sm text-red-700">
           {error ||
             "The requested customer account could not be loaded."}
         </p>
-
         <Link
           href="/admin/customers"
           className="mt-6 inline-flex items-center gap-2 bg-slate-950 px-4 py-3 text-sm font-bold text-white"
@@ -565,12 +668,7 @@ export default function CustomerAccountPage() {
             }}
             className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
           >
-            {editing ? (
-              <X size={17} />
-            ) : (
-              <Pencil size={17} />
-            )}
-
+            {editing ? <X size={17} /> : <Pencil size={17} />}
             {editing ? "Cancel Edit" : "Edit Account"}
           </button>
         </div>
@@ -599,9 +697,7 @@ export default function CustomerAccountPage() {
             <EditRow label="Account Name">
               <TextInput
                 value={form.companyName}
-                onChange={(value) =>
-                  update("companyName", value)
-                }
+                onChange={(value) => update("companyName", value)}
               />
             </EditRow>
 
@@ -618,9 +714,7 @@ export default function CustomerAccountPage() {
               >
                 <option value="ACTIVE">Live</option>
                 <option value="INACTIVE">Blocked</option>
-                <option value="SUSPENDED">
-                  Suspended
-                </option>
+                <option value="SUSPENDED">Suspended</option>
               </select>
             </EditRow>
 
@@ -635,18 +729,10 @@ export default function CustomerAccountPage() {
                 }
                 className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
               >
-                <option value="BUSINESS">
-                  Business Account
-                </option>
-
-                <option value="TRADE">
-                  Trade Credit Account
-                </option>
-
+                <option value="BUSINESS">Business Account</option>
+                <option value="TRADE">Trade Credit Account</option>
                 {form.accountType === "PRIVATE" ? (
-                  <option value="PRIVATE">
-                    Private Account
-                  </option>
+                  <option value="PRIVATE">Private Account</option>
                 ) : null}
               </select>
             </EditRow>
@@ -654,9 +740,7 @@ export default function CustomerAccountPage() {
             <EditRow label="VAT No">
               <TextInput
                 value={form.vatNumber}
-                onChange={(value) =>
-                  update("vatNumber", value)
-                }
+                onChange={(value) => update("vatNumber", value)}
               />
             </EditRow>
 
@@ -664,10 +748,7 @@ export default function CustomerAccountPage() {
               <TextInput
                 value={form.companyRegistrationNumber}
                 onChange={(value) =>
-                  update(
-                    "companyRegistrationNumber",
-                    value,
-                  )
+                  update("companyRegistrationNumber", value)
                 }
               />
             </EditRow>
@@ -680,30 +761,12 @@ export default function CustomerAccountPage() {
                 county={form.registeredCounty}
                 postcode={form.registeredPostcode}
                 country={form.registeredCountry}
-                onLine1={(value) =>
-                  update(
-                    "registeredAddressLine1",
-                    value,
-                  )
-                }
-                onLine2={(value) =>
-                  update(
-                    "registeredAddressLine2",
-                    value,
-                  )
-                }
-                onTownCity={(value) =>
-                  update("registeredTownCity", value)
-                }
-                onCounty={(value) =>
-                  update("registeredCounty", value)
-                }
-                onPostcode={(value) =>
-                  update("registeredPostcode", value)
-                }
-                onCountry={(value) =>
-                  update("registeredCountry", value)
-                }
+                onLine1={(value) => update("registeredAddressLine1", value)}
+                onLine2={(value) => update("registeredAddressLine2", value)}
+                onTownCity={(value) => update("registeredTownCity", value)}
+                onCounty={(value) => update("registeredCounty", value)}
+                onPostcode={(value) => update("registeredPostcode", value)}
+                onCountry={(value) => update("registeredCountry", value)}
               />
             </EditRow>
 
@@ -712,9 +775,7 @@ export default function CustomerAccountPage() {
                 <label className="mb-4 flex items-center gap-3 text-sm font-medium text-slate-700">
                   <input
                     type="checkbox"
-                    checked={
-                      form.tradingAddressDifferent
-                    }
+                    checked={form.tradingAddressDifferent}
                     onChange={(event) =>
                       update(
                         "tradingAddressDifferent",
@@ -722,7 +783,6 @@ export default function CustomerAccountPage() {
                       )
                     }
                   />
-
                   Trading address is different
                 </label>
 
@@ -734,42 +794,12 @@ export default function CustomerAccountPage() {
                     county={form.tradingCounty}
                     postcode={form.tradingPostcode}
                     country={form.tradingCountry}
-                    onLine1={(value) =>
-                      update(
-                        "tradingAddressLine1",
-                        value,
-                      )
-                    }
-                    onLine2={(value) =>
-                      update(
-                        "tradingAddressLine2",
-                        value,
-                      )
-                    }
-                    onTownCity={(value) =>
-                      update(
-                        "tradingTownCity",
-                        value,
-                      )
-                    }
-                    onCounty={(value) =>
-                      update(
-                        "tradingCounty",
-                        value,
-                      )
-                    }
-                    onPostcode={(value) =>
-                      update(
-                        "tradingPostcode",
-                        value,
-                      )
-                    }
-                    onCountry={(value) =>
-                      update(
-                        "tradingCountry",
-                        value,
-                      )
-                    }
+                    onLine1={(value) => update("tradingAddressLine1", value)}
+                    onLine2={(value) => update("tradingAddressLine2", value)}
+                    onTownCity={(value) => update("tradingTownCity", value)}
+                    onCounty={(value) => update("tradingCounty", value)}
+                    onPostcode={(value) => update("tradingPostcode", value)}
+                    onCountry={(value) => update("tradingCountry", value)}
                   />
                 ) : (
                   <p className="text-sm text-slate-500">
@@ -783,9 +813,7 @@ export default function CustomerAccountPage() {
               <TextInput
                 type="email"
                 value={form.email}
-                onChange={(value) =>
-                  update("email", value)
-                }
+                onChange={(value) => update("email", value)}
               />
             </EditRow>
 
@@ -793,31 +821,22 @@ export default function CustomerAccountPage() {
               <TextInput
                 type="email"
                 value={form.accountsEmail}
-                onChange={(value) =>
-                  update("accountsEmail", value)
-                }
+                onChange={(value) => update("accountsEmail", value)}
               />
             </EditRow>
 
             <EditRow label="Contact Number 1">
               <TextInput
                 value={form.phone}
-                onChange={(value) =>
-                  update("phone", value)
-                }
+                onChange={(value) => update("phone", value)}
               />
             </EditRow>
 
             <EditRow label="Contact Number 2">
               <TextInput
-                value={
-                  form.alternativeContactNumber
-                }
+                value={form.alternativeContactNumber}
                 onChange={(value) =>
-                  update(
-                    "alternativeContactNumber",
-                    value,
-                  )
+                  update("alternativeContactNumber", value)
                 }
               />
             </EditRow>
@@ -825,9 +844,7 @@ export default function CustomerAccountPage() {
             <EditRow label="Person to Contact">
               <TextInput
                 value={form.mainContactName}
-                onChange={(value) =>
-                  update("mainContactName", value)
-                }
+                onChange={(value) => update("mainContactName", value)}
               />
             </EditRow>
           </div>
@@ -839,14 +856,10 @@ export default function CustomerAccountPage() {
               className="inline-flex items-center gap-2 rounded-lg bg-[#FF6A00] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#E85F00] disabled:opacity-50"
             >
               {saving ? (
-                <Loader2
-                  size={17}
-                  className="animate-spin"
-                />
+                <Loader2 size={17} className="animate-spin" />
               ) : (
                 <Save size={17} />
               )}
-
               Save Changes
             </button>
           </div>
@@ -868,31 +881,57 @@ export default function CustomerAccountPage() {
             <DetailRow
               label="Account Status"
               value={
-                <span
-                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${statusClasses(
-                    customer.accountStatus,
-                  )}`}
-                >
-                  {displayAccountStatus(
-                    customer.accountStatus,
-                  )}
-                </span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${statusClasses(
+                      customer.accountStatus,
+                    )}`}
+                  >
+                    {displayAccountStatus(customer.accountStatus)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => void suspendAccount()}
+                    disabled={
+                      customer.accountStatus === "SUSPENDED" ||
+                      accountAction !== null
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {accountAction === "SUSPEND" ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Ban size={15} />
+                    )}
+                    Suspend Account
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void deleteAccount()}
+                    disabled={accountAction !== null}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {accountAction === "DELETE" ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={15} />
+                    )}
+                    Delete Account
+                  </button>
+                </div>
               }
             />
 
             <DetailRow
               label="Account Type"
-              value={displayAccountType(
-                customer.accountType,
-              )}
+              value={displayAccountType(customer.accountType)}
             />
 
             <DetailRow
               label="VAT No"
-              value={
-                customer.vatNumber ||
-                "Not provided"
-              }
+              value={customer.vatNumber || "Not provided"}
             />
 
             <DetailRow
@@ -939,24 +978,16 @@ export default function CustomerAccountPage() {
               }
             />
 
-            <DetailRow
-              label="Email"
-              value={customer.email}
-            />
+            <DetailRow label="Email" value={customer.email} />
 
             <DetailRow
               label="Accounts Email"
-              value={
-                customer.accountsEmail ||
-                "Not provided"
-              }
+              value={customer.accountsEmail || "Not provided"}
             />
 
             <DetailRow
               label="Contact Number 1"
-              value={
-                customer.phone || "Not provided"
-              }
+              value={customer.phone || "Not provided"}
             />
 
             <DetailRow
@@ -1012,9 +1043,7 @@ function DetailRow({
     <div
       className={[
         "grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]",
-        last
-          ? ""
-          : "border-b border-slate-300",
+        last ? "" : "border-b border-slate-300",
       ].join(" ")}
     >
       <div className="border-b border-slate-300 bg-slate-50 px-5 py-5 text-sm font-bold text-slate-800 lg:border-b-0 lg:border-r">
@@ -1063,7 +1092,9 @@ function InvoiceSection({
           {invoices.map((invoice) => (
             <Link
               key={invoice.id}
-              href={`/admin/customers/${customerId}/invoices`}
+              href={`/admin/invoices?invoice=${encodeURIComponent(
+                invoice.invoiceNumber,
+              )}`}
               className="block px-5 py-5 transition hover:bg-slate-50"
             >
               <div className="flex items-start justify-between gap-4">
@@ -1073,14 +1104,12 @@ function InvoiceSection({
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Created{" "}
-                    {formatDate(invoice.createdAt)}
+                    Created {formatDate(invoice.createdAt)}
                   </p>
 
                   {invoice.dueDate ? (
                     <p className="mt-1 text-xs text-slate-500">
-                      Due{" "}
-                      {formatDate(invoice.dueDate)}
+                      Due {formatDate(invoice.dueDate)}
                     </p>
                   ) : null}
                 </div>
@@ -1095,10 +1124,7 @@ function InvoiceSection({
                       invoice.status,
                     )}`}
                   >
-                    {invoice.status.replace(
-                      /_/g,
-                      " ",
-                    )}
+                    {invoice.status.replace(/_/g, " ")}
                   </span>
                 </div>
               </div>
@@ -1199,7 +1225,6 @@ function AddressInputs({
   county: string;
   postcode: string;
   country: string;
-
   onLine1: (value: string) => void;
   onLine2: (value: string) => void;
   onTownCity: (value: string) => void;

@@ -59,6 +59,9 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 function invoiceInclude() {
   return {
     user: true,
+    adjustments: {
+      orderBy: { createdAt: "asc" },
+    },
     booking: {
       include: {
         quote: true,
@@ -69,6 +72,116 @@ function invoiceInclude() {
       },
     },
   } satisfies Prisma.InvoiceInclude;
+}
+
+function roundMoney(value: Prisma.Decimal) {
+  return value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function sendInvoiceEmail(input: {
+  to: string;
+  invoiceNumber: string;
+  accountName: string;
+  bookingReference: string;
+  subtotal: Prisma.Decimal;
+  vatAmount: Prisma.Decimal;
+  total: Prisma.Decimal;
+  dueDate: Date | null;
+}) {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL?.trim() ||
+    process.env.EMAIL_FROM?.trim();
+
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not configured.");
+  }
+
+  if (!fromEmail) {
+    throw new Error(
+      "RESEND_FROM_EMAIL or EMAIL_FROM must be configured before invoices can be sent.",
+    );
+  }
+
+  const money = (value: Prisma.Decimal) =>
+    new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+    }).format(Number(value.toString()));
+
+  const dueText = input.dueDate
+    ? new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(input.dueDate)
+    : "Not specified";
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [input.to],
+      subject: `Invoice ${input.invoiceNumber} - Streamline Logistics Group`,
+      html: `
+        <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6">
+          <h2 style="margin:0 0 16px">Streamline Logistics Group</h2>
+          <p>Dear ${escapeHtml(input.accountName)},</p>
+          <p>Please find the details of invoice <strong>${escapeHtml(
+            input.invoiceNumber,
+          )}</strong> for booking <strong>${escapeHtml(
+            input.bookingReference,
+          )}</strong>.</p>
+          <table style="border-collapse:collapse;width:100%;max-width:520px;margin:20px 0">
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0">Subtotal</td>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.subtotal)}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0">VAT</td>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.vatAmount)}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0">Total</td>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.total)}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:8px">Due date</td>
+              <td style="padding:8px;text-align:right"><strong>${escapeHtml(dueText)}</strong></td>
+            </tr>
+          </table>
+          <p>If you have any questions about this invoice, please contact Streamline Logistics Group.</p>
+        </div>
+      `,
+    }),
+  });
+
+  const payload = (await response.json()) as {
+    id?: string;
+    message?: string;
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(
+      payload.message || payload.error || "Resend rejected the invoice email.",
+    );
+  }
+
+  return payload.id || null;
 }
 
 router.get("/admin/list", async (req, res) => {
@@ -95,41 +208,11 @@ router.get("/admin/list", async (req, res) => {
     if (search) {
       where.OR = [
         { invoiceNumber: { contains: search, mode: "insensitive" } },
-        {
-          booking: {
-            is: {
-              reference: { contains: search, mode: "insensitive" },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              name: { contains: search, mode: "insensitive" },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              companyName: { contains: search, mode: "insensitive" },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              email: { contains: search, mode: "insensitive" },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              accountNumber: { contains: search, mode: "insensitive" },
-            },
-          },
-        },
+        { booking: { is: { reference: { contains: search, mode: "insensitive" } } } },
+        { user: { is: { name: { contains: search, mode: "insensitive" } } } },
+        { user: { is: { companyName: { contains: search, mode: "insensitive" } } } },
+        { user: { is: { email: { contains: search, mode: "insensitive" } } } },
+        { user: { is: { accountNumber: { contains: search, mode: "insensitive" } } } },
       ];
     }
 
@@ -137,7 +220,6 @@ router.get("/admin/list", async (req, res) => {
       if (!isInvoiceStatus(status)) {
         return res.status(400).json({ error: "Invalid invoice status filter." });
       }
-
       where.status = status;
     }
 
@@ -193,6 +275,460 @@ router.get("/admin/list", async (req, res) => {
   } catch (error) {
     console.error("Admin invoice list error:", error);
     res.status(500).json({ error: "Unable to load invoices." });
+  }
+});
+
+router.get("/admin/:id/options", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (invoice.status !== "DRAFT") {
+      return res.status(400).json({
+        error: "Additional charges and discounts can only be changed while an invoice is pending.",
+      });
+    }
+
+    const now = new Date();
+
+    const [charges, discounts] = await Promise.all([
+      prisma.tariffCharge.findMany({
+        where: {
+          active: true,
+          tariff: {
+            active: true,
+          },
+        },
+        include: {
+          tariff: {
+            select: {
+              name: true,
+              vehicleType: true,
+            },
+          },
+        },
+        orderBy: [{ name: "asc" }],
+      }),
+      prisma.discountRule.findMany({
+        where: {
+          active: true,
+          AND: [
+            { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+            { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+            {
+              OR: [
+                { customerId: null },
+                ...(invoice.userId ? [{ customerId: invoice.userId }] : []),
+              ],
+            },
+          ],
+        },
+        orderBy: [{ name: "asc" }],
+      }),
+    ]);
+
+    res.json({
+      charges: charges.map((charge) => ({
+        id: charge.id,
+        label: `${charge.name} · ${charge.tariff.vehicleType}`,
+        name: charge.name,
+        calculation: charge.calculation,
+        amount: charge.amount.toString(),
+        vatApplicable: charge.vatApplicable,
+        vehicleType: charge.tariff.vehicleType,
+      })),
+      discounts: discounts.map((discount) => ({
+        id: discount.id,
+        label:
+          discount.type === "FIXED_AMOUNT"
+            ? `${discount.name} · £${Number(discount.value).toFixed(2)}`
+            : `${discount.name} · ${Number(discount.value)}%`,
+        name: discount.name,
+        type: discount.type,
+        value: discount.value.toString(),
+        customerId: discount.customerId,
+      })),
+    });
+  } catch (error) {
+    console.error("Admin invoice options error:", error);
+    res.status(500).json({ error: "Unable to load invoice adjustment options." });
+  }
+});
+
+router.post("/admin/:id/adjustments", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const sourceType = getString(req.body.sourceType).toUpperCase();
+    const sourceId = getString(req.body.sourceId);
+    const requestedQuantity = getNumber(req.body.quantity) ?? 1;
+
+    if (!["CHARGE", "DISCOUNT"].includes(sourceType)) {
+      return res.status(400).json({
+        error: "Adjustment type must be CHARGE or DISCOUNT.",
+      });
+    }
+
+    if (!sourceId) {
+      return res.status(400).json({
+        error: "Select an additional charge or discount.",
+      });
+    }
+
+    if (requestedQuantity <= 0) {
+      return res.status(400).json({
+        error: "Quantity must be greater than zero.",
+      });
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: { adjustments: true },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (invoice.status !== "DRAFT") {
+      return res.status(400).json({
+        error: "Only pending invoices can be changed.",
+      });
+    }
+
+    let name = "";
+    let calculation = "";
+    let quantity = new Prisma.Decimal(1);
+    let unitAmount = new Prisma.Decimal(0);
+    let netAmount = new Prisma.Decimal(0);
+    let vatApplicable = false;
+
+    if (sourceType === "CHARGE") {
+      const charge = await prisma.tariffCharge.findFirst({
+        where: {
+          id: sourceId,
+          active: true,
+          tariff: {
+            active: true,
+          },
+        },
+      });
+
+      if (!charge) {
+        return res.status(404).json({
+          error: "The selected additional charge is unavailable.",
+        });
+      }
+
+      name = charge.name;
+      calculation = charge.calculation;
+      unitAmount = charge.amount;
+      vatApplicable = charge.vatApplicable;
+
+      if (["PER_MILE", "PER_STOP", "PER_HOUR"].includes(charge.calculation)) {
+        quantity = new Prisma.Decimal(requestedQuantity);
+        netAmount = roundMoney(charge.amount.mul(quantity));
+      } else if (charge.calculation === "PERCENTAGE") {
+        netAmount = roundMoney(invoice.subtotal.mul(charge.amount).div(100));
+      } else {
+        netAmount = roundMoney(charge.amount);
+      }
+    } else {
+      const now = new Date();
+      const discount = await prisma.discountRule.findFirst({
+        where: {
+          id: sourceId,
+          active: true,
+          AND: [
+            { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+            { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+            {
+              OR: [
+                { customerId: null },
+                ...(invoice.userId ? [{ customerId: invoice.userId }] : []),
+              ],
+            },
+          ],
+        },
+      });
+
+      if (!discount) {
+        return res.status(404).json({
+          error: "The selected discount is unavailable for this invoice.",
+        });
+      }
+
+      name = discount.name;
+      calculation = discount.type;
+      unitAmount = discount.value;
+      vatApplicable = invoice.vatAmount.greaterThan(0);
+
+      if (discount.type === "FIXED_AMOUNT") {
+        const cappedValue = discount.value.greaterThan(invoice.subtotal)
+          ? invoice.subtotal
+          : discount.value;
+        netAmount = roundMoney(cappedValue.negated());
+      } else {
+        netAmount = roundMoney(
+          invoice.subtotal.mul(discount.value).div(100).negated(),
+        );
+      }
+    }
+
+    const settings = await prisma.companySettings.findFirst({
+      select: { vatRate: true },
+    });
+
+    const vatRate = settings?.vatRate ?? new Prisma.Decimal(20);
+    const vatAmount = vatApplicable
+      ? roundMoney(netAmount.mul(vatRate).div(100))
+      : new Prisma.Decimal(0);
+
+    const nextSubtotal = roundMoney(invoice.subtotal.add(netAmount));
+    const nextVat = roundMoney(invoice.vatAmount.add(vatAmount));
+    const nextTotal = roundMoney(nextSubtotal.add(nextVat));
+
+    if (
+      nextSubtotal.lessThan(0) ||
+      nextVat.lessThan(0) ||
+      nextTotal.lessThan(0)
+    ) {
+      return res.status(400).json({
+        error: "This adjustment would reduce the invoice below zero.",
+      });
+    }
+
+    const updatedInvoice = await prisma.$transaction(async (transaction) => {
+      await transaction.invoiceAdjustment.create({
+        data: {
+          invoiceId: invoice.id,
+          sourceType,
+          sourceId,
+          name,
+          calculation,
+          quantity,
+          unitAmount,
+          netAmount,
+          vatApplicable,
+          vatAmount,
+        },
+      });
+
+      return transaction.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          subtotal: nextSubtotal,
+          vatAmount: nextVat,
+          total: nextTotal,
+        },
+        include: invoiceInclude(),
+      });
+    });
+
+    res.json({
+      success: true,
+      invoice: updatedInvoice,
+    });
+  } catch (error) {
+    console.error("Admin invoice adjustment error:", error);
+    res.status(500).json({ error: "Unable to update invoice charges." });
+  }
+});
+
+router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (invoice.status !== "DRAFT") {
+      return res.status(400).json({
+        error: "Only pending invoices can be changed.",
+      });
+    }
+
+    const adjustment = await prisma.invoiceAdjustment.findFirst({
+      where: {
+        id: req.params.adjustmentId,
+        invoiceId: invoice.id,
+      },
+    });
+
+    if (!adjustment) {
+      return res.status(404).json({
+        error: "Invoice adjustment not found.",
+      });
+    }
+
+    const nextSubtotal = roundMoney(
+      invoice.subtotal.sub(adjustment.netAmount),
+    );
+    const nextVat = roundMoney(
+      invoice.vatAmount.sub(adjustment.vatAmount),
+    );
+    const nextTotal = roundMoney(nextSubtotal.add(nextVat));
+
+    const updatedInvoice = await prisma.$transaction(async (transaction) => {
+      await transaction.invoiceAdjustment.delete({
+        where: { id: adjustment.id },
+      });
+
+      return transaction.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          subtotal: nextSubtotal,
+          vatAmount: nextVat,
+          total: nextTotal,
+        },
+        include: invoiceInclude(),
+      });
+    });
+
+    res.json({
+      success: true,
+      invoice: updatedInvoice,
+    });
+  } catch (error) {
+    console.error("Admin invoice adjustment removal error:", error);
+    res.status(500).json({ error: "Unable to remove invoice adjustment." });
+  }
+});
+
+router.post("/admin/:id/send", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: invoiceInclude(),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (invoice.status !== "DRAFT") {
+      return res.status(400).json({
+        error: "Only a pending invoice can be sent.",
+      });
+    }
+
+    if (!invoice.user?.email) {
+      return res.status(400).json({
+        error:
+          "This invoice is not linked to a customer account with a primary email address.",
+      });
+    }
+
+    const recipient = invoice.user.email;
+    const accountName =
+      invoice.user.companyName || invoice.user.name || recipient;
+
+    let providerMessageId: string | null = null;
+
+    try {
+      providerMessageId = await sendInvoiceEmail({
+        to: recipient,
+        invoiceNumber: invoice.invoiceNumber,
+        accountName,
+        bookingReference: invoice.booking.reference,
+        subtotal: invoice.subtotal,
+        vatAmount: invoice.vatAmount,
+        total: invoice.total,
+        dueDate: invoice.dueDate,
+      });
+    } catch (emailError) {
+      await prisma.emailLog.create({
+        data: {
+          type: "INVOICE",
+          status: "FAILED",
+          recipient,
+          subject: `Invoice ${invoice.invoiceNumber} - Streamline Logistics Group`,
+          errorMessage:
+            emailError instanceof Error
+              ? emailError.message
+              : "Invoice email failed.",
+          userId: invoice.userId,
+          bookingId: invoice.bookingId,
+          invoiceId: invoice.id,
+        },
+      });
+
+      throw emailError;
+    }
+
+    const updatedInvoice = await prisma.$transaction(async (transaction) => {
+      await transaction.emailLog.create({
+        data: {
+          type: "INVOICE",
+          status: "SENT",
+          recipient,
+          subject: `Invoice ${invoice.invoiceNumber} - Streamline Logistics Group`,
+          providerMessageId,
+          sentAt: new Date(),
+          userId: invoice.userId,
+          bookingId: invoice.bookingId,
+          invoiceId: invoice.id,
+        },
+      });
+
+      return transaction.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "ISSUED",
+          issuedAt: invoice.issuedAt || new Date(),
+        },
+        include: invoiceInclude(),
+      });
+    });
+
+    res.json({
+      success: true,
+      message: `Invoice sent to ${recipient}.`,
+      invoice: updatedInvoice,
+    });
+  } catch (error) {
+    console.error("Admin invoice send error:", error);
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to send invoice.",
+    });
   }
 });
 
