@@ -193,6 +193,244 @@ router.get("/", async (request, response) => {
   }
 });
 
+
+router.get("/additional-charges", async (_request, response) => {
+  try {
+    const charges = await prisma.tariffCharge.findMany({
+      where: {
+        tariffId: null,
+      },
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+    });
+
+    response.json({
+      success: true,
+      charges: charges.map((charge) => ({
+        ...charge,
+        amount: charge.amount.toString(),
+      })),
+      options: {
+        chargeTypes,
+        chargeCalculations,
+      },
+    });
+  } catch (error) {
+    console.error("GET /api/admin/tariffs/additional-charges failed", error);
+    response.status(500).json({
+      success: false,
+      message: "Unable to load additional charges.",
+    });
+  }
+});
+
+router.post("/additional-charges", async (request, response) => {
+  try {
+    const type = request.body.type;
+    const name = normaliseString(request.body.name);
+    const calculation = request.body.calculation;
+    const amount = normaliseDecimal(request.body.amount, "Charge amount");
+    const active =
+      normaliseBoolean(request.body.active) === undefined
+        ? true
+        : normaliseBoolean(request.body.active);
+    const vatApplicable =
+      normaliseBoolean(request.body.vatApplicable) === undefined
+        ? true
+        : normaliseBoolean(request.body.vatApplicable);
+
+    if (!isChargeType(type)) {
+      response.status(400).json({
+        success: false,
+        message: "Select a valid charge type.",
+      });
+      return;
+    }
+
+    if (!name) {
+      response.status(400).json({
+        success: false,
+        message: "Charge name is required.",
+      });
+      return;
+    }
+
+    if (!isChargeCalculation(calculation)) {
+      response.status(400).json({
+        success: false,
+        message: "Select a valid charge calculation.",
+      });
+      return;
+    }
+
+    if (amount === undefined) {
+      response.status(400).json({
+        success: false,
+        message: "Charge amount is required.",
+      });
+      return;
+    }
+
+    const charge = await prisma.tariffCharge.create({
+      data: {
+        tariffId: null,
+        type,
+        name,
+        calculation,
+        amount,
+        active,
+        vatApplicable,
+      },
+    });
+
+    response.status(201).json({
+      success: true,
+      charge: {
+        ...charge,
+        amount: charge.amount.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("POST /api/admin/tariffs/additional-charges failed", error);
+    response.status(400).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to create additional charge.",
+    });
+  }
+});
+
+router.patch("/additional-charges/:id", async (request, response) => {
+  try {
+    const existing = await prisma.tariffCharge.findFirst({
+      where: {
+        id: request.params.id,
+        tariffId: null,
+      },
+    });
+
+    if (!existing) {
+      response.status(404).json({
+        success: false,
+        message: "Additional charge not found.",
+      });
+      return;
+    }
+
+    const type =
+      request.body.type !== undefined ? request.body.type : undefined;
+    const name =
+      request.body.name !== undefined
+        ? normaliseString(request.body.name)
+        : undefined;
+    const calculation =
+      request.body.calculation !== undefined
+        ? request.body.calculation
+        : undefined;
+    const amount = normaliseDecimal(request.body.amount, "Charge amount");
+    const active = normaliseBoolean(request.body.active);
+    const vatApplicable = normaliseBoolean(request.body.vatApplicable);
+
+    if (type !== undefined && !isChargeType(type)) {
+      response.status(400).json({
+        success: false,
+        message: "Select a valid charge type.",
+      });
+      return;
+    }
+
+    if (request.body.name !== undefined && !name) {
+      response.status(400).json({
+        success: false,
+        message: "Charge name cannot be empty.",
+      });
+      return;
+    }
+
+    if (
+      calculation !== undefined &&
+      !isChargeCalculation(calculation)
+    ) {
+      response.status(400).json({
+        success: false,
+        message: "Select a valid charge calculation.",
+      });
+      return;
+    }
+
+    const charge = await prisma.tariffCharge.update({
+      where: { id: existing.id },
+      data: {
+        type,
+        name,
+        calculation,
+        amount,
+        active,
+        vatApplicable,
+      },
+    });
+
+    response.json({
+      success: true,
+      charge: {
+        ...charge,
+        amount: charge.amount.toString(),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "PATCH /api/admin/tariffs/additional-charges/:id failed",
+      error,
+    );
+    response.status(400).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to update additional charge.",
+    });
+  }
+});
+
+router.delete("/additional-charges/:id", async (request, response) => {
+  try {
+    const existing = await prisma.tariffCharge.findFirst({
+      where: {
+        id: request.params.id,
+        tariffId: null,
+      },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      response.status(404).json({
+        success: false,
+        message: "Additional charge not found.",
+      });
+      return;
+    }
+
+    await prisma.tariffCharge.delete({
+      where: { id: existing.id },
+    });
+
+    response.json({
+      success: true,
+      message: "Additional charge deleted.",
+    });
+  } catch (error) {
+    console.error(
+      "DELETE /api/admin/tariffs/additional-charges/:id failed",
+      error,
+    );
+    response.status(500).json({
+      success: false,
+      message: "Unable to delete additional charge.",
+    });
+  }
+});
+
 router.get("/:id", async (request, response) => {
   try {
     const tariff = await prisma.tariff.findUnique({

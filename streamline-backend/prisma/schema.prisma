@@ -733,7 +733,7 @@ model MileageBand {
 
 model TariffCharge {
   id            String            @id @default(cuid())
-  tariffId      String
+  tariffId      String?
   type          ChargeType
   name          String
   calculation   ChargeCalculation
@@ -743,7 +743,7 @@ model TariffCharge {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  tariff Tariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+  tariff Tariff? @relation(fields: [tariffId], references: [id], onDelete: Cascade)
 
   @@index([tariffId])
   @@index([type])

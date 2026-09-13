@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
@@ -18,20 +18,12 @@ type Charge = {
   vatApplicable: boolean;
 };
 
-type Tariff = {
-  id: string;
-  name: string;
-  vehicleType: string;
-  charges: Charge[];
-};
-
 type Options = {
   chargeTypes: string[];
   chargeCalculations: string[];
 };
 
 type FormState = {
-  tariffId: string;
   type: string;
   name: string;
   calculation: string;
@@ -40,8 +32,15 @@ type FormState = {
   vatApplicable: boolean;
 };
 
+type ChargesResponse = {
+  success?: boolean;
+  message?: string;
+  charges?: Charge[];
+  charge?: Charge;
+  options?: Partial<Options>;
+};
+
 const emptyForm: FormState = {
-  tariffId: "",
   type: "STOP",
   name: "",
   calculation: "FIXED",
@@ -78,7 +77,7 @@ function amountLabel(charge: Charge) {
 }
 
 export default function ChargesPage() {
-  const [tariffs, setTariffs] = useState<Tariff[]>([]);
+  const [charges, setCharges] = useState<Charge[]>([]);
   const [options, setOptions] = useState<Options>({
     chargeTypes: [],
     chargeCalculations: [],
@@ -97,23 +96,26 @@ export default function ChargesPage() {
     [],
   );
 
-  const loadTariffs = useCallback(async () => {
+  const loadCharges = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/tariffs`, {
-        headers: { "x-admin-key": getAdminKey() },
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/admin/tariffs/additional-charges`,
+        {
+          headers: { "x-admin-key": getAdminKey() },
+          cache: "no-store",
+        },
+      );
 
-      const data = await response.json();
+      const data = (await response.json()) as ChargesResponse;
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to load charges.");
+        throw new Error(data.message || "Unable to load additional charges.");
       }
 
-      setTariffs(data.tariffs || []);
+      setCharges(data.charges || []);
       setOptions({
         chargeTypes: data.options?.chargeTypes || [],
         chargeCalculations: data.options?.chargeCalculations || [],
@@ -122,7 +124,7 @@ export default function ChargesPage() {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Unable to load charges.",
+          : "Unable to load additional charges.",
       );
     } finally {
       setLoading(false);
@@ -130,35 +132,22 @@ export default function ChargesPage() {
   }, [getAdminKey]);
 
   useEffect(() => {
-    void loadTariffs();
-  }, [loadTariffs]);
+    void loadCharges();
+  }, [loadCharges]);
 
-  const allCharges = useMemo(
-    () =>
-      tariffs.flatMap((tariff) =>
-        tariff.charges.map((charge) => ({
-          tariff,
-          charge,
-        })),
-      ),
-    [tariffs],
-  );
-
-  function openCreate(tariffId?: string) {
+  function openCreate() {
     setEditing(null);
     setForm({
       ...emptyForm,
-      tariffId: tariffId || tariffs[0]?.id || "",
       type: options.chargeTypes[0] || "STOP",
       calculation: options.chargeCalculations[0] || "FIXED",
     });
     setModalOpen(true);
   }
 
-  function openEdit(tariffId: string, charge: Charge) {
+  function openEdit(charge: Charge) {
     setEditing(charge);
     setForm({
-      tariffId,
       type: charge.type,
       name: charge.name,
       calculation: charge.calculation,
@@ -178,8 +167,8 @@ export default function ChargesPage() {
     try {
       const response = await fetch(
         editing
-          ? `${API_BASE_URL}/api/admin/tariffs/charges/${editing.id}`
-          : `${API_BASE_URL}/api/admin/tariffs/${form.tariffId}/charges`,
+          ? `${API_BASE_URL}/api/admin/tariffs/additional-charges/${editing.id}`
+          : `${API_BASE_URL}/api/admin/tariffs/additional-charges`,
         {
           method: editing ? "PATCH" : "POST",
           headers: {
@@ -197,20 +186,22 @@ export default function ChargesPage() {
         },
       );
 
-      const data = await response.json();
+      const data = (await response.json()) as ChargesResponse;
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to save charge.");
+        throw new Error(data.message || "Unable to save additional charge.");
       }
 
       setModalOpen(false);
-      setSuccessMessage(editing ? "Charge updated." : "Charge added.");
-      await loadTariffs();
+      setSuccessMessage(
+        editing ? "Additional charge updated." : "Additional charge added.",
+      );
+      await loadCharges();
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : "Unable to save charge.",
+          : "Unable to save additional charge.",
       );
     } finally {
       setSaving(false);
@@ -218,7 +209,9 @@ export default function ChargesPage() {
   }
 
   async function removeCharge(charge: Charge) {
-    if (!window.confirm(`Delete charge "${charge.name}"?`)) return;
+    if (!window.confirm(`Delete additional charge "${charge.name}"?`)) {
+      return;
+    }
 
     setWorkingId(charge.id);
     setError("");
@@ -226,26 +219,26 @@ export default function ChargesPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/admin/tariffs/charges/${charge.id}`,
+        `${API_BASE_URL}/api/admin/tariffs/additional-charges/${charge.id}`,
         {
           method: "DELETE",
           headers: { "x-admin-key": getAdminKey() },
         },
       );
 
-      const data = await response.json();
+      const data = (await response.json()) as ChargesResponse;
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || "Unable to delete charge.");
+        throw new Error(data.message || "Unable to delete additional charge.");
       }
 
-      setSuccessMessage("Charge deleted.");
-      await loadTariffs();
+      setSuccessMessage("Additional charge deleted.");
+      await loadCharges();
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
           ? deleteError.message
-          : "Unable to delete charge.",
+          : "Unable to delete additional charge.",
       );
     } finally {
       setWorkingId(null);
@@ -259,15 +252,18 @@ export default function ChargesPage() {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
             Tab 10 / Pricing
           </p>
-          <h1 className="mt-1 text-3xl font-bold text-slate-950">Charges</h1>
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">
+            Additional Charges
+          </h1>
           <p className="mt-2 text-sm text-slate-600">
-            Manage added stops, waiting charges, surcharges and other additional
-            tariff charges.
+            Manage approved additional charges that can be added to pending
+            invoices.
           </p>
         </div>
 
         <button
-          onClick={() => openCreate()}
+          type="button"
+          onClick={openCreate}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-bold text-white"
         >
           <Plus size={18} />
@@ -279,8 +275,8 @@ export default function ChargesPage() {
         {[
           "Added Stops",
           "Waiting Charge",
-          "Night / Same Day",
-          "Additional Charges",
+          "Additional Mileage",
+          "Other Additional Charges",
         ].map((item) => (
           <div
             key={item}
@@ -304,7 +300,8 @@ export default function ChargesPage() {
       ) : null}
 
       <button
-        onClick={() => void loadTariffs()}
+        type="button"
+        onClick={() => void loadCharges()}
         className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold"
       >
         <RefreshCw size={17} />
@@ -317,7 +314,6 @@ export default function ChargesPage() {
             <thead className="bg-slate-50">
               <tr>
                 {[
-                  "Tariff",
                   "Charge",
                   "Type",
                   "Calculation",
@@ -335,33 +331,26 @@ export default function ChargesPage() {
                 ))}
               </tr>
             </thead>
+
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-16 text-center">
+                  <td colSpan={7} className="px-5 py-16 text-center">
                     <Loader2 className="mx-auto animate-spin text-[#FF6A00]" />
                   </td>
                 </tr>
-              ) : allCharges.length === 0 ? (
+              ) : charges.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={7}
                     className="px-5 py-16 text-center text-sm text-slate-500"
                   >
-                    No charges configured.
+                    No additional charges configured.
                   </td>
                 </tr>
               ) : (
-                allCharges.map(({ tariff, charge }) => (
+                charges.map((charge) => (
                   <tr key={charge.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4">
-                      <p className="text-sm font-bold text-slate-950">
-                        {tariff.name}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {tariff.vehicleType}
-                      </p>
-                    </td>
                     <td className="px-5 py-4 text-sm font-semibold text-slate-900">
                       {charge.name}
                     </td>
@@ -392,13 +381,16 @@ export default function ChargesPage() {
                     <td className="px-5 py-4">
                       <div className="flex gap-1">
                         <button
-                          onClick={() => openEdit(tariff.id, charge)}
+                          type="button"
+                          onClick={() => openEdit(charge)}
                           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
                           aria-label={`Edit ${charge.name}`}
                         >
                           <Pencil size={17} />
                         </button>
+
                         <button
+                          type="button"
                           onClick={() => void removeCharge(charge)}
                           disabled={workingId === charge.id}
                           className="rounded-lg p-2 text-red-500 hover:bg-red-50 disabled:opacity-50"
@@ -425,9 +417,11 @@ export default function ChargesPage() {
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
             <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
               <h2 className="text-xl font-bold text-slate-950">
-                {editing ? "Edit Charge" : "Add Charge"}
+                {editing ? "Edit Additional Charge" : "Add Charge"}
               </h2>
+
               <button
+                type="button"
                 onClick={() => setModalOpen(false)}
                 className="rounded-lg p-2"
                 aria-label="Close"
@@ -437,29 +431,6 @@ export default function ChargesPage() {
             </div>
 
             <form onSubmit={save} className="space-y-5 p-5">
-              {!editing ? (
-                <Field label="Tariff">
-                  <select
-                    value={form.tariffId}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        tariffId: event.target.value,
-                      }))
-                    }
-                    required
-                    className={inputClass}
-                  >
-                    <option value="">Select tariff</option>
-                    {tariffs.map((tariff) => (
-                      <option key={tariff.id} value={tariff.id}>
-                        {tariff.name} · {tariff.vehicleType}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Charge Type">
                   <select
@@ -542,6 +513,7 @@ export default function ChargesPage() {
                     }))
                   }
                 />
+
                 <Check
                   label="VAT Applicable"
                   checked={form.vatApplicable}
@@ -562,6 +534,7 @@ export default function ChargesPage() {
                 >
                   Cancel
                 </button>
+
                 <button
                   disabled={saving}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"

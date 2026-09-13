@@ -591,17 +591,7 @@ router.get("/admin/:id/options", async (req, res) => {
       prisma.tariffCharge.findMany({
         where: {
           active: true,
-          tariff: {
-            active: true,
-          },
-        },
-        include: {
-          tariff: {
-            select: {
-              name: true,
-              vehicleType: true,
-            },
-          },
+          tariffId: null,
         },
         orderBy: [{ name: "asc" }],
       }),
@@ -626,12 +616,11 @@ router.get("/admin/:id/options", async (req, res) => {
     res.json({
       charges: charges.map((charge) => ({
         id: charge.id,
-        label: `${charge.name} · ${charge.tariff.vehicleType}`,
+        label: charge.name,
         name: charge.name,
         calculation: charge.calculation,
         amount: charge.amount.toString(),
         vatApplicable: charge.vatApplicable,
-        vehicleType: charge.tariff.vehicleType,
       })),
       discounts: discounts.map((discount) => ({
         id: discount.id,
@@ -710,9 +699,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
         where: {
           id: sourceId,
           active: true,
-          tariff: {
-            active: true,
-          },
+          tariffId: null,
         },
       });
 
