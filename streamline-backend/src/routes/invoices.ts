@@ -46,7 +46,11 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
   const suppliedAdminKey = getString(req.headers["x-admin-key"]);
 
   if (!configuredAdminKey) {
-    return { authorised: false, status: 503, error: "Admin API key is not configured." };
+    return {
+      authorised: false,
+      status: 503,
+      error: "Admin API key is not configured.",
+    };
   }
 
   if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
@@ -99,8 +103,7 @@ async function sendInvoiceEmail(input: {
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const fromEmail =
-    process.env.RESEND_FROM_EMAIL?.trim() ||
-    process.env.EMAIL_FROM?.trim();
+    process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim();
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY is not configured.");
@@ -201,32 +204,49 @@ router.get("/admin/list", async (req, res) => {
     const status = getString(req.query.status).toUpperCase();
     const dateFrom = getString(req.query.dateFrom);
     const dateTo = getString(req.query.dateTo);
-    const overdueOnly = getString(req.query.overdueOnly).toLowerCase() === "true";
+    const overdueOnly =
+      getString(req.query.overdueOnly).toLowerCase() === "true";
 
     const where: Prisma.InvoiceWhereInput = {};
 
     if (search) {
       where.OR = [
         { invoiceNumber: { contains: search, mode: "insensitive" } },
-        { booking: { is: { reference: { contains: search, mode: "insensitive" } } } },
+        {
+          booking: {
+            is: { reference: { contains: search, mode: "insensitive" } },
+          },
+        },
         { user: { is: { name: { contains: search, mode: "insensitive" } } } },
-        { user: { is: { companyName: { contains: search, mode: "insensitive" } } } },
+        {
+          user: {
+            is: { companyName: { contains: search, mode: "insensitive" } },
+          },
+        },
         { user: { is: { email: { contains: search, mode: "insensitive" } } } },
-        { user: { is: { accountNumber: { contains: search, mode: "insensitive" } } } },
+        {
+          user: {
+            is: { accountNumber: { contains: search, mode: "insensitive" } },
+          },
+        },
       ];
     }
 
     if (status && status !== "ALL") {
       if (!isInvoiceStatus(status)) {
-        return res.status(400).json({ error: "Invalid invoice status filter." });
+        return res
+          .status(400)
+          .json({ error: "Invalid invoice status filter." });
       }
       where.status = status;
     }
 
     if (dateFrom || dateTo) {
       where.createdAt = {};
-      if (dateFrom) where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
-      if (dateTo) where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      if (dateFrom)
+        where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      if (dateTo)
+        where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
     }
 
     if (overdueOnly) {
@@ -278,6 +298,218 @@ router.get("/admin/list", async (req, res) => {
   }
 });
 
+router.get("/admin/draft-candidates", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: {
+        invoices: { none: {} },
+        status: { notIn: ["CANCELLED", "EXPIRED", "PENDING_PAYMENT"] },
+      },
+      orderBy: [{ collectionDate: "desc" }, { createdAt: "desc" }],
+      take: 100,
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        totalPrice: true,
+        collectionDate: true,
+        collectionAddress: true,
+        deliveryAddress: true,
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            accountNumber: true,
+            accountType: true,
+            name: true,
+            companyName: true,
+            email: true,
+            tradeAccount: {
+              select: {
+                paymentTermsDays: true,
+              },
+            },
+          },
+        },
+        quote: {
+          select: {
+            vatAmount: true,
+            totalPrice: true,
+          },
+        },
+      },
+    });
+
+    res.json({ bookings });
+  } catch (error) {
+    console.error("Admin draft invoice candidates error:", error);
+    res.status(500).json({ error: "Unable to load uninvoiced bookings." });
+  }
+});
+
+router.post("/admin/draft", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const bookingId = getString(req.body.bookingId);
+
+    if (!bookingId) {
+      return res.status(400).json({ error: "Select a booking." });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        invoices: {
+          select: { id: true, invoiceNumber: true },
+        },
+        quote: {
+          select: {
+            vatAmount: true,
+            totalPrice: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            accountType: true,
+            tradeAccount: {
+              select: {
+                paymentTermsDays: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found." });
+    }
+
+    if (
+      ["CANCELLED", "EXPIRED", "PENDING_PAYMENT"].includes(booking.status)
+    ) {
+      return res.status(400).json({
+        error: "This booking is not currently eligible for a draft invoice.",
+      });
+    }
+
+    if (booking.invoices.length > 0) {
+      return res.status(409).json({
+        error: `Invoice ${booking.invoices[0].invoiceNumber} already exists for this booking.`,
+      });
+    }
+
+    const result = await prisma.$transaction(async (transaction) => {
+      const settings = await transaction.companySettings.findFirst();
+
+      if (!settings) {
+        throw new Error(
+          "Company settings must be configured before draft invoices can be created.",
+        );
+      }
+
+      const gross = new Prisma.Decimal(booking.totalPrice);
+      const vatRate = new Prisma.Decimal(settings.vatRate);
+
+      let vatAmount: Prisma.Decimal;
+
+      if (booking.quote?.vatAmount !== null && booking.quote?.vatAmount !== undefined) {
+        vatAmount = roundMoney(new Prisma.Decimal(booking.quote.vatAmount));
+      } else if (vatRate.greaterThan(0)) {
+        const divisor = new Prisma.Decimal(1).add(vatRate.div(100));
+        vatAmount = roundMoney(gross.sub(gross.div(divisor)));
+      } else {
+        vatAmount = new Prisma.Decimal(0);
+      }
+
+      if (vatAmount.greaterThan(gross)) {
+        vatAmount = new Prisma.Decimal(0);
+      }
+
+      const subtotal = roundMoney(gross.sub(vatAmount));
+      const total = roundMoney(gross);
+
+      const invoiceNumber = `${settings.invoicePrefix}-${String(
+        settings.nextInvoiceNumber,
+      ).padStart(6, "0")}`;
+
+      const paymentTermsDays =
+        booking.user?.accountType === "TRADE"
+          ? booking.user.tradeAccount?.paymentTermsDays ??
+            settings.paymentTermsDays
+          : settings.paymentTermsDays;
+
+      const dueDate = new Date();
+      dueDate.setUTCDate(dueDate.getUTCDate() + paymentTermsDays);
+
+      const invoice = await transaction.invoice.create({
+        data: {
+          invoiceNumber,
+          bookingId: booking.id,
+          userId: booking.userId,
+          status: "DRAFT",
+          subtotal,
+          vatAmount,
+          total,
+          dueDate,
+          paymentTerms: `${paymentTermsDays} days`,
+          customerReference: booking.customerReference,
+          purchaseOrderNumber: booking.purchaseOrderNumber,
+        },
+        include: invoiceInclude(),
+      });
+
+      await transaction.companySettings.update({
+        where: { id: settings.id },
+        data: {
+          nextInvoiceNumber: {
+            increment: 1,
+          },
+        },
+      });
+
+      return invoice;
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Draft invoice ${result.invoiceNumber} created.`,
+      invoice: result,
+    });
+  } catch (error) {
+    console.error("Admin draft invoice creation error:", error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return res.status(409).json({
+        error:
+          "The invoice number is already in use. Refresh and try again.",
+      });
+    }
+
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to create draft invoice.",
+    });
+  }
+});
+
 router.get("/admin/:id/options", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -301,7 +533,8 @@ router.get("/admin/:id/options", async (req, res) => {
 
     if (invoice.status !== "DRAFT") {
       return res.status(400).json({
-        error: "Additional charges and discounts can only be changed while an invoice is pending.",
+        error:
+          "Additional charges and discounts can only be changed while an invoice is pending.",
       });
     }
 
@@ -367,7 +600,9 @@ router.get("/admin/:id/options", async (req, res) => {
     });
   } catch (error) {
     console.error("Admin invoice options error:", error);
-    res.status(500).json({ error: "Unable to load invoice adjustment options." });
+    res
+      .status(500)
+      .json({ error: "Unable to load invoice adjustment options." });
   }
 });
 
@@ -445,7 +680,9 @@ router.post("/admin/:id/adjustments", async (req, res) => {
       unitAmount = charge.amount;
       vatApplicable = charge.vatApplicable;
 
-      if (["PER_MILE", "PER_STOP", "PER_HOUR"].includes(charge.calculation)) {
+      if (
+        ["PER_MILE", "PER_STOP", "PER_HOUR"].includes(charge.calculation)
+      ) {
         quantity = new Prisma.Decimal(requestedQuantity);
         netAmount = roundMoney(charge.amount.mul(quantity));
       } else if (charge.calculation === "PERCENTAGE") {
@@ -593,9 +830,7 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
     const nextSubtotal = roundMoney(
       invoice.subtotal.sub(adjustment.netAmount),
     );
-    const nextVat = roundMoney(
-      invoice.vatAmount.sub(adjustment.vatAmount),
-    );
+    const nextVat = roundMoney(invoice.vatAmount.sub(adjustment.vatAmount));
     const nextTotal = roundMoney(nextSubtotal.add(nextVat));
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
@@ -725,9 +960,7 @@ router.post("/admin/:id/send", async (req, res) => {
     console.error("Admin invoice send error:", error);
     res.status(500).json({
       error:
-        error instanceof Error
-          ? error.message
-          : "Unable to send invoice.",
+        error instanceof Error ? error.message : "Unable to send invoice.",
     });
   }
 });
@@ -782,16 +1015,28 @@ router.patch("/admin/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid invoice status." });
     }
 
-    if (req.body.subtotal !== undefined && (subtotal === null || subtotal < 0)) {
-      return res.status(400).json({ error: "Subtotal must be zero or greater." });
+    if (
+      req.body.subtotal !== undefined &&
+      (subtotal === null || subtotal < 0)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Subtotal must be zero or greater." });
     }
 
-    if (req.body.vatAmount !== undefined && (vatAmount === null || vatAmount < 0)) {
-      return res.status(400).json({ error: "VAT amount must be zero or greater." });
+    if (
+      req.body.vatAmount !== undefined &&
+      (vatAmount === null || vatAmount < 0)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "VAT amount must be zero or greater." });
     }
 
     if (req.body.total !== undefined && (total === null || total < 0)) {
-      return res.status(400).json({ error: "Invoice total must be zero or greater." });
+      return res
+        .status(400)
+        .json({ error: "Invoice total must be zero or greater." });
     }
 
     const nextStatus = statusValue
@@ -805,9 +1050,10 @@ router.patch("/admin/:id", async (req, res) => {
         subtotal:
           req.body.subtotal !== undefined ? (subtotal as number) : undefined,
         vatAmount:
-          req.body.vatAmount !== undefined ? (vatAmount as number) : undefined,
-        total:
-          req.body.total !== undefined ? (total as number) : undefined,
+          req.body.vatAmount !== undefined
+            ? (vatAmount as number)
+            : undefined,
+        total: req.body.total !== undefined ? (total as number) : undefined,
         dueDate:
           req.body.dueDate !== undefined
             ? dueDateValue

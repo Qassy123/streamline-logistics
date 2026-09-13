@@ -103,6 +103,25 @@ type Invoice = {
   };
 };
 
+type DraftCandidate = {
+  id: string;
+  reference: string;
+  status: string;
+  totalPrice: string | number;
+  collectionDate: string;
+  collectionAddress: string;
+  deliveryAddress: string;
+  userId?: string | null;
+  user?: {
+    id: string;
+    accountNumber?: string | null;
+    accountType: string;
+    name: string;
+    companyName?: string | null;
+    email: string;
+  } | null;
+};
+
 type ChargeOption = {
   id: string;
   label: string;
@@ -125,6 +144,7 @@ type DiscountOption = {
 type Payload = {
   invoices?: Invoice[];
   invoice?: Invoice;
+  bookings?: DraftCandidate[];
   pagination?: {
     page: number;
     pageSize: number;
@@ -171,7 +191,7 @@ function date(value?: string | null) {
 
 function formatStatus(status: string) {
   return status
-    .replaceAll("_", " ")
+    .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -187,6 +207,17 @@ function accountLabel(invoice: Invoice) {
     invoice.user.companyName ||
     invoice.user.name ||
     invoice.user.email ||
+    "Customer"
+  );
+}
+
+function candidateAccountLabel(booking: DraftCandidate) {
+  if (!booking.user) return "Guest booking";
+
+  return (
+    booking.user.companyName ||
+    booking.user.name ||
+    booking.user.email ||
     "Customer"
   );
 }
@@ -215,6 +246,12 @@ function AdminInvoicesContent() {
   const [invoiceWorking, setInvoiceWorking] = useState(false);
   const [error, setError] = useState("");
   const [invoiceMessage, setInvoiceMessage] = useState("");
+
+  const [showCreateDraft, setShowCreateDraft] = useState(false);
+  const [draftCandidates, setDraftCandidates] = useState<DraftCandidate[]>([]);
+  const [selectedBookingId, setSelectedBookingId] = useState("");
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftCreating, setDraftCreating] = useState(false);
 
   useEffect(() => {
     const storedKey =
@@ -280,8 +317,7 @@ function AdminInvoicesContent() {
         setSelectedInvoice((current) => {
           if (!current) return current;
           return (
-            allInvoices.find((invoice) => invoice.id === current.id) ||
-            current
+            allInvoices.find((invoice) => invoice.id === current.id) || current
           );
         });
       } catch (requestError) {
@@ -405,8 +441,7 @@ function AdminInvoicesContent() {
 
     return invoices.filter((invoice) => {
       const matchesAccount =
-        selectedAccount === "ALL" ||
-        accountKey(invoice) === selectedAccount;
+        selectedAccount === "ALL" || accountKey(invoice) === selectedAccount;
 
       const matchesInvoiceNumber =
         !invoiceSearch ||
@@ -422,9 +457,87 @@ function AdminInvoicesContent() {
     [chargeOptions, selectedChargeId],
   );
 
-  async function applyAdjustment(
-    sourceType: "CHARGE" | "DISCOUNT",
-  ) {
+  async function openCreateDraft() {
+    if (!adminKey) return;
+
+    setShowCreateDraft(true);
+    setDraftLoading(true);
+    setSelectedBookingId("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/invoices/admin/draft-candidates`,
+        {
+          headers: {
+            "x-admin-key": adminKey,
+          },
+          cache: "no-store",
+        },
+      );
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to load uninvoiced bookings.");
+      }
+
+      setDraftCandidates(payload.bookings || []);
+    } catch (requestError) {
+      setDraftCandidates([]);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load uninvoiced bookings.",
+      );
+    } finally {
+      setDraftLoading(false);
+    }
+  }
+
+  async function createDraftInvoice() {
+    if (!selectedBookingId || !adminKey) return;
+
+    setDraftCreating(true);
+    setError("");
+
+    try {
+      const response = await fetch(`${API_BASE}/api/invoices/admin/draft`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": adminKey,
+        },
+        body: JSON.stringify({
+          bookingId: selectedBookingId,
+        }),
+      });
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok || !payload.invoice) {
+        throw new Error(payload.error || "Unable to create draft invoice.");
+      }
+
+      const created = payload.invoice;
+      setInvoices((current) => [created, ...current]);
+      setSelectedInvoice(created);
+      setInvoiceMessage(payload.message || "Draft invoice created.");
+      setShowCreateDraft(false);
+      setDraftCandidates([]);
+      setSelectedBookingId("");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to create draft invoice.",
+      );
+    } finally {
+      setDraftCreating(false);
+    }
+  }
+
+  async function applyAdjustment(sourceType: "CHARGE" | "DISCOUNT") {
     if (!selectedInvoice) return;
 
     const sourceId =
@@ -464,9 +577,7 @@ function AdminInvoicesContent() {
       const payload = (await response.json()) as Payload;
 
       if (!response.ok || !payload.invoice) {
-        throw new Error(
-          payload.error || "Unable to update the invoice.",
-        );
+        throw new Error(payload.error || "Unable to update the invoice.");
       }
 
       const updated = payload.invoice;
@@ -574,9 +685,7 @@ function AdminInvoicesContent() {
       const payload = (await response.json()) as Payload;
 
       if (!response.ok || !payload.invoice) {
-        throw new Error(
-          payload.error || "Unable to send the invoice.",
-        );
+        throw new Error(payload.error || "Unable to send the invoice.");
       }
 
       const updated = payload.invoice;
@@ -587,8 +696,7 @@ function AdminInvoicesContent() {
         ),
       );
       setInvoiceMessage(
-        payload.message ||
-          `Invoice sent to ${selectedInvoice.user.email}.`,
+        payload.message || `Invoice sent to ${selectedInvoice.user.email}.`,
       );
     } catch (requestError) {
       setError(
@@ -613,18 +721,30 @@ function AdminInvoicesContent() {
           </h1>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void loadInvoices(true)}
-          disabled={refreshing || loading || !adminKey}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RefreshCw
-            size={17}
-            className={refreshing ? "animate-spin" : ""}
-          />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void openCreateDraft()}
+            disabled={loading || !adminKey}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus size={17} />
+            Create Draft Invoice
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void loadInvoices(true)}
+            disabled={refreshing || loading || !adminKey}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw
+              size={17}
+              className={refreshing ? "animate-spin" : ""}
+            />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -762,6 +882,145 @@ function AdminInvoicesContent() {
         </section>
       </div>
 
+      {showCreateDraft ? (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+          <section className="w-full max-w-3xl rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
+                  Pending Invoice
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-950">
+                  Create Draft Invoice
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  Only bookings without an existing invoice are available.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCreateDraft(false)}
+                disabled={draftCreating}
+                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Close create draft invoice"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              {draftLoading ? (
+                <div className="flex min-h-48 items-center justify-center">
+                  <Loader2 className="h-7 w-7 animate-spin text-[#FF6A00]" />
+                </div>
+              ) : draftCandidates.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center">
+                  <FileText className="mx-auto h-10 w-10 text-slate-300" />
+                  <p className="mt-3 font-bold text-slate-950">
+                    No uninvoiced bookings available
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    All eligible bookings already have an invoice.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-bold text-slate-700">
+                      Booking
+                    </span>
+                    <select
+                      value={selectedBookingId}
+                      onChange={(event) =>
+                        setSelectedBookingId(event.target.value)
+                      }
+                      disabled={draftCreating}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                    >
+                      <option value="">Select booking</option>
+                      {draftCandidates.map((booking) => (
+                        <option key={booking.id} value={booking.id}>
+                          {booking.reference} · {candidateAccountLabel(booking)} ·{" "}
+                          {formatStatus(booking.status)} ·{" "}
+                          {money(booking.totalPrice)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedBookingId ? (
+                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      {(() => {
+                        const booking = draftCandidates.find(
+                          (item) => item.id === selectedBookingId,
+                        );
+
+                        if (!booking) return null;
+
+                        return (
+                          <>
+                            <p className="font-bold text-slate-950">
+                              {booking.reference}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {candidateAccountLabel(booking)}
+                            </p>
+                            <p className="mt-3 text-sm text-slate-700">
+                              {booking.collectionAddress}
+                            </p>
+                            <p className="my-1 text-xs text-slate-400">to</p>
+                            <p className="text-sm text-slate-700">
+                              {booking.deliveryAddress}
+                            </p>
+                            <div className="mt-4 flex flex-wrap gap-4 text-sm">
+                              <span className="font-bold text-slate-950">
+                                {money(booking.totalPrice)}
+                              </span>
+                              <span className="text-slate-500">
+                                {date(booking.collectionDate)}
+                              </span>
+                              <span className="text-slate-500">
+                                {formatStatus(booking.status)}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateDraft(false)}
+                      disabled={draftCreating}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void createDraftInvoice()}
+                      disabled={draftCreating || !selectedBookingId}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+                    >
+                      {draftCreating ? (
+                        <Loader2 size={17} className="animate-spin" />
+                      ) : (
+                        <Plus size={17} />
+                      )}
+                      Create Draft
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {selectedInvoice ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
           <section className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
@@ -820,9 +1079,7 @@ function AdminInvoicesContent() {
                   label="Payment"
                   value={
                     selectedInvoice.booking.payments?.[0]?.status
-                      ? formatStatus(
-                          selectedInvoice.booking.payments[0].status,
-                        )
+                      ? formatStatus(selectedInvoice.booking.payments[0].status)
                       : "Not recorded"
                   }
                 />
@@ -862,7 +1119,9 @@ function AdminInvoicesContent() {
                   <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_120px_auto]">
                     <select
                       value={selectedChargeId}
-                      onChange={(event) => setSelectedChargeId(event.target.value)}
+                      onChange={(event) =>
+                        setSelectedChargeId(event.target.value)
+                      }
                       disabled={invoiceWorking || optionsLoading}
                       className="rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
                     >
@@ -879,7 +1138,9 @@ function AdminInvoicesContent() {
                       min="0.01"
                       step="0.01"
                       value={chargeQuantity}
-                      onChange={(event) => setChargeQuantity(event.target.value)}
+                      onChange={(event) =>
+                        setChargeQuantity(event.target.value)
+                      }
                       disabled={
                         invoiceWorking ||
                         !selectedCharge ||
