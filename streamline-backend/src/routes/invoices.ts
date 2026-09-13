@@ -100,6 +100,15 @@ async function sendInvoiceEmail(input: {
   vatAmount: Prisma.Decimal;
   total: Prisma.Decimal;
   dueDate: Date | null;
+  adjustments: Array<{
+    sourceType: string;
+    name: string;
+    calculation: string | null;
+    quantity: Prisma.Decimal;
+    unitAmount: Prisma.Decimal;
+    netAmount: Prisma.Decimal;
+    vatAmount: Prisma.Decimal;
+  }>;
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const fromEmail =
@@ -129,6 +138,43 @@ async function sendInvoiceEmail(input: {
       }).format(input.dueDate)
     : "Not specified";
 
+  const adjustmentNetTotal = input.adjustments.reduce(
+    (sum, adjustment) => sum.add(adjustment.netAmount),
+    new Prisma.Decimal(0),
+  );
+
+  const baseSubtotal = roundMoney(input.subtotal.sub(adjustmentNetTotal));
+
+  const adjustmentRows = input.adjustments
+    .map((adjustment) => {
+      const isDiscount = adjustment.sourceType === "DISCOUNT";
+      const quantity = Number(adjustment.quantity.toString());
+      const showQuantity =
+        quantity !== 1 &&
+        ["PER_MILE", "PER_STOP", "PER_HOUR"].includes(
+          adjustment.calculation || "",
+        );
+
+      const detail = isDiscount
+        ? "Discount"
+        : showQuantity
+          ? `Additional charge · Qty ${quantity}`
+          : "Additional charge";
+
+      return `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #e2e8f0">
+            <strong>${escapeHtml(adjustment.name)}</strong>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(detail)}</div>
+          </td>
+          <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right">
+            <strong>${money(adjustment.netAmount)}</strong>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -148,10 +194,20 @@ async function sendInvoiceEmail(input: {
           )}</strong> for booking <strong>${escapeHtml(
             input.bookingReference,
           )}</strong>.</p>
-          <table style="border-collapse:collapse;width:100%;max-width:520px;margin:20px 0">
+
+          <table style="border-collapse:collapse;width:100%;max-width:560px;margin:20px 0">
             <tr>
-              <td style="padding:8px;border-bottom:1px solid #e2e8f0">Subtotal</td>
-              <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.subtotal)}</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0">
+                <strong>Base service</strong>
+              </td>
+              <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right">
+                <strong>${money(baseSubtotal)}</strong>
+              </td>
+            </tr>
+            ${adjustmentRows}
+            <tr>
+              <td style="padding:10px 8px;border-top:2px solid #cbd5e1;border-bottom:1px solid #e2e8f0">Subtotal</td>
+              <td style="padding:10px 8px;border-top:2px solid #cbd5e1;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.subtotal)}</strong></td>
             </tr>
             <tr>
               <td style="padding:8px;border-bottom:1px solid #e2e8f0">VAT</td>
@@ -166,6 +222,7 @@ async function sendInvoiceEmail(input: {
               <td style="padding:8px;text-align:right"><strong>${escapeHtml(dueText)}</strong></td>
             </tr>
           </table>
+
           <p>If you have any questions about this invoice, please contact Streamline Logistics Group.</p>
         </div>
       `,
@@ -420,26 +477,16 @@ router.post("/admin/draft", async (req, res) => {
         );
       }
 
-      const gross = new Prisma.Decimal(booking.totalPrice);
+      const total = roundMoney(new Prisma.Decimal(booking.totalPrice));
       const vatRate = new Prisma.Decimal(settings.vatRate);
 
-      let vatAmount: Prisma.Decimal;
+      const subtotal = vatRate.greaterThan(0)
+        ? roundMoney(
+            total.div(new Prisma.Decimal(1).add(vatRate.div(100))),
+          )
+        : total;
 
-      if (booking.quote?.vatAmount !== null && booking.quote?.vatAmount !== undefined) {
-        vatAmount = roundMoney(new Prisma.Decimal(booking.quote.vatAmount));
-      } else if (vatRate.greaterThan(0)) {
-        const divisor = new Prisma.Decimal(1).add(vatRate.div(100));
-        vatAmount = roundMoney(gross.sub(gross.div(divisor)));
-      } else {
-        vatAmount = new Prisma.Decimal(0);
-      }
-
-      if (vatAmount.greaterThan(gross)) {
-        vatAmount = new Prisma.Decimal(0);
-      }
-
-      const subtotal = roundMoney(gross.sub(vatAmount));
-      const total = roundMoney(gross);
+      const vatAmount = roundMoney(total.sub(subtotal));
 
       const invoiceNumber = `${settings.invoicePrefix}-${String(
         settings.nextInvoiceNumber,
@@ -905,6 +952,15 @@ router.post("/admin/:id/send", async (req, res) => {
         vatAmount: invoice.vatAmount,
         total: invoice.total,
         dueDate: invoice.dueDate,
+        adjustments: invoice.adjustments.map((adjustment) => ({
+          sourceType: adjustment.sourceType,
+          name: adjustment.name,
+          calculation: adjustment.calculation,
+          quantity: adjustment.quantity,
+          unitAmount: adjustment.unitAmount,
+          netAmount: adjustment.netAmount,
+          vatAmount: adjustment.vatAmount,
+        })),
       });
     } catch (emailError) {
       await prisma.emailLog.create({
