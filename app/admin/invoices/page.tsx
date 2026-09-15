@@ -235,6 +235,7 @@ function AdminInvoicesContent() {
   const [selectedAccount, setSelectedAccount] = useState("ALL");
   const [invoiceNumber, setInvoiceNumber] = useState(invoiceFromQuery);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [dismissedInvoiceQuery, setDismissedInvoiceQuery] = useState("");
   const [chargeOptions, setChargeOptions] = useState<ChargeOption[]>([]);
   const [discountOptions, setDiscountOptions] = useState<DiscountOption[]>([]);
   const [selectedChargeId, setSelectedChargeId] = useState("");
@@ -342,7 +343,12 @@ function AdminInvoicesContent() {
   }, [adminKey, loadInvoices]);
 
   useEffect(() => {
-    if (!invoiceFromQuery || invoices.length === 0 || selectedInvoice) {
+    if (
+      !invoiceFromQuery ||
+      invoices.length === 0 ||
+      selectedInvoice ||
+      dismissedInvoiceQuery === invoiceFromQuery
+    ) {
       return;
     }
 
@@ -355,7 +361,12 @@ function AdminInvoicesContent() {
       setInvoiceNumber(invoiceFromQuery);
       setSelectedInvoice(match);
     }
-  }, [invoiceFromQuery, invoices, selectedInvoice]);
+  }, [
+    dismissedInvoiceQuery,
+    invoiceFromQuery,
+    invoices,
+    selectedInvoice,
+  ]);
 
   const loadOptions = useCallback(
     async (invoice: Invoice) => {
@@ -1037,6 +1048,7 @@ function AdminInvoicesContent() {
               <button
                 type="button"
                 onClick={() => {
+                  setDismissedInvoiceQuery(invoiceFromQuery);
                   setSelectedInvoice(null);
                   setInvoiceMessage("");
                 }}
