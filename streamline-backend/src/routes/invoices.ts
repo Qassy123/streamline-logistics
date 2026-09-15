@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
+import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer } from "../lib/invoicePdf";
 
 const router = Router();
 
@@ -8,9 +9,14 @@ const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 const ALLOWED_INVOICE_STATUSES = [
   "DRAFT",
-  "ISSUED",
+  "FINALISED",
+  "SENT",
+  "PARTIALLY_PAID",
   "PAID",
+  "VOID",
+  "CREDITED",
   "OVERDUE",
+  "ISSUED",
   "CANCELLED",
 ] as const;
 
@@ -63,9 +69,13 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 function invoiceInclude() {
   return {
     user: true,
-    adjustments: {
-      orderBy: { createdAt: "asc" },
-    },
+    adjustments: { orderBy: { createdAt: "asc" } },
+    lines: { orderBy: { createdAt: "asc" } },
+    invoiceBookings: { orderBy: { bookingDate: "asc" } },
+    allocations: { orderBy: { allocatedAt: "asc" }, include: { payment: true } },
+    creditNotes: { orderBy: { createdAt: "asc" } },
+    emailLogs: { orderBy: { createdAt: "asc" } },
+    auditEvents: { orderBy: { createdAt: "asc" } },
     booking: {
       include: {
         quote: true,
@@ -100,6 +110,7 @@ async function sendInvoiceEmail(input: {
   vatAmount: Prisma.Decimal;
   total: Prisma.Decimal;
   dueDate: Date | null;
+  pdfBuffer?: Buffer | null;
   adjustments: Array<{
     sourceType: string;
     name: string;
@@ -185,6 +196,14 @@ async function sendInvoiceEmail(input: {
       from: fromEmail,
       to: [input.to],
       subject: `Invoice ${input.invoiceNumber} - Streamline Logistics Group`,
+      attachments: input.pdfBuffer
+        ? [
+            {
+              filename: `${input.invoiceNumber}.pdf`,
+              content: input.pdfBuffer.toString("base64"),
+            },
+          ]
+        : undefined,
       html: `
         <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6">
           <h2 style="margin:0 0 16px">Streamline Logistics Group</h2>
@@ -238,6 +257,78 @@ async function sendInvoiceEmail(input: {
   if (!response.ok) {
     throw new Error(
       payload.message || payload.error || "Resend rejected the invoice email.",
+    );
+  }
+
+  return payload.id || null;
+}
+
+
+async function sendInvoiceReminderEmail(input: {
+  to: string;
+  invoiceNumber: string;
+  accountName: string;
+  dueDate: Date;
+  outstanding: Prisma.Decimal;
+  reminderType: "APPROACHING_DUE" | "DUE_TODAY" | "OVERDUE";
+}) {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const fromEmail =
+    process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim();
+
+  if (!apiKey || !fromEmail) {
+    throw new Error("Invoice reminder email is not configured.");
+  }
+
+  const heading =
+    input.reminderType === "OVERDUE"
+      ? "Invoice overdue"
+      : input.reminderType === "DUE_TODAY"
+        ? "Invoice due today"
+        : "Invoice due soon";
+  const dueText = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(input.dueDate);
+  const outstandingText = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(Number(input.outstanding));
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [input.to],
+      subject: `${heading}: ${input.invoiceNumber} - Streamline Logistics Group`,
+      html: `
+        <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6">
+          <h2>${escapeHtml(heading)}</h2>
+          <p>Dear ${escapeHtml(input.accountName)},</p>
+          <p>This is a reminder for invoice <strong>${escapeHtml(input.invoiceNumber)}</strong>.</p>
+          <p><strong>Due date:</strong> ${escapeHtml(dueText)}<br />
+          <strong>Outstanding:</strong> ${escapeHtml(outstandingText)}</p>
+          <p>If payment has already been arranged, no further action is required.</p>
+          <p>Streamline Logistics Group</p>
+        </div>
+      `,
+    }),
+  });
+
+  const payload = (await response.json()) as {
+    id?: string;
+    message?: string;
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(
+      payload.message || payload.error || "Resend rejected the reminder email.",
     );
   }
 
@@ -518,6 +609,47 @@ router.post("/admin/draft", async (req, res) => {
         include: invoiceInclude(),
       });
 
+      await transaction.invoiceLine.create({
+        data: {
+          invoiceId: invoice.id,
+          bookingId: booking.id,
+          chargeType: "BASE_SERVICE",
+          description: `Courier service · ${booking.reference}`,
+          quantity: new Prisma.Decimal(1),
+          unitPrice: subtotal,
+          netAmount: subtotal,
+          vatRate,
+          vatAmount,
+          grossAmount: total,
+          bookingReference: booking.reference,
+          sourceType: "BOOKING",
+          sourceId: booking.id,
+        },
+      });
+
+      await transaction.invoiceBooking.create({
+        data: {
+          invoiceId: invoice.id,
+          bookingId: booking.id,
+          bookingReference: booking.reference,
+          bookingDate: booking.collectionDate,
+          poReference: booking.purchaseOrderNumber,
+          routeDescription: `${booking.collectionAddress} → ${booking.deliveryAddress}`,
+          serviceDescription: booking.vehicleType || booking.journeyType || "Courier service",
+          netAmount: subtotal,
+          vatAmount,
+          grossAmount: total,
+        },
+      });
+
+      await transaction.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: "DRAFT_CREATED",
+          description: `Draft invoice ${invoiceNumber} created from booking ${booking.reference}.`,
+        },
+      });
+
       await transaction.companySettings.update({
         where: { id: settings.id },
         data: {
@@ -790,7 +922,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
     }
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
-      await transaction.invoiceAdjustment.create({
+      const adjustment = await transaction.invoiceAdjustment.create({
         data: {
           invoiceId: invoice.id,
           sourceType,
@@ -802,6 +934,31 @@ router.post("/admin/:id/adjustments", async (req, res) => {
           netAmount,
           vatApplicable,
           vatAmount,
+        },
+      });
+
+      await transaction.invoiceLine.create({
+        data: {
+          invoiceId: invoice.id,
+          bookingId: invoice.bookingId,
+          chargeType: sourceType === "DISCOUNT" ? "DISCOUNT" : "OTHER",
+          description: name,
+          quantity,
+          unitPrice: unitAmount,
+          netAmount,
+          vatRate: vatApplicable ? vatRate : new Prisma.Decimal(0),
+          vatAmount,
+          grossAmount: roundMoney(netAmount.add(vatAmount)),
+          sourceType: "ADJUSTMENT",
+          sourceId: adjustment.id,
+        },
+      });
+
+      await transaction.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: sourceType === "DISCOUNT" ? "DISCOUNT_ADDED" : "CHARGE_ADDED",
+          description: `${name} ${sourceType === "DISCOUNT" ? "applied" : "added"}.`,
         },
       });
 
@@ -868,8 +1025,12 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
     const nextTotal = roundMoney(nextSubtotal.add(nextVat));
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
-      await transaction.invoiceAdjustment.delete({
-        where: { id: adjustment.id },
+      await transaction.invoiceLine.deleteMany({
+        where: { invoiceId: invoice.id, sourceType: "ADJUSTMENT", sourceId: adjustment.id },
+      });
+      await transaction.invoiceAdjustment.delete({ where: { id: adjustment.id } });
+      await transaction.invoiceAuditEvent.create({
+        data: { invoiceId: invoice.id, eventType: "ADJUSTMENT_REMOVED", description: `${adjustment.name} removed from draft invoice.` },
       });
 
       return transaction.invoice.update({
@@ -901,7 +1062,7 @@ router.post("/admin/:id/send", async (req, res) => {
   }
 
   try {
-    const invoice = await prisma.invoice.findUnique({
+    let invoice = await prisma.invoice.findUnique({
       where: { id: req.params.id },
       include: invoiceInclude(),
     });
@@ -910,9 +1071,69 @@ router.post("/admin/:id/send", async (req, res) => {
       return res.status(404).json({ error: "Invoice not found." });
     }
 
-    if (invoice.status !== "DRAFT") {
+    if (invoice.status === "DRAFT") {
+      if (!invoice.lines.length) {
+        return res.status(400).json({
+          error: "Invoice must contain at least one financial charge line.",
+        });
+      }
+
+      const finalisedAt = new Date();
+      const issuedAt = invoice.issuedAt || finalisedAt;
+      const supplyDate =
+        invoice.supplyDate ||
+        invoice.booking?.collectionDate ||
+        invoice.invoiceBookings[0]?.bookingDate ||
+        finalisedAt;
+
+      const pdf = await generateAndStoreInvoicePdf({
+        invoice: {
+          ...invoice,
+          status: "FINALISED",
+          finalisedAt,
+          issuedAt,
+          supplyDate,
+        },
+      });
+
+      invoice = await prisma.$transaction(async (transaction) => {
+        await transaction.invoiceAuditEvent.create({
+          data: {
+            invoiceId: invoice!.id,
+            eventType: "PDF_STORED",
+            description: `Issued PDF stored as ${pdf.storageKey}.`,
+          },
+        });
+        await transaction.invoiceAuditEvent.create({
+          data: {
+            invoiceId: invoice!.id,
+            eventType: "FINALISED",
+            description:
+              "Invoice financial values locked and issued PDF stored before sending.",
+          },
+        });
+        return transaction.invoice.update({
+          where: { id: invoice!.id },
+          data: {
+            status: "FINALISED",
+            finalisedAt,
+            issuedAt,
+            supplyDate,
+            pdfUrl: pdf.url,
+            pdfStorageKey: pdf.storageKey,
+          },
+          include: invoiceInclude(),
+        });
+      });
+    }
+
+    if (
+      !["FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE"].includes(
+        invoice.status,
+      )
+    ) {
       return res.status(400).json({
-        error: "Only a pending invoice can be sent.",
+        error: "This invoice cannot be sent in its current status.",
       });
     }
 
@@ -928,17 +1149,29 @@ router.post("/admin/:id/send", async (req, res) => {
       invoice.user.companyName || invoice.user.name || recipient;
 
     let providerMessageId: string | null = null;
+    let pdfBuffer: Buffer | null = null;
+
+    try {
+      pdfBuffer = await getStoredInvoicePdfBuffer(invoice);
+    } catch (pdfError) {
+      console.error("Invoice PDF attachment load error:", pdfError);
+      return res.status(500).json({
+        error:
+          "The finalised invoice PDF could not be loaded. Re-finalise the invoice before sending.",
+      });
+    }
 
     try {
       providerMessageId = await sendInvoiceEmail({
         to: recipient,
         invoiceNumber: invoice.invoiceNumber,
         accountName,
-        bookingReference: invoice.booking.reference,
+        bookingReference: invoice.booking?.reference || invoice.invoiceBookings[0]?.bookingReference || "Multiple bookings",
         subtotal: invoice.subtotal,
         vatAmount: invoice.vatAmount,
         total: invoice.total,
         dueDate: invoice.dueDate,
+        pdfBuffer,
         adjustments: invoice.adjustments.map((adjustment) => ({
           sourceType: adjustment.sourceType,
           name: adjustment.name,
@@ -984,11 +1217,17 @@ router.post("/admin/:id/send", async (req, res) => {
         },
       });
 
+      await transaction.invoiceAuditEvent.create({
+        data: { invoiceId: invoice.id, eventType: "INVOICE_SENT", description: `Invoice sent to ${recipient}.` },
+      });
+
       return transaction.invoice.update({
         where: { id: invoice.id },
         data: {
-          status: "ISSUED",
+          status: invoice.status === "FINALISED" ? "SENT" : invoice.status,
+          finalisedAt: invoice.finalisedAt || new Date(),
           issuedAt: invoice.issuedAt || new Date(),
+          sentAt: invoice.sentAt || new Date(),
         },
         include: invoiceInclude(),
       });
@@ -1049,6 +1288,19 @@ router.patch("/admin/:id", async (req, res) => {
     }
 
     const statusValue = getString(req.body.status).toUpperCase();
+
+    const financialEditRequested =
+      req.body.subtotal !== undefined ||
+      req.body.vatAmount !== undefined ||
+      req.body.total !== undefined ||
+      req.body.dueDate !== undefined;
+
+    if (existingInvoice.status !== "DRAFT" && financialEditRequested) {
+      return res.status(400).json({
+        error: "Financial values are locked after an invoice is finalised. Use a credit note for reductions.",
+      });
+    }
+
     const subtotal = getNumber(req.body.subtotal);
     const vatAmount = getNumber(req.body.vatAmount);
     const total = getNumber(req.body.total);
@@ -1195,6 +1447,447 @@ router.post("/admin", async (req, res) => {
     }
 
     res.status(500).json({ error: "Unable to create invoice." });
+  }
+});
+
+
+router.get("/admin/billing-profile/:userId", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.userId },
+      include: { billingProfile: true, tradeAccount: true },
+    });
+    if (!user) return res.status(404).json({ error: "Customer not found." });
+    const profile = user.billingProfile || await prisma.billingProfile.create({
+      data: {
+        userId: user.id,
+        paymentMode: user.accountType === "TRADE" ? "PAY_LATER" : "PAY_NOW",
+        paymentTermsDays: user.tradeAccount?.paymentTermsDays ?? 30,
+        accountsEmail: user.tradeAccount?.accountsEmail || user.accountsEmail || user.email,
+        creditLimit: user.tradeAccount?.creditLimit,
+        creditFacilityOnHold: user.tradeAccount?.creditFacilityOnHold ?? false,
+        holdReason: user.tradeAccount?.creditHoldReason,
+      },
+    });
+    res.json({ profile });
+  } catch (error) {
+    console.error("Billing profile load error:", error);
+    res.status(500).json({ error: "Unable to load billing profile." });
+  }
+});
+
+router.patch("/admin/billing-profile/:userId", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const paymentTermsDays = getPositiveInteger(req.body.paymentTermsDays, 30);
+    const invoiceDayOfWeek = req.body.invoiceDayOfWeek == null ? null : Number(req.body.invoiceDayOfWeek);
+    const invoiceDayOfMonth = req.body.invoiceDayOfMonth == null ? null : Number(req.body.invoiceDayOfMonth);
+    if (invoiceDayOfWeek != null && (invoiceDayOfWeek < 0 || invoiceDayOfWeek > 6)) return res.status(400).json({ error: "Invoice day of week must be 0 to 6." });
+    if (invoiceDayOfMonth != null && (invoiceDayOfMonth < 1 || invoiceDayOfMonth > 31)) return res.status(400).json({ error: "Invoice day of month must be 1 to 31." });
+    const profile = await prisma.billingProfile.upsert({
+      where: { userId: req.params.userId },
+      create: {
+        userId: req.params.userId,
+        paymentMode: req.body.paymentMode === "PAY_LATER" ? "PAY_LATER" : "PAY_NOW",
+        invoiceMode: req.body.invoiceMode === "CONSOLIDATED" ? "CONSOLIDATED" : "PER_BOOKING",
+        billingFrequency: ["WEEKLY", "MONTHLY"].includes(req.body.billingFrequency) ? req.body.billingFrequency : "PER_BOOKING",
+        invoiceDayOfWeek, invoiceDayOfMonth, paymentTermsDays,
+        accountsEmail: getOptionalString(req.body.accountsEmail), poRequired: Boolean(req.body.poRequired),
+        creditLimit: getNumber(req.body.creditLimit), creditFacilityOnHold: Boolean(req.body.creditFacilityOnHold),
+        holdReason: getOptionalString(req.body.holdReason),
+      },
+      update: {
+        paymentMode: req.body.paymentMode === "PAY_LATER" ? "PAY_LATER" : "PAY_NOW",
+        invoiceMode: req.body.invoiceMode === "CONSOLIDATED" ? "CONSOLIDATED" : "PER_BOOKING",
+        billingFrequency: ["WEEKLY", "MONTHLY"].includes(req.body.billingFrequency) ? req.body.billingFrequency : "PER_BOOKING",
+        invoiceDayOfWeek, invoiceDayOfMonth, paymentTermsDays,
+        accountsEmail: getOptionalString(req.body.accountsEmail), poRequired: Boolean(req.body.poRequired),
+        creditLimit: getNumber(req.body.creditLimit), creditFacilityOnHold: Boolean(req.body.creditFacilityOnHold),
+        holdReason: getOptionalString(req.body.holdReason),
+      },
+    });
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error("Billing profile update error:", error);
+    res.status(500).json({ error: "Unable to update billing profile." });
+  }
+});
+
+router.get("/admin/billing-queue", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: {
+        status: "COMPLETED",
+        user: { is: { accountType: "TRADE" } },
+        invoiceBookings: { none: {} },
+        invoices: { none: {} },
+      },
+      include: { user: { include: { billingProfile: true, tradeAccount: true } }, quote: true, pod: true },
+      orderBy: [{ userId: "asc" }, { collectionDate: "asc" }],
+    });
+    res.json({ bookings });
+  } catch (error) {
+    console.error("Billing queue error:", error);
+    res.status(500).json({ error: "Unable to load billing queue." });
+  }
+});
+
+router.post("/admin/consolidated-draft", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const bookingIds = Array.isArray(req.body.bookingIds) ? req.body.bookingIds.map(getString).filter(Boolean) : [];
+    if (!bookingIds.length) return res.status(400).json({ error: "Select at least one booking." });
+    const bookings = await prisma.booking.findMany({
+      where: { id: { in: bookingIds } },
+      include: { user: { include: { billingProfile: true, tradeAccount: true } } },
+    });
+    if (bookings.length !== bookingIds.length) return res.status(400).json({ error: "One or more bookings could not be found." });
+    const userId = bookings[0].userId;
+    if (!userId || bookings.some((b) => b.userId !== userId)) return res.status(400).json({ error: "Consolidated invoices must contain bookings for one customer account." });
+    const user = bookings[0].user;
+    if (!user || user.accountType !== "TRADE") return res.status(400).json({ error: "Consolidated billing is only available for trade accounts." });
+    if ((user.billingProfile?.poRequired) && bookings.some((b) => !b.purchaseOrderNumber)) return res.status(400).json({ error: "A PO/order reference is required for every selected booking." });
+    const alreadyInvoiced = await prisma.invoiceBooking.findFirst({ where: { bookingId: { in: bookingIds } } });
+    if (alreadyInvoiced) return res.status(409).json({ error: "One or more selected bookings are already invoiced." });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const settings = await tx.companySettings.findFirst();
+      if (!settings) throw new Error("Company settings must be configured before invoices can be created.");
+      const vatRate = new Prisma.Decimal(settings.vatRate);
+      const invoiceNumber = `${settings.invoicePrefix}-${String(settings.nextInvoiceNumber).padStart(6, "0")}`;
+      let subtotal = new Prisma.Decimal(0), vatAmount = new Prisma.Decimal(0), total = new Prisma.Decimal(0);
+      const amounts = bookings.map((booking) => {
+        const gross = roundMoney(new Prisma.Decimal(booking.totalPrice));
+        const net = vatRate.greaterThan(0) ? roundMoney(gross.div(new Prisma.Decimal(1).add(vatRate.div(100)))) : gross;
+        const vat = roundMoney(gross.sub(net)); subtotal = subtotal.add(net); vatAmount = vatAmount.add(vat); total = total.add(gross);
+        return { booking, net, vat, gross };
+      });
+      const terms = user.billingProfile?.paymentTermsDays ?? user.tradeAccount?.paymentTermsDays ?? settings.paymentTermsDays;
+      const dueDate = new Date(); dueDate.setUTCDate(dueDate.getUTCDate() + terms);
+      const invoice = await tx.invoice.create({ data: { invoiceNumber, userId, status: "DRAFT", invoiceType: "CONSOLIDATED", subtotal: roundMoney(subtotal), vatAmount: roundMoney(vatAmount), total: roundMoney(total), dueDate, paymentTerms: `${terms} days` } });
+      for (const item of amounts) {
+        await tx.invoiceBooking.create({ data: { invoiceId: invoice.id, bookingId: item.booking.id, bookingReference: item.booking.reference, bookingDate: item.booking.collectionDate, poReference: item.booking.purchaseOrderNumber, routeDescription: `${item.booking.collectionAddress} → ${item.booking.deliveryAddress}`, serviceDescription: item.booking.vehicleType || item.booking.journeyType || "Courier service", netAmount: item.net, vatAmount: item.vat, grossAmount: item.gross } });
+        await tx.invoiceLine.create({ data: { invoiceId: invoice.id, bookingId: item.booking.id, chargeType: "BASE_SERVICE", description: `Courier service · ${item.booking.reference}`, quantity: 1, unitPrice: item.net, netAmount: item.net, vatRate, vatAmount: item.vat, grossAmount: item.gross, bookingReference: item.booking.reference, sourceType: "BOOKING", sourceId: item.booking.id } });
+      }
+      await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "DRAFT_CREATED", description: `Consolidated draft created for ${bookings.length} bookings.` } });
+      await tx.companySettings.update({ where: { id: settings.id }, data: { nextInvoiceNumber: { increment: 1 } } });
+      return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude() });
+    });
+    res.status(201).json({ success: true, invoice: result });
+  } catch (error) {
+    console.error("Consolidated draft error:", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "Unable to create consolidated invoice." });
+  }
+});
+
+router.post("/admin/:id/finalise", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
+    if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+    if (invoice.status !== "DRAFT") return res.status(400).json({ error: "Only draft invoices can be finalised." });
+    if (!invoice.lines.length) return res.status(400).json({ error: "Invoice must contain at least one financial charge line." });
+    const finalisedAt = new Date();
+    const issuedAt = invoice.issuedAt || finalisedAt;
+    const supplyDate = invoice.supplyDate || invoice.booking?.collectionDate || invoice.invoiceBookings[0]?.bookingDate || finalisedAt;
+
+    const pdf = await generateAndStoreInvoicePdf({
+      invoice: {
+        ...invoice,
+        status: "FINALISED",
+        finalisedAt,
+        issuedAt,
+        supplyDate,
+      },
+    });
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: "PDF_STORED",
+          description: `Issued PDF stored as ${pdf.storageKey}.`,
+        },
+      });
+      await tx.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: "FINALISED",
+          description: "Invoice financial values locked and issued PDF stored.",
+        },
+      });
+      return tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "FINALISED",
+          finalisedAt,
+          issuedAt,
+          supplyDate,
+          pdfUrl: pdf.url,
+          pdfStorageKey: pdf.storageKey,
+        },
+        include: invoiceInclude(),
+      });
+    });
+    res.json({ success: true, invoice: updated });
+  } catch (error) {
+    console.error("Invoice finalise error:", error);
+    res.status(500).json({ error: "Unable to finalise invoice." });
+  }
+});
+
+router.post("/admin/:id/credit-notes", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const amountValue = getNumber(req.body.amount); const reason = getString(req.body.reason);
+    if (amountValue == null || amountValue <= 0 || !reason) return res.status(400).json({ error: "Credit amount and reason are required." });
+    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { creditNotes: true, allocations: true } });
+    if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+    if (["DRAFT", "VOID", "CANCELLED"].includes(invoice.status)) return res.status(400).json({ error: "Credit notes can only be raised against an issued invoice." });
+    const existingCredits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
+    const remaining = invoice.total.sub(existingCredits);
+    const amount = roundMoney(new Prisma.Decimal(amountValue));
+    if (amount.greaterThan(remaining)) return res.status(400).json({ error: "Credit amount exceeds the remaining invoice value." });
+    const result = await prisma.$transaction(async (tx) => {
+      const settings = await tx.companySettings.findFirst(); if (!settings) throw new Error("Company settings are required.");
+      const creditNoteNumber = `${settings.creditNotePrefix}-${String(settings.nextCreditNoteNumber).padStart(6, "0")}`;
+      const creditNote = await tx.creditNote.create({ data: { creditNoteNumber, invoiceId: invoice.id, status: "ISSUED", amount, reason } });
+      await tx.companySettings.update({ where: { id: settings.id }, data: { nextCreditNoteNumber: { increment: 1 } } });
+      await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "CREDIT_NOTE_CREATED", description: `${creditNoteNumber} created for £${amount.toFixed(2)}.`, metadata: { reason } } });
+      const fullyCredited = amount.equals(remaining);
+      const updatedInvoice = await tx.invoice.update({ where: { id: invoice.id }, data: fullyCredited ? { status: "CREDITED" } : {}, include: invoiceInclude() });
+      return { creditNote, invoice: updatedInvoice };
+    });
+    res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    console.error("Credit note error:", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "Unable to create credit note." });
+  }
+});
+
+router.post("/admin/:id/payment-allocations", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const amountValue = getNumber(req.body.amount); const paymentId = getString(req.body.paymentId);
+    if (!paymentId || amountValue == null || amountValue <= 0) return res.status(400).json({ error: "Payment and allocation amount are required." });
+    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { allocations: true, creditNotes: true } });
+    const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { allocations: true } });
+    if (!invoice || !payment) return res.status(404).json({ error: "Invoice or payment not found." });
+    if (payment.status !== "PAID") return res.status(400).json({ error: "Only paid payments can be allocated." });
+    const allocatedToPayment = payment.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
+    const paymentRemaining = payment.amount.sub(allocatedToPayment); const amount = roundMoney(new Prisma.Decimal(amountValue));
+    if (amount.greaterThan(paymentRemaining)) return res.status(400).json({ error: "Allocation exceeds the unallocated payment amount." });
+    const credits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
+    const alreadyPaid = invoice.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
+    const outstanding = invoice.total.sub(credits).sub(alreadyPaid);
+    if (amount.greaterThan(outstanding)) return res.status(400).json({ error: "Allocation exceeds the invoice outstanding balance." });
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.paymentAllocation.create({ data: { paymentId, invoiceId: invoice.id, amount, allocatedByAdminId: getOptionalString(req.body.adminId), notes: getOptionalString(req.body.notes) } });
+      const newPaid = alreadyPaid.add(amount); const newOutstanding = invoice.total.sub(credits).sub(newPaid);
+      const status = newOutstanding.lessThanOrEqualTo(0) ? "PAID" : "PARTIALLY_PAID";
+      await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "PAYMENT_ALLOCATED", description: `Payment of £${amount.toFixed(2)} allocated.` } });
+      return tx.invoice.update({ where: { id: invoice.id }, data: { status, paidAt: status === "PAID" ? new Date() : null }, include: invoiceInclude() });
+    });
+    res.json({ success: true, invoice: updated });
+  } catch (error) {
+    console.error("Payment allocation error:", error);
+    res.status(500).json({ error: "Unable to allocate payment." });
+  }
+});
+
+
+router.post("/admin/process-reminders", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+    const approachingEnd = new Date(todayStart);
+    approachingEnd.setUTCDate(approachingEnd.getUTCDate() + 4);
+
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        dueDate: { not: null },
+        status: {
+          in: ["SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"],
+        },
+        userId: { not: null },
+      },
+      include: {
+        user: { include: { billingProfile: true } },
+        allocations: true,
+        creditNotes: true,
+        auditEvents: {
+          where: { createdAt: { gte: todayStart } },
+        },
+      },
+    });
+
+    let sent = 0;
+    let skipped = 0;
+    const failures: Array<{ invoiceNumber: string; error: string }> = [];
+
+    for (const invoice of invoices) {
+      if (!invoice.user || !invoice.dueDate) {
+        skipped += 1;
+        continue;
+      }
+
+      const paid = invoice.allocations.reduce(
+        (sum, allocation) => sum.add(allocation.amount),
+        new Prisma.Decimal(0),
+      );
+      const credits = invoice.creditNotes
+        .filter((creditNote) => creditNote.status === "ISSUED")
+        .reduce(
+          (sum, creditNote) => sum.add(creditNote.amount),
+          new Prisma.Decimal(0),
+        );
+      const outstanding = invoice.total.sub(paid).sub(credits);
+
+      if (outstanding.lessThanOrEqualTo(0)) {
+        skipped += 1;
+        continue;
+      }
+
+      let reminderType:
+        | "APPROACHING_DUE"
+        | "DUE_TODAY"
+        | "OVERDUE"
+        | null = null;
+
+      if (invoice.dueDate < todayStart) {
+        if (invoice.user.billingProfile?.reminderOverdue !== false) {
+          reminderType = "OVERDUE";
+        }
+      } else if (invoice.dueDate < todayEnd) {
+        if (invoice.user.billingProfile?.reminderDueToday !== false) {
+          reminderType = "DUE_TODAY";
+        }
+      } else if (invoice.dueDate < approachingEnd) {
+        if (invoice.user.billingProfile?.reminderApproachingDue !== false) {
+          reminderType = "APPROACHING_DUE";
+        }
+      }
+
+      if (!reminderType) {
+        skipped += 1;
+        continue;
+      }
+
+      const eventType = `REMINDER_${reminderType}`;
+      if (invoice.auditEvents.some((event) => event.eventType === eventType)) {
+        skipped += 1;
+        continue;
+      }
+
+      const recipient =
+        invoice.user.billingProfile?.accountsEmail ||
+        invoice.user.accountsEmail ||
+        invoice.user.email;
+      const accountName =
+        invoice.user.companyName || invoice.user.name || recipient;
+
+      try {
+        const providerMessageId = await sendInvoiceReminderEmail({
+          to: recipient,
+          invoiceNumber: invoice.invoiceNumber,
+          accountName,
+          dueDate: invoice.dueDate,
+          outstanding,
+          reminderType,
+        });
+
+        await prisma.$transaction(async (transaction) => {
+          await transaction.emailLog.create({
+            data: {
+              type: "INVOICE",
+              status: "SENT",
+              recipient,
+              subject: `${reminderType.replace(/_/g, " ")} - ${invoice.invoiceNumber}`,
+              providerMessageId,
+              sentAt: new Date(),
+              userId: invoice.userId,
+              bookingId: invoice.bookingId,
+              invoiceId: invoice.id,
+            },
+          });
+          await transaction.invoiceAuditEvent.create({
+            data: {
+              invoiceId: invoice.id,
+              eventType,
+              description: `${reminderType.replace(/_/g, " ").toLowerCase()} reminder sent to ${recipient}.`,
+            },
+          });
+          if (reminderType === "OVERDUE" && invoice.status !== "OVERDUE") {
+            await transaction.invoice.update({
+              where: { id: invoice.id },
+              data: { status: "OVERDUE" },
+            });
+          }
+        });
+        sent += 1;
+      } catch (error) {
+        failures.push({
+          invoiceNumber: invoice.invoiceNumber,
+          error: error instanceof Error ? error.message : "Reminder failed.",
+        });
+      }
+    }
+
+    res.json({ success: true, sent, skipped, failures });
+  } catch (error) {
+    console.error("Invoice reminder processing error:", error);
+    res.status(500).json({ error: "Unable to process invoice reminders." });
+  }
+});
+
+router.get("/admin/credit-exposure/:userId", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId }, include: { tradeAccount: true, billingProfile: true } });
+    if (!user) return res.status(404).json({ error: "Customer not found." });
+    const invoices = await prisma.invoice.findMany({ where: { userId: user.id, status: { notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"] } }, include: { allocations: true, creditNotes: true } });
+    const outstandingInvoices = invoices.reduce((sum, invoice) => { const paid = invoice.allocations.reduce((a, x) => a.add(x.amount), new Prisma.Decimal(0)); const credits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((a, x) => a.add(x.amount), new Prisma.Decimal(0)); const remaining = invoice.total.sub(paid).sub(credits); return sum.add(remaining.greaterThan(0) ? remaining : 0); }, new Prisma.Decimal(0));
+    const uninvoiced = await prisma.booking.aggregate({ where: { userId: user.id, status: "COMPLETED", invoices: { none: {} }, invoiceBookings: { none: {} } }, _sum: { totalPrice: true } });
+    const committed = await prisma.booking.aggregate({ where: { userId: user.id, status: { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] }, invoices: { none: {} }, invoiceBookings: { none: {} } }, _sum: { totalPrice: true } });
+    const completedUninvoiced = new Prisma.Decimal(uninvoiced._sum.totalPrice || 0); const committedPayLater = new Prisma.Decimal(committed._sum.totalPrice || 0);
+    const exposure = roundMoney(outstandingInvoices.add(completedUninvoiced).add(committedPayLater));
+    const creditLimit = new Prisma.Decimal(user.billingProfile?.creditLimit ?? user.tradeAccount?.creditLimit ?? 0); const availableCredit = roundMoney(creditLimit.sub(exposure));
+    res.json({ creditLimit, outstandingInvoices, completedUninvoiced, committedPayLater, exposure, availableCredit, creditFacilityOnHold: user.billingProfile?.creditFacilityOnHold ?? user.tradeAccount?.creditFacilityOnHold ?? false, holdReason: user.billingProfile?.holdReason ?? user.tradeAccount?.creditHoldReason ?? null });
+  } catch (error) {
+    console.error("Credit exposure error:", error);
+    res.status(500).json({ error: "Unable to calculate credit exposure." });
+  }
+});
+
+router.post("/admin/credit-overrides", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const userId = getString(req.body.userId), bookingId = getOptionalString(req.body.bookingId), reason = getString(req.body.reason), approvedByAdminId = getString(req.body.approvedByAdminId), requestedAmount = getNumber(req.body.requestedAmount);
+    if (!userId || !reason || !approvedByAdminId || requestedAmount == null || requestedAmount <= 0) return res.status(400).json({ error: "Customer, amount, approving admin and reason are required." });
+    const override = await prisma.creditOverride.create({ data: { userId, bookingId, reason, approvedByAdminId, requestedAmount } });
+    res.status(201).json({ success: true, override });
+  } catch (error) {
+    console.error("Credit override error:", error);
+    res.status(500).json({ error: "Unable to record credit override." });
   }
 });
 

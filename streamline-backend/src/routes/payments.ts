@@ -77,13 +77,6 @@ function generateBookingReference() {
   return `SL-${datePart}-${randomPart}`;
 }
 
-function generateInvoiceNumber() {
-  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const randomPart = Math.floor(100000 + Math.random() * 900000);
-
-  return `INV-${datePart}-${randomPart}`;
-}
-
 function getAuthToken(req: { headers: { authorization?: string } }) {
   const header = req.headers.authorization || "";
 
@@ -131,38 +124,122 @@ async function createInvoiceIfMissing(booking: {
   id: string;
   userId: string | null;
   totalPrice: Prisma.Decimal;
+  reference: string;
+  collectionDate: Date;
+  collectionAddress: string;
+  deliveryAddress: string;
+  purchaseOrderNumber?: string | null;
+  customerReference?: string | null;
   quote?: {
-    adminPrice: Prisma.Decimal | null;
+    deliveryType?: string | null;
     vatAmount: Prisma.Decimal | null;
     totalPrice: Prisma.Decimal | null;
   } | null;
 }) {
   const existingInvoice = await prisma.invoice.findFirst({
-    where: {
-      bookingId: booking.id,
-    },
+    where: { bookingId: booking.id },
   });
 
   if (existingInvoice) return existingInvoice;
 
-  const subtotal = booking.quote?.adminPrice || booking.totalPrice;
-  const vatAmount = booking.quote?.vatAmount || 0;
-  const total = booking.quote?.totalPrice || booking.totalPrice;
+  return prisma.$transaction(async (transaction) => {
+    const settings = await transaction.companySettings.findFirst({
+      orderBy: { createdAt: "asc" },
+    });
 
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 30);
+    if (!settings) {
+      throw new Error(
+        "Company settings must be configured before invoices can be created.",
+      );
+    }
 
-  return prisma.invoice.create({
-    data: {
-      invoiceNumber: generateInvoiceNumber(),
-      bookingId: booking.id,
-      userId: booking.userId,
-      status: "ISSUED",
-      subtotal,
-      vatAmount,
-      total,
-      dueDate,
-    },
+    const reservedSettings = await transaction.companySettings.update({
+      where: { id: settings.id },
+      data: { nextInvoiceNumber: { increment: 1 } },
+    });
+
+    const invoiceNumber = `${reservedSettings.invoicePrefix}-${String(
+      reservedSettings.nextInvoiceNumber - 1,
+    ).padStart(6, "0")}`;
+
+    const total = new Prisma.Decimal(
+      booking.quote?.totalPrice || booking.totalPrice,
+    ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const vatRate = new Prisma.Decimal(reservedSettings.vatRate);
+    const subtotal = vatRate.greaterThan(0)
+      ? total
+          .div(new Prisma.Decimal(1).add(vatRate.div(100)))
+          .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+      : total;
+    const vatAmount = total
+      .sub(subtotal)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const now = new Date();
+    const routeDescription = `${booking.collectionAddress} → ${booking.deliveryAddress}`;
+    const serviceDescription = booking.quote?.deliveryType || "Courier delivery";
+
+    const invoice = await transaction.invoice.create({
+      data: {
+        invoiceNumber,
+        bookingId: booking.id,
+        userId: booking.userId,
+        status: "FINALISED",
+        invoiceType: "SINGLE",
+        subtotal,
+        vatAmount,
+        total,
+        dueDate: now,
+        issuedAt: now,
+        finalisedAt: now,
+        supplyDate: booking.collectionDate,
+        paymentTerms: "Pay now",
+        customerReference: booking.customerReference || null,
+        purchaseOrderNumber: booking.purchaseOrderNumber || null,
+      },
+    });
+
+    await transaction.invoiceBooking.create({
+      data: {
+        invoiceId: invoice.id,
+        bookingId: booking.id,
+        bookingReference: booking.reference,
+        bookingDate: booking.collectionDate,
+        poReference: booking.purchaseOrderNumber || null,
+        routeDescription,
+        serviceDescription,
+        netAmount: subtotal,
+        vatAmount,
+        grossAmount: total,
+      },
+    });
+
+    await transaction.invoiceLine.create({
+      data: {
+        invoiceId: invoice.id,
+        bookingId: booking.id,
+        chargeType: "BASE_SERVICE",
+        description: serviceDescription,
+        quantity: new Prisma.Decimal(1),
+        unitPrice: subtotal,
+        netAmount: subtotal,
+        vatRate,
+        vatAmount,
+        grossAmount: total,
+        bookingReference: booking.reference,
+        sourceType: "BOOKING",
+        sourceId: booking.id,
+      },
+    });
+
+    await transaction.invoiceAuditEvent.create({
+      data: {
+        invoiceId: invoice.id,
+        eventType: "PAY_NOW_INVOICE_CREATED",
+        description: `Pay-now invoice ${invoiceNumber} created and finalised for booking ${booking.reference}.`,
+      },
+    });
+
+    return invoice;
   });
 }
 
@@ -645,6 +722,11 @@ router.post("/confirm-checkout-session", async (req, res) => {
 
     const booking = await createConfirmedBookingFromQuote(quote.id, user?.id);
 
+    const invoice = await prisma.invoice.findFirst({
+      where: { bookingId: booking.id },
+      orderBy: { createdAt: "asc" },
+    });
+
     const existingPayment = await prisma.payment.findFirst({
       where: {
         provider: "stripe",
@@ -652,10 +734,12 @@ router.post("/confirm-checkout-session", async (req, res) => {
       },
     });
 
-    if (!existingPayment) {
-      await prisma.payment.create({
+    const payment =
+      existingPayment ||
+      (await prisma.payment.create({
         data: {
           bookingId: booking.id,
+          invoiceId: invoice?.id || null,
           userId: user?.id || booking.userId || null,
           provider: "stripe",
           providerPaymentId: session.id,
@@ -664,7 +748,60 @@ router.post("/confirm-checkout-session", async (req, res) => {
           currency: String(session.currency || "gbp").toUpperCase(),
           paidAt: new Date(),
         },
+      }));
+
+    if (invoice) {
+      const existingAllocation = await prisma.paymentAllocation.findUnique({
+        where: {
+          paymentId_invoiceId: {
+            paymentId: payment.id,
+            invoiceId: invoice.id,
+          },
+        },
       });
+
+      if (!existingAllocation) {
+        await prisma.$transaction(async (transaction) => {
+          await transaction.paymentAllocation.create({
+            data: {
+              paymentId: payment.id,
+              invoiceId: invoice.id,
+              amount: payment.amount,
+              notes: "Automatically allocated from Stripe Checkout payment.",
+            },
+          });
+
+          if (!payment.invoiceId) {
+            await transaction.payment.update({
+              where: { id: payment.id },
+              data: { invoiceId: invoice.id },
+            });
+          }
+
+          await transaction.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              status: "PAID",
+              paidAt: payment.paidAt || new Date(),
+              issuedAt: invoice.issuedAt || new Date(),
+              finalisedAt: invoice.finalisedAt || new Date(),
+            },
+          });
+
+          await transaction.invoiceAuditEvent.create({
+            data: {
+              invoiceId: invoice.id,
+              eventType: "PAYMENT_ALLOCATED",
+              description: `Stripe payment ${payment.id} allocated to invoice ${invoice.invoiceNumber}.`,
+              metadata: {
+                paymentId: payment.id,
+                providerPaymentId: session.id,
+                amount: Number(payment.amount),
+              },
+            },
+          });
+        });
+      }
     }
 
     try {

@@ -187,6 +187,119 @@ function adminBookingInclude() {
   } satisfies Prisma.BookingInclude;
 }
 
+async function getTradeCreditPosition(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      billingProfile: true,
+      tradeAccount: true,
+    },
+  });
+
+  if (!user) {
+    throw new Error("Customer account not found.");
+  }
+
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      userId,
+      status: {
+        notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"],
+      },
+    },
+    include: {
+      allocations: true,
+      creditNotes: true,
+    },
+  });
+
+  const outstandingInvoices = invoices.reduce((sum, invoice) => {
+    const amountPaid = invoice.allocations.reduce(
+      (paid, allocation) => paid.add(allocation.amount),
+      new Prisma.Decimal(0),
+    );
+    const creditedAmount = invoice.creditNotes
+      .filter((creditNote) => creditNote.status === "ISSUED")
+      .reduce(
+        (credited, creditNote) => credited.add(creditNote.amount),
+        new Prisma.Decimal(0),
+      );
+    const remaining = invoice.total.sub(amountPaid).sub(creditedAmount);
+
+    return sum.add(remaining.greaterThan(0) ? remaining : 0);
+  }, new Prisma.Decimal(0));
+
+  const [completedUninvoicedResult, committedPayLaterResult] =
+    await Promise.all([
+      prisma.booking.aggregate({
+        where: {
+          userId,
+          status: BookingStatus.COMPLETED,
+          invoices: { none: {} },
+          invoiceBookings: { none: {} },
+        },
+        _sum: { totalPrice: true },
+      }),
+      prisma.booking.aggregate({
+        where: {
+          userId,
+          status: {
+            in: [
+              BookingStatus.CONFIRMED,
+              BookingStatus.ASSIGNED,
+              BookingStatus.IN_PROGRESS,
+            ],
+          },
+          invoices: { none: {} },
+          invoiceBookings: { none: {} },
+        },
+        _sum: { totalPrice: true },
+      }),
+    ]);
+
+  const completedUninvoiced = new Prisma.Decimal(
+    completedUninvoicedResult._sum.totalPrice || 0,
+  );
+  const committedPayLater = new Prisma.Decimal(
+    committedPayLaterResult._sum.totalPrice || 0,
+  );
+  const exposure = outstandingInvoices
+    .add(completedUninvoiced)
+    .add(committedPayLater)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  const creditLimit = new Prisma.Decimal(
+    user.billingProfile?.creditLimit ?? user.tradeAccount?.creditLimit ?? 0,
+  );
+  const availableCredit = creditLimit
+    .sub(exposure)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  return {
+    user,
+    billingProfile: user.billingProfile,
+    tradeAccount: user.tradeAccount,
+    creditLimit,
+    outstandingInvoices,
+    completedUninvoiced,
+    committedPayLater,
+    exposure,
+    availableCredit,
+    creditFacilityOnHold:
+      user.billingProfile?.creditFacilityOnHold ??
+      user.tradeAccount?.creditFacilityOnHold ??
+      false,
+    holdReason:
+      user.billingProfile?.holdReason ??
+      user.tradeAccount?.creditHoldReason ??
+      null,
+    paymentTermsDays:
+      user.billingProfile?.paymentTermsDays ??
+      user.tradeAccount?.paymentTermsDays ??
+      30,
+    poRequired: user.billingProfile?.poRequired ?? false,
+  };
+}
+
 /* ---------------------------------
    Admin Booking Management
 ---------------------------------- */
@@ -606,8 +719,9 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       include: {
         booking: true,
         user: {
-          select: {
-            accountStatus: true,
+          include: {
+            billingProfile: true,
+            tradeAccount: true,
           },
         },
       },
@@ -619,7 +733,65 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       });
     }
 
-    if (quote.user && quote.user.accountStatus !== "ACTIVE") {
+    if (!quote.userId || !quote.user) {
+      const { reservedFrom, reservedUntil } = getReservationWindow(
+        quote.collectionDate,
+        quote.collectionWindow,
+      );
+
+      const guestBooking = await prisma.$transaction(async (transaction) => {
+        const createdBooking = await transaction.booking.create({
+          data: {
+            reference: generateBookingReference(),
+            status: BookingStatus.CONFIRMED,
+            quoteId: quote.id,
+            userId: null,
+            vehicleId: null,
+            driverId: null,
+            collectionDate: quote.collectionDate,
+            collectionWindow: quote.collectionWindow,
+            collectionAddress: quote.collectionAddress,
+            deliveryAddress: quote.deliveryAddress,
+            extraDrops:
+              quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
+            estimatedStartTime: reservedFrom,
+            estimatedEndTime: reservedUntil,
+            vehicleAvailableAt: reservedUntil,
+            totalPrice: quote.totalPrice!,
+            customerReference: getOptionalString(req.body.customerReference),
+            trackingEvents: {
+              create: {
+                status: BookingStatus.CONFIRMED,
+                title: "Guest Booking Created",
+                description:
+                  "Guest booking created by the administration team and awaiting planning assignment.",
+                userVisible: false,
+              },
+            },
+          },
+          include: adminBookingInclude(),
+        });
+
+        await transaction.quote.update({
+          where: { id: quote.id },
+          data: {
+            status: "Converted to Booking",
+            convertedAt: new Date(),
+          },
+        });
+
+        return createdBooking;
+      });
+
+      return res.status(201).json({
+        success: true,
+        action: "GUEST_BOOKING_CREATED",
+        accountType: "GUEST",
+        booking: guestBooking,
+      });
+    }
+
+    if (quote.user.accountStatus !== "ACTIVE") {
       return res.status(403).json({
         error:
           "This customer account is not active. New bookings cannot be created.",
@@ -641,6 +813,84 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
     if (!quote.collectionWindow || quote.collectionWindow === "ASAP") {
       return res.status(400).json({
         error: "A fixed collection window is required before booking",
+      });
+    }
+
+    /*
+     * Business accounts remain pay-now.
+     * The admin Planning/Create Booking page should use this response to
+     * redirect to the existing Payments page for the selected quote.
+     * No booking is created here, so the existing Stripe flow remains the
+     * source of truth for pay-now confirmation.
+     */
+    if (quote.user.accountType !== "TRADE") {
+      return res.status(200).json({
+        success: true,
+        action: "PAYMENT_REQUIRED",
+        accountType: quote.user.accountType,
+        quoteId: quote.id,
+        paymentUrl: `/payments?quoteId=${encodeURIComponent(quote.id)}`,
+      });
+    }
+
+    if (!quote.user.tradeAccount || quote.user.tradeAccount.status !== "APPROVED") {
+      return res.status(403).json({
+        error: "This trade account is not approved for pay-later bookings.",
+      });
+    }
+
+    const creditPosition = await getTradeCreditPosition(quote.userId);
+    const paymentTermsDays = [7, 14, 30].includes(creditPosition.paymentTermsDays)
+      ? creditPosition.paymentTermsDays
+      : 30;
+    const purchaseOrderNumber = getOptionalString(req.body.purchaseOrderNumber);
+    const customerReference = getOptionalString(req.body.customerReference);
+    const creditOverrideReason = getString(req.body.creditOverrideReason);
+    const approvedByAdminId = "ADMIN_API_KEY";
+    const bookingAmount = new Prisma.Decimal(quote.totalPrice).toDecimalPlaces(
+      2,
+      Prisma.Decimal.ROUND_HALF_UP,
+    );
+
+    if (creditPosition.creditFacilityOnHold) {
+      return res.status(409).json({
+        error: creditPosition.holdReason
+          ? `This customer's trade credit facility is on hold: ${creditPosition.holdReason}`
+          : "This customer's trade credit facility is on hold.",
+        code: "CREDIT_FACILITY_ON_HOLD",
+        credit: {
+          creditLimit: creditPosition.creditLimit,
+          exposure: creditPosition.exposure,
+          availableCredit: creditPosition.availableCredit,
+        },
+      });
+    }
+
+    if (creditPosition.poRequired && !purchaseOrderNumber) {
+      return res.status(400).json({
+        error: "A PO/order reference is required for this trade account.",
+        code: "PO_REQUIRED",
+      });
+    }
+
+    const exceedsCreditLimit = bookingAmount.greaterThan(
+      creditPosition.availableCredit,
+    );
+
+    if (exceedsCreditLimit && (!creditOverrideReason || !approvedByAdminId)) {
+      return res.status(409).json({
+        error:
+          "This booking would exceed the customer's available trade credit. An authorised admin override with a reason is required to continue.",
+        code: "CREDIT_LIMIT_EXCEEDED",
+        credit: {
+          creditLimit: creditPosition.creditLimit,
+          outstandingInvoices: creditPosition.outstandingInvoices,
+          completedUninvoiced: creditPosition.completedUninvoiced,
+          committedPayLater: creditPosition.committedPayLater,
+          exposure: creditPosition.exposure,
+          availableCredit: creditPosition.availableCredit,
+          requestedAmount: bookingAmount,
+        },
       });
     }
 
@@ -676,13 +926,15 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
           vehicleAvailableAt: reservedUntil,
 
           totalPrice: quote.totalPrice!,
+          purchaseOrderNumber,
+          customerReference,
 
           trackingEvents: {
             create: {
               status: BookingStatus.CONFIRMED,
-              title: "Booking Created",
+              title: "Trade Booking Created",
               description:
-                "Booking created by the administration team and awaiting planning assignment.",
+                "Trade pay-later booking created by the administration team and awaiting planning assignment.",
               userVisible: false,
             },
           },
@@ -700,18 +952,50 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
         },
       });
 
+      if (exceedsCreditLimit) {
+        await transaction.creditOverride.create({
+          data: {
+            userId: quote.userId!,
+            bookingId: createdBooking.id,
+            requestedAmount: bookingAmount,
+            reason: creditOverrideReason,
+            approvedByAdminId,
+          },
+        });
+      }
+
       return createdBooking;
     });
 
     return res.status(201).json({
       success: true,
+      action: "TRADE_BOOKING_CREATED",
+      accountType: "TRADE",
       booking,
+      billing: {
+        paymentMode: "PAY_LATER",
+        paymentTermsDays,
+        poRequired: creditPosition.poRequired,
+        billingFrequency:
+          creditPosition.billingProfile?.billingFrequency || "PER_BOOKING",
+        invoiceMode:
+          creditPosition.billingProfile?.invoiceMode || "PER_BOOKING",
+        creditLimit: creditPosition.creditLimit,
+        previousExposure: creditPosition.exposure,
+        bookingAmount,
+        exposureAfterBooking: creditPosition.exposure.add(bookingAmount),
+        availableCreditAfterBooking: creditPosition.availableCredit.sub(bookingAmount),
+        creditOverrideUsed: exceedsCreditLimit,
+      },
     });
   } catch (error) {
     console.error("Admin booking creation from quote error:", error);
 
     return res.status(500).json({
-      error: "Unable to create planning booking from quote.",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to create planning booking from quote.",
     });
   }
 });
@@ -856,13 +1140,94 @@ router.get("/me/invoices", async (req, res) => {
         booking: {
           include: {
             quote: true,
+            pod: true,
+            documents: true,
+          },
+        },
+        invoiceBookings: {
+          orderBy: {
+            bookingDate: "asc",
+          },
+          include: {
+            booking: {
+              include: {
+                quote: true,
+                pod: true,
+                documents: true,
+              },
+            },
+          },
+        },
+        lines: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+        allocations: {
+          orderBy: {
+            allocatedAt: "asc",
+          },
+          include: {
+            payment: true,
+          },
+        },
+        creditNotes: {
+          orderBy: {
+            issuedAt: "asc",
+          },
+        },
+        documents: {
+          orderBy: {
+            createdAt: "asc",
           },
         },
       },
     });
 
+    const now = new Date();
+
+    const customerInvoices = invoices.map((invoice) => {
+      const amountPaid = invoice.allocations.reduce(
+        (sum, allocation) => sum.add(allocation.amount),
+        new Prisma.Decimal(0),
+      );
+      const creditedAmount = invoice.creditNotes
+        .filter((creditNote) => creditNote.status !== "CANCELLED")
+        .reduce(
+          (sum, creditNote) => sum.add(creditNote.amount),
+          new Prisma.Decimal(0),
+        );
+      const outstanding = Prisma.Decimal.max(
+        new Prisma.Decimal(0),
+        invoice.total.sub(amountPaid).sub(creditedAmount),
+      );
+
+      let effectiveStatus = invoice.status;
+
+      if (outstanding.equals(0) && amountPaid.greaterThan(0)) {
+        effectiveStatus = "PAID";
+      } else if (amountPaid.greaterThan(0) && outstanding.greaterThan(0)) {
+        effectiveStatus = "PARTIALLY_PAID";
+      } else if (
+        invoice.dueDate &&
+        invoice.dueDate < now &&
+        outstanding.greaterThan(0) &&
+        !["DRAFT", "VOID", "CREDITED", "CANCELLED"].includes(invoice.status)
+      ) {
+        effectiveStatus = "OVERDUE";
+      }
+
+      return {
+        ...invoice,
+        status: effectiveStatus,
+        amountPaid,
+        creditedAmount,
+        outstanding,
+      };
+    });
+
     res.json({
-      invoices,
+      invoices: customerInvoices,
     });
   } catch (error) {
     console.error("Fetch invoices error:", error);

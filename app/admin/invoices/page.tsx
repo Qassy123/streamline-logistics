@@ -23,9 +23,14 @@ const PAGE_SIZE = 100;
 
 type InvoiceStatus =
   | "DRAFT"
-  | "ISSUED"
+  | "FINALISED"
+  | "SENT"
+  | "PARTIALLY_PAID"
   | "PAID"
+  | "VOID"
+  | "CREDITED"
   | "OVERDUE"
+  | "ISSUED"
   | "CANCELLED";
 
 type InvoiceAdjustment = {
@@ -53,6 +58,9 @@ type Invoice = {
   total: string | number;
   dueDate?: string | null;
   paidAt?: string | null;
+  sentAt?: string | null;
+  pdfUrl?: string | null;
+  pdfStorageKey?: string | null;
   createdAt: string;
   updatedAt: string;
   adjustments?: InvoiceAdjustment[];
@@ -64,7 +72,12 @@ type Invoice = {
     email: string;
     phone?: string | null;
   } | null;
-  booking: {
+  invoiceType?: "SINGLE" | "CONSOLIDATED" | "ADDITIONAL_CHARGE";
+  lines?: { id: string; description: string; chargeType: string; bookingReference?: string | null; quantity: string | number; unitPrice: string | number; netAmount: string | number; vatAmount: string | number; grossAmount: string | number }[];
+  invoiceBookings?: { id: string; bookingReference: string; poReference?: string | null; routeDescription?: string | null; grossAmount: string | number }[];
+  allocations?: { id: string; amount: string | number; allocatedAt: string }[];
+  creditNotes?: { id: string; creditNoteNumber: string; amount: string | number; status: string; reason?: string | null }[];
+  booking?: {
     id: string;
     reference: string;
     status: string;
@@ -100,7 +113,7 @@ type Invoice = {
       deliveredAt?: string | null;
       recipientName?: string | null;
     } | null;
-  };
+  } | null;
 };
 
 type DraftCandidate = {
@@ -226,6 +239,24 @@ function requiresQuantity(calculation: string) {
   return ["PER_MILE", "PER_STOP", "PER_HOUR"].includes(calculation);
 }
 
+function bookingLabel(invoice: Invoice) {
+  if (invoice.booking?.reference) return invoice.booking.reference;
+  if (invoice.invoiceBookings?.length) return invoice.invoiceBookings.map((item) => item.bookingReference).join(", ");
+  return "Not recorded";
+}
+
+function amountPaid(invoice: Invoice) {
+  return (invoice.allocations || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+}
+
+function creditTotal(invoice: Invoice) {
+  return (invoice.creditNotes || []).filter((item) => item.status === "ISSUED").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+}
+
+function outstanding(invoice: Invoice) {
+  return Math.max(0, Number(invoice.total || 0) - amountPaid(invoice) - creditTotal(invoice));
+}
+
 function AdminInvoicesContent() {
   const searchParams = useSearchParams();
   const invoiceFromQuery = searchParams.get("invoice")?.trim() || "";
@@ -235,7 +266,6 @@ function AdminInvoicesContent() {
   const [selectedAccount, setSelectedAccount] = useState("ALL");
   const [invoiceNumber, setInvoiceNumber] = useState(invoiceFromQuery);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const [dismissedInvoiceQuery, setDismissedInvoiceQuery] = useState("");
   const [chargeOptions, setChargeOptions] = useState<ChargeOption[]>([]);
   const [discountOptions, setDiscountOptions] = useState<DiscountOption[]>([]);
   const [selectedChargeId, setSelectedChargeId] = useState("");
@@ -343,12 +373,7 @@ function AdminInvoicesContent() {
   }, [adminKey, loadInvoices]);
 
   useEffect(() => {
-    if (
-      !invoiceFromQuery ||
-      invoices.length === 0 ||
-      selectedInvoice ||
-      dismissedInvoiceQuery === invoiceFromQuery
-    ) {
+    if (!invoiceFromQuery || invoices.length === 0 || selectedInvoice) {
       return;
     }
 
@@ -361,12 +386,7 @@ function AdminInvoicesContent() {
       setInvoiceNumber(invoiceFromQuery);
       setSelectedInvoice(match);
     }
-  }, [
-    dismissedInvoiceQuery,
-    invoiceFromQuery,
-    invoices,
-    selectedInvoice,
-  ]);
+  }, [invoiceFromQuery, invoices, selectedInvoice]);
 
   const loadOptions = useCallback(
     async (invoice: Invoice) => {
@@ -662,6 +682,22 @@ function AdminInvoicesContent() {
     }
   }
 
+  async function finaliseInvoice() {
+    if (!selectedInvoice || selectedInvoice.status !== "DRAFT") return;
+    const confirmed = window.confirm(`Finalise ${selectedInvoice.invoiceNumber}? Financial values will be locked.`);
+    if (!confirmed) return;
+    setInvoiceWorking(true); setError(""); setInvoiceMessage("");
+    try {
+      const response = await fetch(`${API_BASE}/api/invoices/admin/${selectedInvoice.id}/finalise`, { method: "POST", headers: { "x-admin-key": adminKey } });
+      const payload = (await response.json()) as Payload;
+      if (!response.ok || !payload.invoice) throw new Error(payload.error || "Unable to finalise invoice.");
+      setSelectedInvoice(payload.invoice);
+      setInvoices((current) => current.map((invoice) => invoice.id === payload.invoice!.id ? payload.invoice! : invoice));
+      setInvoiceMessage("Invoice finalised. Financial values are now locked.");
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Unable to finalise invoice."); }
+    finally { setInvoiceWorking(false); }
+  }
+
   async function sendInvoice() {
     if (!selectedInvoice) return;
 
@@ -673,7 +709,7 @@ function AdminInvoicesContent() {
     }
 
     const confirmed = window.confirm(
-      `Send ${selectedInvoice.invoiceNumber} to ${selectedInvoice.user.email}?`,
+      `${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "Resend" : "Send"} ${selectedInvoice.invoiceNumber} to ${selectedInvoice.user.email}?`,
     );
 
     if (!confirmed) return;
@@ -707,7 +743,7 @@ function AdminInvoicesContent() {
         ),
       );
       setInvoiceMessage(
-        payload.message || `Invoice sent to ${selectedInvoice.user.email}.`,
+        payload.message || `Invoice ${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "resent" : "sent"} to ${selectedInvoice.user.email}.`,
       );
     } catch (requestError) {
       setError(
@@ -763,6 +799,13 @@ function AdminInvoicesContent() {
           {error}
         </div>
       ) : null}
+
+      <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <AmountCard label="Invoiced" value={money(invoices.filter((i) => !["DRAFT", "VOID", "CANCELLED"].includes(i.status)).reduce((sum, i) => sum + Number(i.total || 0), 0))} />
+        <AmountCard label="Outstanding" value={money(invoices.reduce((sum, i) => sum + outstanding(i), 0))} />
+        <AmountCard label="Overdue" value={money(invoices.filter((i) => i.dueDate && new Date(i.dueDate) < new Date() && outstanding(i) > 0).reduce((sum, i) => sum + outstanding(i), 0))} />
+        <AmountCard label="Paid" value={money(invoices.reduce((sum, i) => sum + amountPaid(i), 0))} />
+      </div>
 
       <div className="mt-7 grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
         <section className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -865,7 +908,7 @@ function AdminInvoicesContent() {
                       {accountLabel(invoice)}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      Booking {invoice.booking.reference}
+                      Booking {bookingLabel(invoice)}
                     </p>
                   </div>
 
@@ -1048,7 +1091,6 @@ function AdminInvoicesContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setDismissedInvoiceQuery(invoiceFromQuery);
                   setSelectedInvoice(null);
                   setInvoiceMessage("");
                 }}
@@ -1075,6 +1117,8 @@ function AdminInvoicesContent() {
                   label="Status"
                   value={formatStatus(selectedInvoice.status)}
                 />
+                <InfoCard label="Type" value={formatStatus(selectedInvoice.invoiceType || "SINGLE")} />
+                <InfoCard label="Outstanding" value={money(outstanding(selectedInvoice))} />
                 <InfoCard
                   label="Invoice Date"
                   value={date(selectedInvoice.createdAt)}
@@ -1085,14 +1129,16 @@ function AdminInvoicesContent() {
                 />
                 <InfoCard
                   label="Booking"
-                  value={selectedInvoice.booking.reference}
+                  value={bookingLabel(selectedInvoice)}
                 />
                 <InfoCard
                   label="Payment"
                   value={
-                    selectedInvoice.booking.payments?.[0]?.status
+                    selectedInvoice.booking?.payments?.[0]?.status
                       ? formatStatus(selectedInvoice.booking.payments[0].status)
-                      : "Not recorded"
+                      : amountPaid(selectedInvoice) > 0
+                        ? money(amountPaid(selectedInvoice))
+                        : "Not recorded"
                   }
                 />
               </div>
@@ -1103,11 +1149,11 @@ function AdminInvoicesContent() {
                 </p>
 
                 <p className="mt-3 font-bold text-slate-950">
-                  {selectedInvoice.booking.collectionAddress}
+                  {selectedInvoice.booking?.collectionAddress || selectedInvoice.invoiceBookings?.[0]?.routeDescription || "Multiple bookings"}
                 </p>
                 <p className="my-2 text-sm text-slate-400">to</p>
                 <p className="font-bold text-slate-950">
-                  {selectedInvoice.booking.deliveryAddress}
+                  {selectedInvoice.booking?.deliveryAddress || (selectedInvoice.invoiceBookings?.length ? "See booking breakdown below" : "Not recorded")}
                 </p>
               </div>
 
@@ -1263,6 +1309,45 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
+              {selectedInvoice.lines?.length ? (
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4"><h3 className="font-bold text-slate-950">Financial Charge Lines</h3></div>
+                  <div className="divide-y divide-slate-200">
+                    {selectedInvoice.lines.map((line) => (
+                      <div key={line.id} className="grid gap-2 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_130px_130px] sm:items-center">
+                        <div><p className="font-bold text-slate-900">{line.description}</p><p className="mt-1 text-xs text-slate-500">{formatStatus(line.chargeType)}{line.bookingReference ? ` · ${line.bookingReference}` : ""}</p></div>
+                        <p className="text-sm text-slate-600 sm:text-right">VAT {money(line.vatAmount)}</p>
+                        <p className="font-bold text-slate-950 sm:text-right">{money(line.grossAmount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedInvoice.creditNotes?.length ? (
+                <div className="rounded-2xl border border-slate-200 p-5"><h3 className="font-bold text-slate-950">Credit Notes</h3>{selectedInvoice.creditNotes.map((note) => <div key={note.id} className="mt-3 flex justify-between gap-4 text-sm"><span>{note.creditNoteNumber} · {note.reason || "Credit"}</span><strong>{money(note.amount)}</strong></div>)}</div>
+              ) : null}
+
+              {selectedInvoice.pdfUrl ? (
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Issued Invoice PDF</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      The stored issued copy of {selectedInvoice.invoiceNumber}.
+                    </p>
+                  </div>
+                  <a
+                    href={selectedInvoice.pdfUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50"
+                  >
+                    <FileText size={17} />
+                    View / Download PDF
+                  </a>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 sm:grid-cols-3">
                 <AmountCard
                   label="Subtotal"
@@ -1278,11 +1363,13 @@ function AdminInvoicesContent() {
                 />
               </div>
 
-              {selectedInvoice.status === "DRAFT" ? (
+              {["DRAFT", "FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE"].includes(selectedInvoice.status) ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">
-                      Send pending invoice
+                      {selectedInvoice.status === "SENT" || selectedInvoice.sentAt
+                        ? "Resend invoice"
+                        : "Send pending invoice"}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
                       {selectedInvoice.user?.email
@@ -1291,6 +1378,10 @@ function AdminInvoicesContent() {
                     </p>
                   </div>
 
+                  <div className="flex flex-wrap gap-3">
+                  {selectedInvoice.status === "DRAFT" ? (
+                    <button type="button" onClick={() => void finaliseInvoice()} disabled={invoiceWorking} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 disabled:opacity-50">Finalise</button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void sendInvoice()}
@@ -1304,8 +1395,11 @@ function AdminInvoicesContent() {
                     ) : (
                       <Send size={17} />
                     )}
-                    Send Invoice
+                    {selectedInvoice.status === "SENT" || selectedInvoice.sentAt
+                      ? "Resend Invoice"
+                      : "Send Invoice"}
                   </button>
+                  </div>
                 </div>
               ) : null}
             </div>

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Trash2,
   Truck,
+  X,
 } from "lucide-react";
 
 const API_BASE =
@@ -36,14 +37,17 @@ const CAPACITY_OPTIONS = [
   { label: "75–100", value: 100, pricingVehicle: "XLWB High Roof Van" },
 ] as const;
 
-const TIMELINE_START_HOUR = 6;
-const TIMELINE_END_HOUR = 22;
+const TIMELINE_START_HOUR = 0;
+const TIMELINE_END_HOUR = 24;
 const HOUR_WIDTH = 100;
 const VEHICLE_COLUMN_WIDTH = 220;
 const ROW_HEIGHT = 88;
 const TIMELINE_WIDTH = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * HOUR_WIDTH;
 
 const COLLECTION_WINDOWS = [
+  "00:00-02:00",
+  "02:00-04:00",
+  "04:00-06:00",
   "06:00-08:00",
   "08:00-10:00",
   "10:00-12:00",
@@ -52,6 +56,7 @@ const COLLECTION_WINDOWS = [
   "16:00-18:00",
   "18:00-20:00",
   "20:00-22:00",
+  "22:00-24:00",
 ] as const;
 
 type JourneyType = "One Way" | "Return" | "Multi";
@@ -65,6 +70,7 @@ type Customer = {
   email: string;
   phone?: string | null;
   accountStatus: string;
+  accountType?: string;
 };
 
 type Vehicle = {
@@ -144,9 +150,20 @@ type QuotePayload = {
 
 type BookingPayload = {
   success?: boolean;
+  action?: "PAYMENT_REQUIRED" | "TRADE_BOOKING_CREATED" | "GUEST_BOOKING_CREATED";
+  accountType?: string;
+  quoteId?: string;
+  paymentUrl?: string;
   booking?: Booking;
   id?: string;
+  code?: string;
   error?: string;
+  credit?: {
+    creditLimit?: string | number;
+    exposure?: string | number;
+    availableCredit?: string | number;
+    requestedAmount?: string | number;
+  };
 };
 
 type FormState = {
@@ -161,6 +178,9 @@ type FormState = {
   guestEmail: string;
   guestPhone: string;
   guestVatNumber: string;
+  purchaseOrderNumber: string;
+  customerReference: string;
+  creditOverrideReason: string;
 };
 
 const initialForm: FormState = {
@@ -175,6 +195,9 @@ const initialForm: FormState = {
   guestEmail: "",
   guestPhone: "",
   guestVatNumber: "",
+  purchaseOrderNumber: "",
+  customerReference: "",
+  creditOverrideReason: "",
 };
 
 function localDateInput(value: Date | string) {
@@ -302,7 +325,7 @@ function windowFromDropOffset(offsetX: number) {
     label as (typeof COLLECTION_WINDOWS)[number],
   )
     ? label
-    : "06:00-08:00";
+    : "00:00-02:00";
 }
 
 export default function AdminPlanningBoardPage() {
@@ -328,6 +351,14 @@ export default function AdminPlanningBoardPage() {
   const [draggingDraft, setDraggingDraft] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editCollectionDate, setEditCollectionDate] = useState("");
+  const [editCollectionWindow, setEditCollectionWindow] = useState("");
+  const [editCollectionAddress, setEditCollectionAddress] = useState("");
+  const [editDeliveryAddress, setEditDeliveryAddress] = useState("");
+  const [editVehicleId, setEditVehicleId] = useState("");
+  const [editTotalPrice, setEditTotalPrice] = useState("");
+  const [savingBooking, setSavingBooking] = useState(false);
 
   useEffect(() => {
     setAdminKey(
@@ -633,7 +664,7 @@ export default function AdminPlanningBoardPage() {
         form.journeyType === "Return" ? form.returnAddress.trim() : null,
       extraDrops:
         form.journeyType === "Multi" ? buildExtraDrops() : [],
-      capacityPercent: form.capacityPercent,
+      capacityPercent: form.journeyType === "Multi" ? null : form.capacityPercent,
       sendToCustomer: false,
       accuracyConfirmed: true,
     };
@@ -701,17 +732,37 @@ export default function AdminPlanningBoardPage() {
           "Content-Type": "application/json",
           "x-admin-key": adminKey,
         },
+        body: JSON.stringify({
+          purchaseOrderNumber: form.purchaseOrderNumber.trim() || null,
+          customerReference: form.customerReference.trim() || null,
+          creditOverrideReason: form.creditOverrideReason.trim() || null,
+        }),
       },
     );
 
     const payload = (await response.json()) as BookingPayload;
-    const booking = payload.booking;
 
-    if (!response.ok || !booking?.id) {
+    if (!response.ok) {
+      if (payload.code === "CREDIT_LIMIT_EXCEEDED") {
+        const available = money(payload.credit?.availableCredit);
+        const requested = money(payload.credit?.requestedAmount);
+        throw new Error(
+          `${payload.error || "Credit limit exceeded."} Available credit: ${available}. Booking: ${requested}. Enter an override reason to continue.`,
+        );
+      }
       throw new Error(payload.error || "Unable to create planning booking.");
     }
 
-    return booking;
+    if (payload.action === "PAYMENT_REQUIRED" && payload.paymentUrl) {
+      window.location.href = payload.paymentUrl;
+      return null;
+    }
+
+    if (!payload.booking?.id) {
+      throw new Error(payload.error || "Unable to create planning booking.");
+    }
+
+    return payload.booking;
   }
 
   async function assignExactVehicle(bookingId: string, vehicleId: string) {
@@ -780,7 +831,7 @@ export default function AdminPlanningBoardPage() {
                 : null,
             extraDrops:
               form.journeyType === "Multi" ? buildExtraDrops() : [],
-            capacityPercent: form.capacityPercent,
+            capacityPercent: form.journeyType === "Multi" ? null : form.capacityPercent,
           }),
         },
       );
@@ -805,6 +856,8 @@ export default function AdminPlanningBoardPage() {
 
       const newBooking = await createUnassignedBooking(quoteResult.quoteId);
 
+      if (!newBooking) return;
+
       await assignExactVehicle(newBooking.id, vehicle.id);
 
       setCreatedBookingId(newBooking.id);
@@ -824,6 +877,136 @@ export default function AdminPlanningBoardPage() {
       );
     } finally {
       setAssigning(false);
+    }
+  }
+
+  function openBookingEditor(booking: Booking) {
+    setEditingBooking(booking);
+    setEditCollectionDate(localDateInput(booking.collectionDate));
+    setEditCollectionWindow(booking.collectionWindow || "00:00-02:00");
+    setEditCollectionAddress(booking.collectionAddress || "");
+    setEditDeliveryAddress(booking.deliveryAddress || "");
+    setEditVehicleId(booking.vehicleId || "");
+    setEditTotalPrice(String(booking.totalPrice ?? ""));
+    setError("");
+  }
+
+  function closeBookingEditor() {
+    if (savingBooking) return;
+    setEditingBooking(null);
+  }
+
+  async function saveBookingChanges() {
+    if (!editingBooking || savingBooking) return;
+
+    if (!editCollectionDate) {
+      setError("Select the collection date.");
+      return;
+    }
+
+    if (!editCollectionWindow) {
+      setError("Select the collection window.");
+      return;
+    }
+
+    if (!editCollectionAddress.trim() || !editDeliveryAddress.trim()) {
+      setError("Collection and delivery addresses are required.");
+      return;
+    }
+
+    const parsedTotal = Number(editTotalPrice);
+    if (!Number.isFinite(parsedTotal) || parsedTotal < 0) {
+      setError("Enter a valid booking charge.");
+      return;
+    }
+
+    setSavingBooking(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/bookings/admin/${editingBooking.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            collectionDate: `${editCollectionDate}T00:00:00`,
+            collectionWindow: editCollectionWindow,
+            collectionAddress: editCollectionAddress.trim(),
+            deliveryAddress: editDeliveryAddress.trim(),
+            vehicleId: editVehicleId || null,
+            totalPrice: parsedTotal,
+          }),
+        },
+      );
+
+      const payload = (await response.json()) as BookingPayload;
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to update booking.");
+      }
+
+      setEditingBooking(null);
+      await loadPlanningBoard(false);
+      setMessage(`${editingBooking.reference} updated.`);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to update booking.",
+      );
+    } finally {
+      setSavingBooking(false);
+    }
+  }
+
+  async function cancelBooking() {
+    if (!editingBooking || savingBooking) return;
+
+    const confirmed = window.confirm(
+      `Cancel booking ${editingBooking.reference}?`,
+    );
+
+    if (!confirmed) return;
+
+    setSavingBooking(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/bookings/admin/${editingBooking.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            status: "CANCELLED",
+          }),
+        },
+      );
+
+      const payload = (await response.json()) as BookingPayload;
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to cancel booking.");
+      }
+
+      setEditingBooking(null);
+      await loadPlanningBoard(false);
+      setMessage(`${editingBooking.reference} cancelled.`);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to cancel booking.",
+      );
+    } finally {
+      setSavingBooking(false);
     }
   }
 
@@ -889,6 +1072,22 @@ export default function AdminPlanningBoardPage() {
                       {selectedCustomer.phone}
                     </>
                   ) : null}
+                </div>
+              ) : null}
+
+              {selectedCustomer?.accountType === "TRADE" ? (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <FieldLabel label="PO / Order Reference">
+                    <input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" />
+                  </FieldLabel>
+                  <FieldLabel label="Customer Reference">
+                    <input value={form.customerReference} onChange={(event) => updateForm("customerReference", event.target.value)} className="manual-input" />
+                  </FieldLabel>
+                  <div className="sm:col-span-2">
+                    <FieldLabel label="Credit Override Reason (only if required)">
+                      <input value={form.creditOverrideReason} onChange={(event) => updateForm("creditOverrideReason", event.target.value)} className="manual-input" />
+                    </FieldLabel>
+                  </div>
                 </div>
               ) : null}
 
@@ -1023,6 +1222,7 @@ export default function AdminPlanningBoardPage() {
                 ) : null}
               </div>
 
+              {form.journeyType !== "Multi" ? (
               <div className="mt-7">
                 <p className="text-sm font-bold text-slate-700">Capacity</p>
                 <div className="mt-3 flex flex-wrap gap-3">
@@ -1049,6 +1249,7 @@ export default function AdminPlanningBoardPage() {
                   ))}
                 </div>
               </div>
+              ) : null}
             </div>
 
             <aside>
@@ -1191,7 +1392,7 @@ export default function AdminPlanningBoardPage() {
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className={`mt-5 grid gap-3 ${form.journeyType === "Multi" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
                 <InfoBox
                   label="Journey time"
                   value={
@@ -1204,14 +1405,16 @@ export default function AdminPlanningBoardPage() {
                   label="Distance"
                   value={`${calculation?.distanceMiles ?? 0} miles`}
                 />
-                <InfoBox
-                  label="Capacity"
-                  value={
-                    CAPACITY_OPTIONS.find(
-                      (option) => option.value === form.capacityPercent,
-                    )?.label || ""
-                  }
-                />
+                {form.journeyType !== "Multi" ? (
+                  <InfoBox
+                    label="Capacity"
+                    value={
+                      CAPACITY_OPTIONS.find(
+                        (option) => option.value === form.capacityPercent,
+                      )?.label || ""
+                    }
+                  />
+                ) : null}
               </div>
             </div>
 
@@ -1434,9 +1637,11 @@ export default function AdminPlanningBoardPage() {
                               const isCreated = booking.id === createdBookingId;
 
                               return (
-                                <div
+                                <button
+                                  type="button"
                                   key={booking.id}
-                                  className={`absolute top-3 z-10 h-[62px] overflow-hidden rounded-xl border px-3 py-2 shadow-sm ${
+                                  onClick={() => openBookingEditor(booking)}
+                                  className={`absolute top-3 z-10 h-[62px] overflow-hidden rounded-xl border px-3 py-2 text-left shadow-sm transition hover:ring-2 hover:ring-orange-300 ${
                                     isCreated
                                       ? "border-emerald-300 bg-emerald-50"
                                       : "border-orange-200 bg-orange-50"
@@ -1461,7 +1666,7 @@ export default function AdminPlanningBoardPage() {
                                     {displayTime(booking.estimatedStartTime)}–
                                     {displayTime(booking.estimatedEndTime)}
                                   </p>
-                                </div>
+                                </button>
                               );
                             })}
                           </div>
@@ -1510,6 +1715,145 @@ export default function AdminPlanningBoardPage() {
           </div>
         </>
       )}
+
+      {editingBooking ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 sm:p-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
+                  Edit booking
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-950">
+                  {editingBooking.reference}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {bookingCustomerName(editingBooking)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeBookingEditor}
+                disabled={savingBooking}
+                className="rounded-xl border border-slate-300 p-2.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Close booking editor"
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
+              <FieldLabel label="Collection Date">
+                <input
+                  type="date"
+                  value={editCollectionDate}
+                  onChange={(event) => setEditCollectionDate(event.target.value)}
+                  className="manual-input"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Collection Window">
+                <select
+                  value={editCollectionWindow}
+                  onChange={(event) => setEditCollectionWindow(event.target.value)}
+                  className="manual-input"
+                >
+                  {COLLECTION_WINDOWS.map((window) => (
+                    <option key={window} value={window}>
+                      {window}
+                    </option>
+                  ))}
+                </select>
+              </FieldLabel>
+
+              <div className="sm:col-span-2">
+                <FieldLabel label="Collection Address">
+                  <textarea
+                    rows={3}
+                    value={editCollectionAddress}
+                    onChange={(event) => setEditCollectionAddress(event.target.value)}
+                    className="manual-input resize-none"
+                  />
+                </FieldLabel>
+              </div>
+
+              <div className="sm:col-span-2">
+                <FieldLabel label="Delivery Address">
+                  <textarea
+                    rows={3}
+                    value={editDeliveryAddress}
+                    onChange={(event) => setEditDeliveryAddress(event.target.value)}
+                    className="manual-input resize-none"
+                  />
+                </FieldLabel>
+              </div>
+
+              <FieldLabel label="Vehicle">
+                <select
+                  value={editVehicleId}
+                  onChange={(event) => setEditVehicleId(event.target.value)}
+                  className="manual-input"
+                >
+                  <option value="">Unassigned</option>
+                  {canonicalVehicles.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.registration || vehicle.name || vehicle.vehicleType} - {vehicle.vehicleType}
+                    </option>
+                  ))}
+                </select>
+              </FieldLabel>
+
+              <FieldLabel label="Booking Charge">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editTotalPrice}
+                  onChange={(event) => setEditTotalPrice(event.target.value)}
+                  className="manual-input"
+                />
+              </FieldLabel>
+            </div>
+
+            {error ? (
+              <div className="px-5 sm:px-6">
+                <ErrorBox text={error} />
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-5 sm:p-6">
+              <button
+                type="button"
+                onClick={() => void cancelBooking()}
+                disabled={savingBooking || editingBooking.status === "CANCELLED"}
+                className="rounded-xl border border-red-300 bg-white px-5 py-3 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {editingBooking.status === "CANCELLED" ? "Booking Cancelled" : "Cancel Booking"}
+              </button>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeBookingEditor}
+                  disabled={savingBooking}
+                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveBookingChanges()}
+                  disabled={savingBooking || editingBooking.status === "CANCELLED"}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
+                >
+                  {savingBooking ? <Loader2 size={17} className="animate-spin" /> : null}
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <style jsx>{`
         :global(.manual-input) {

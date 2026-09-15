@@ -101,7 +101,66 @@ app.get("/", (_request, response) => {
 });
 
 const PORT = process.env.PORT || 5000;
+const INVOICE_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+const INVOICE_REMINDER_INITIAL_DELAY_MS = 60 * 1000;
+
+async function processInvoiceReminders() {
+  const adminKey = process.env.ADMIN_API_KEY?.trim();
+
+  if (!adminKey) {
+    console.warn(
+      "Invoice reminder processing skipped because ADMIN_API_KEY is not configured.",
+    );
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${PORT}/api/invoices/admin/process-reminders`,
+      {
+        method: "POST",
+        headers: {
+          "x-admin-key": adminKey,
+        },
+      },
+    );
+
+    const payload = (await response.json()) as {
+      success?: boolean;
+      sent?: number;
+      skipped?: number;
+      failures?: Array<{ invoiceNumber: string; error: string }>;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      console.error(
+        "Invoice reminder processing failed:",
+        payload.error || `HTTP ${response.status}`,
+      );
+      return;
+    }
+
+    console.log(
+      `Invoice reminders processed. Sent: ${payload.sent ?? 0}, skipped: ${payload.skipped ?? 0}, failures: ${payload.failures?.length ?? 0}.`,
+    );
+
+    if (payload.failures?.length) {
+      console.error("Invoice reminder failures:", payload.failures);
+    }
+  } catch (error) {
+    console.error("Invoice reminder scheduler error:", error);
+  }
+}
 
 app.listen(PORT, () => {
   console.log(`Streamline Backend running on port ${PORT}`);
+
+  setTimeout(() => {
+    void processInvoiceReminders();
+
+    setInterval(() => {
+      void processInvoiceReminders();
+    }, INVOICE_REMINDER_INTERVAL_MS);
+  }, INVOICE_REMINDER_INITIAL_DELAY_MS);
 });

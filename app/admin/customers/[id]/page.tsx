@@ -47,6 +47,25 @@ type Invoice = {
   createdAt: string;
 };
 
+type BillingPaymentMode = "PAY_NOW" | "PAY_LATER";
+type BillingInvoiceMode = "PER_BOOKING" | "CONSOLIDATED";
+type BillingFrequency = "PER_BOOKING" | "WEEKLY" | "MONTHLY";
+
+type BillingProfile = {
+  id: string;
+  paymentMode: BillingPaymentMode;
+  invoiceMode: BillingInvoiceMode;
+  billingFrequency: BillingFrequency;
+  invoiceDayOfWeek?: number | null;
+  invoiceDayOfMonth?: number | null;
+  paymentTermsDays: number;
+  accountsEmail?: string | null;
+  poRequired: boolean;
+  creditLimit?: string | number | null;
+  creditFacilityOnHold: boolean;
+  holdReason?: string | null;
+};
+
 type Customer = {
   id: string;
   accountNumber?: string | null;
@@ -76,6 +95,7 @@ type Customer = {
   tradingCounty?: string | null;
   tradingPostcode?: string | null;
   tradingCountry?: string | null;
+  billingProfile?: BillingProfile | null;
   invoices?: Invoice[];
   createdAt: string;
   updatedAt: string;
@@ -113,6 +133,17 @@ type EditForm = {
   tradingCounty: string;
   tradingPostcode: string;
   tradingCountry: string;
+  billingPaymentMode: BillingPaymentMode;
+  billingInvoiceMode: BillingInvoiceMode;
+  billingFrequency: BillingFrequency;
+  invoiceDayOfWeek: string;
+  invoiceDayOfMonth: string;
+  paymentTermsDays: string;
+  billingAccountsEmail: string;
+  poRequired: boolean;
+  creditLimit: string;
+  creditFacilityOnHold: boolean;
+  holdReason: string;
 };
 
 function money(value: string | number | null | undefined) {
@@ -246,6 +277,32 @@ function toEditForm(customer: Customer): EditForm {
       customer.tradingPostcode || "",
     tradingCountry:
       customer.tradingCountry || "United Kingdom",
+    billingPaymentMode:
+      customer.billingProfile?.paymentMode ||
+      (customer.accountType === "TRADE" ? "PAY_LATER" : "PAY_NOW"),
+    billingInvoiceMode:
+      customer.billingProfile?.invoiceMode || "PER_BOOKING",
+    billingFrequency:
+      customer.billingProfile?.billingFrequency || "PER_BOOKING",
+    invoiceDayOfWeek:
+      customer.billingProfile?.invoiceDayOfWeek?.toString() || "1",
+    invoiceDayOfMonth:
+      customer.billingProfile?.invoiceDayOfMonth?.toString() || "1",
+    paymentTermsDays:
+      customer.billingProfile?.paymentTermsDays?.toString() || "30",
+    billingAccountsEmail:
+      customer.billingProfile?.accountsEmail || customer.accountsEmail || "",
+    poRequired: customer.billingProfile?.poRequired || false,
+    creditLimit:
+      customer.billingProfile?.creditLimit !== null &&
+      customer.billingProfile?.creditLimit !== undefined
+        ? String(customer.billingProfile.creditLimit)
+        : customer.accountType === "TRADE"
+          ? "2500"
+          : "",
+    creditFacilityOnHold:
+      customer.billingProfile?.creditFacilityOnHold || false,
+    holdReason: customer.billingProfile?.holdReason || "",
   };
 }
 
@@ -823,6 +880,170 @@ export default function CustomerAccountPage() {
               />
             </EditRow>
 
+            <EditRow label="Billing Payment Mode">
+              <select
+                value={form.billingPaymentMode}
+                onChange={(event) =>
+                  update(
+                    "billingPaymentMode",
+                    event.target.value as BillingPaymentMode,
+                  )
+                }
+                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+              >
+                <option value="PAY_NOW">Pay Now</option>
+                <option value="PAY_LATER">Pay Later / Trade Credit</option>
+              </select>
+            </EditRow>
+
+            <EditRow label="Invoice Mode">
+              <select
+                value={form.billingInvoiceMode}
+                onChange={(event) =>
+                  update(
+                    "billingInvoiceMode",
+                    event.target.value as BillingInvoiceMode,
+                  )
+                }
+                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+              >
+                <option value="PER_BOOKING">Invoice Per Booking</option>
+                <option value="CONSOLIDATED">Consolidated Invoice</option>
+              </select>
+            </EditRow>
+
+            <EditRow label="Billing Frequency">
+              <div className="grid max-w-xl gap-3 sm:grid-cols-2">
+                <select
+                  value={form.billingFrequency}
+                  onChange={(event) =>
+                    update(
+                      "billingFrequency",
+                      event.target.value as BillingFrequency,
+                    )
+                  }
+                  className="border border-slate-300 px-3 py-3 text-sm"
+                >
+                  <option value="PER_BOOKING">Per Booking</option>
+                  <option value="WEEKLY">Weekly</option>
+                  <option value="MONTHLY">Monthly</option>
+                </select>
+
+                {form.billingFrequency === "WEEKLY" ? (
+                  <select
+                    value={form.invoiceDayOfWeek}
+                    onChange={(event) =>
+                      update("invoiceDayOfWeek", event.target.value)
+                    }
+                    className="border border-slate-300 px-3 py-3 text-sm"
+                  >
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="7">Sunday</option>
+                  </select>
+                ) : null}
+
+                {form.billingFrequency === "MONTHLY" ? (
+                  <select
+                    value={form.invoiceDayOfMonth}
+                    onChange={(event) =>
+                      update("invoiceDayOfMonth", event.target.value)
+                    }
+                    className="border border-slate-300 px-3 py-3 text-sm"
+                  >
+                    {Array.from({ length: 28 }, (_, index) => index + 1).map(
+                      (day) => (
+                        <option key={day} value={day}>
+                          Day {day}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                ) : null}
+              </div>
+            </EditRow>
+
+            <EditRow label="Payment Terms">
+              <select
+                value={form.paymentTermsDays}
+                onChange={(event) =>
+                  update("paymentTermsDays", event.target.value)
+                }
+                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+              >
+                <option value="7">7 Days</option>
+                <option value="14">14 Days</option>
+                <option value="30">30 Days</option>
+              </select>
+            </EditRow>
+
+            <EditRow label="Billing Accounts Email">
+              <TextInput
+                type="email"
+                value={form.billingAccountsEmail}
+                onChange={(value) => update("billingAccountsEmail", value)}
+              />
+            </EditRow>
+
+            <EditRow label="PO Required">
+              <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.poRequired}
+                  onChange={(event) =>
+                    update("poRequired", event.target.checked)
+                  }
+                />
+                Require a PO / order reference before pay-later bookings
+              </label>
+            </EditRow>
+
+            <EditRow label="Credit Limit">
+              <div className="max-w-xl">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.creditLimit}
+                  onChange={(event) =>
+                    update("creditLimit", event.target.value)
+                  }
+                  className="w-full border border-slate-300 px-3 py-3 text-sm"
+                  placeholder="2500.00"
+                />
+              </div>
+            </EditRow>
+
+            <EditRow label="Credit Facility">
+              <div className="max-w-xl space-y-3">
+                <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.creditFacilityOnHold}
+                    onChange={(event) =>
+                      update("creditFacilityOnHold", event.target.checked)
+                    }
+                  />
+                  Put credit facility on hold
+                </label>
+
+                {form.creditFacilityOnHold ? (
+                  <textarea
+                    value={form.holdReason}
+                    onChange={(event) =>
+                      update("holdReason", event.target.value)
+                    }
+                    placeholder="Reason for credit hold"
+                    className="min-h-24 w-full border border-slate-300 px-3 py-3 text-sm"
+                  />
+                ) : null}
+              </div>
+            </EditRow>
+
             <EditRow label="Contact Number 1">
               <TextInput
                 value={form.phone}
@@ -981,6 +1202,76 @@ export default function CustomerAccountPage() {
             <DetailRow
               label="Accounts Email"
               value={customer.accountsEmail || "Not provided"}
+            />
+
+            <DetailRow
+              label="Billing Payment Mode"
+              value={
+                customer.billingProfile?.paymentMode === "PAY_LATER"
+                  ? "Pay Later / Trade Credit"
+                  : "Pay Now"
+              }
+            />
+
+            <DetailRow
+              label="Invoice Mode"
+              value={
+                customer.billingProfile?.invoiceMode === "CONSOLIDATED"
+                  ? "Consolidated Invoice"
+                  : "Invoice Per Booking"
+              }
+            />
+
+            <DetailRow
+              label="Billing Frequency"
+              value={
+                customer.billingProfile?.billingFrequency === "WEEKLY"
+                  ? `Weekly${
+                      customer.billingProfile.invoiceDayOfWeek
+                        ? ` - day ${customer.billingProfile.invoiceDayOfWeek}`
+                        : ""
+                    }`
+                  : customer.billingProfile?.billingFrequency === "MONTHLY"
+                    ? `Monthly${
+                        customer.billingProfile.invoiceDayOfMonth
+                          ? ` - day ${customer.billingProfile.invoiceDayOfMonth}`
+                          : ""
+                      }`
+                    : "Per Booking"
+              }
+            />
+
+            <DetailRow
+              label="Payment Terms"
+              value={`${customer.billingProfile?.paymentTermsDays || 30} days`}
+            />
+
+            <DetailRow
+              label="PO Required"
+              value={customer.billingProfile?.poRequired ? "Yes" : "No"}
+            />
+
+            <DetailRow
+              label="Credit Limit"
+              value={
+                customer.billingProfile?.creditLimit !== null &&
+                customer.billingProfile?.creditLimit !== undefined
+                  ? money(customer.billingProfile.creditLimit)
+                  : "Not set"
+              }
+            />
+
+            <DetailRow
+              label="Credit Facility"
+              value={
+                customer.billingProfile?.creditFacilityOnHold
+                  ? `On hold${
+                      customer.billingProfile.holdReason
+                        ? ` - ${customer.billingProfile.holdReason}`
+                        : ""
+                    }`
+                  : "Available"
+              }
             />
 
             <DetailRow

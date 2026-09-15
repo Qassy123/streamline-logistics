@@ -1,7 +1,14 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { AccountStatus, AccountType, Prisma } from "@prisma/client";
+import {
+  AccountStatus,
+  AccountType,
+  BillingFrequency,
+  BillingInvoiceMode,
+  BillingPaymentMode,
+  Prisma,
+} from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 const router = Router();
@@ -129,6 +136,25 @@ function customerSelect() {
     internalNote: true,
     createdAt: true,
     updatedAt: true,
+    billingProfile: {
+      select: {
+        id: true,
+        paymentMode: true,
+        invoiceMode: true,
+        billingFrequency: true,
+        invoiceDayOfWeek: true,
+        invoiceDayOfMonth: true,
+        paymentTermsDays: true,
+        accountsEmail: true,
+        poRequired: true,
+        creditLimit: true,
+        creditFacilityOnHold: true,
+        holdReason: true,
+        reminderApproachingDue: true,
+        reminderDueToday: true,
+        reminderOverdue: true,
+      },
+    },
     tradeAccount: {
       select: {
         id: true,
@@ -204,17 +230,72 @@ router.get("/", async (req, res) => {
 
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { companyName: { contains: search, mode: "insensitive" } },
-        { legalEntity: { contains: search, mode: "insensitive" } },
-        { tradingName: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { accountsEmail: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { alternativeContactNumber: { contains: search, mode: "insensitive" } },
-        { accountNumber: { contains: search, mode: "insensitive" } },
-        { vatNumber: { contains: search, mode: "insensitive" } },
-        { companyRegistrationNumber: { contains: search, mode: "insensitive" } },
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          companyName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          legalEntity: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          tradingName: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          accountsEmail: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          alternativeContactNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          accountNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          vatNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          companyRegistrationNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
       ];
     }
 
@@ -243,20 +324,30 @@ router.get("/", async (req, res) => {
         where,
         select: customerSelect(),
         orderBy: [
-          { createdAt: "desc" },
-          { name: "asc" },
+          {
+            createdAt: "desc",
+          },
+          {
+            name: "asc",
+          },
         ],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      prisma.user.count({ where }),
+      prisma.user.count({
+        where,
+      }),
       prisma.user.groupBy({
         by: ["accountType"],
-        _count: { _all: true },
+        _count: {
+          _all: true,
+        },
       }),
       prisma.user.groupBy({
         by: ["accountStatus"],
-        _count: { _all: true },
+        _count: {
+          _all: true,
+        },
       }),
     ]);
 
@@ -359,30 +450,23 @@ router.post("/", async (req, res) => {
       });
     }
 
-    if (
-      accountTypeValue !== AccountType.PRIVATE &&
-      !companyName
-    ) {
+    if (accountTypeValue !== AccountType.PRIVATE && !companyName) {
       return res.status(400).json({
         error: "Business name is required for business and trade accounts.",
       });
     }
 
-    if (
-      accountTypeValue !== AccountType.PRIVATE &&
-      !mainContactName
-    ) {
+    if (accountTypeValue !== AccountType.PRIVATE && !mainContactName) {
       return res.status(400).json({
-        error: "Main person to contact is required for business and trade accounts.",
+        error:
+          "Main person to contact is required for business and trade accounts.",
       });
     }
 
-    if (
-      accountTypeValue !== AccountType.PRIVATE &&
-      !accountsEmail
-    ) {
+    if (accountTypeValue !== AccountType.PRIVATE && !accountsEmail) {
       return res.status(400).json({
-        error: "Accounts email address is required for business and trade accounts.",
+        error:
+          "Accounts email address is required for business and trade accounts.",
       });
     }
 
@@ -422,8 +506,12 @@ router.post("/", async (req, res) => {
     }
 
     const existingUser = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true },
+      where: {
+        email,
+      },
+      select: {
+        id: true,
+      },
     });
 
     if (existingUser) {
@@ -436,8 +524,12 @@ router.post("/", async (req, res) => {
 
     if (username) {
       const existingUsername = await prisma.user.findUnique({
-        where: { username },
-        select: { id: true },
+        where: {
+          username,
+        },
+        select: {
+          id: true,
+        },
       });
 
       if (existingUsername) {
@@ -533,6 +625,25 @@ router.post("/", async (req, res) => {
         adminCreated: true,
         internalNote: getOptionalString(req.body.internalNote),
 
+        billingProfile: {
+          create: {
+            paymentMode:
+              accountTypeValue === AccountType.TRADE
+                ? BillingPaymentMode.PAY_LATER
+                : BillingPaymentMode.PAY_NOW,
+            invoiceMode: BillingInvoiceMode.PER_BOOKING,
+            billingFrequency: BillingFrequency.PER_BOOKING,
+            paymentTermsDays: 30,
+            accountsEmail,
+            poRequired: false,
+            creditLimit:
+              accountTypeValue === AccountType.TRADE
+                ? new Prisma.Decimal(2500)
+                : null,
+            creditFacilityOnHold: false,
+          },
+        },
+
         tradeAccount:
           accountTypeValue === AccountType.TRADE
             ? {
@@ -615,21 +726,31 @@ router.get("/:id", async (req, res) => {
 
   try {
     const customer = await prisma.user.findUnique({
-      where: { id: req.params.id },
+      where: {
+        id: req.params.id,
+      },
       select: {
         ...customerSelect(),
         notes: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
         documents: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
         quotes: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
           take: 20,
         },
         bookings: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
           take: 20,
           include: {
             vehicle: true,
@@ -637,15 +758,21 @@ router.get("/:id", async (req, res) => {
           },
         },
         invoices: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
           take: 20,
         },
         payments: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
           take: 20,
         },
         savedRoutes: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
           take: 20,
         },
       },
@@ -674,7 +801,9 @@ router.post("/:id/status", async (req, res) => {
   const admin = requireAdmin(req);
 
   if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
   }
 
   try {
@@ -682,34 +811,50 @@ router.post("/:id/status", async (req, res) => {
     const reason = getString(req.body.reason);
 
     if (!isAccountStatus(statusValue)) {
-      return res.status(400).json({ error: "Invalid account status." });
+      return res.status(400).json({
+        error: "Invalid account status.",
+      });
     }
 
     if (statusValue !== AccountStatus.ACTIVE && reason.length < 5) {
       return res.status(400).json({
-        error: "A reason of at least five characters is required when restricting an account.",
+        error:
+          "A reason of at least five characters is required when restricting an account.",
       });
     }
 
     const existingCustomer = await prisma.user.findUnique({
-      where: { id: req.params.id },
-      include: { tradeAccount: true },
+      where: {
+        id: req.params.id,
+      },
+      include: {
+        tradeAccount: true,
+        billingProfile: true,
+      },
     });
 
     if (!existingCustomer) {
-      return res.status(404).json({ error: "Customer account not found." });
+      return res.status(404).json({
+        error: "Customer account not found.",
+      });
     }
 
     const customer = await prisma.$transaction(async (transaction) => {
       await transaction.user.update({
-        where: { id: existingCustomer.id },
-        data: { accountStatus: statusValue as AccountStatus },
+        where: {
+          id: existingCustomer.id,
+        },
+        data: {
+          accountStatus: statusValue as AccountStatus,
+        },
       });
 
       if (existingCustomer.tradeAccount) {
         if (statusValue === AccountStatus.SUSPENDED) {
           await transaction.tradeAccount.update({
-            where: { id: existingCustomer.tradeAccount.id },
+            where: {
+              id: existingCustomer.tradeAccount.id,
+            },
             data: {
               status: "SUSPENDED",
               suspendedAt: new Date(),
@@ -720,7 +865,9 @@ router.post("/:id/status", async (req, res) => {
           existingCustomer.tradeAccount.status === "SUSPENDED"
         ) {
           await transaction.tradeAccount.update({
-            where: { id: existingCustomer.tradeAccount.id },
+            where: {
+              id: existingCustomer.tradeAccount.id,
+            },
             data: {
               status: "APPROVED",
               reactivatedAt: new Date(),
@@ -740,28 +887,69 @@ router.post("/:id/status", async (req, res) => {
       });
 
       return transaction.user.findUnique({
-        where: { id: existingCustomer.id },
+        where: {
+          id: existingCustomer.id,
+        },
         select: {
           ...customerSelect(),
-          notes: { orderBy: { createdAt: "desc" } },
-          documents: { orderBy: { createdAt: "desc" } },
-          quotes: { orderBy: { createdAt: "desc" }, take: 20 },
-          bookings: {
-            orderBy: { createdAt: "desc" },
-            take: 20,
-            include: { vehicle: true, driver: true },
+          notes: {
+            orderBy: {
+              createdAt: "desc",
+            },
           },
-          invoices: { orderBy: { createdAt: "desc" }, take: 20 },
-          payments: { orderBy: { createdAt: "desc" }, take: 20 },
-          savedRoutes: { orderBy: { createdAt: "desc" }, take: 20 },
+          documents: {
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+          quotes: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 20,
+          },
+          bookings: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 20,
+            include: {
+              vehicle: true,
+              driver: true,
+            },
+          },
+          invoices: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 20,
+          },
+          payments: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 20,
+          },
+          savedRoutes: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 20,
+          },
         },
       });
     });
 
-    res.json({ success: true, customer });
+    res.json({
+      success: true,
+      customer,
+    });
   } catch (error) {
     console.error("Admin customer status update error:", error);
-    res.status(500).json({ error: "Unable to update customer account status." });
+
+    res.status(500).json({
+      error: "Unable to update customer account status.",
+    });
   }
 });
 
@@ -776,8 +964,12 @@ router.patch("/:id", async (req, res) => {
 
   try {
     const existingCustomer = await prisma.user.findUnique({
-      where: { id: req.params.id },
-      include: { tradeAccount: true },
+      where: {
+        id: req.params.id,
+      },
+      include: {
+        tradeAccount: true,
+      },
     });
 
     if (!existingCustomer) {
@@ -801,47 +993,45 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    const nextAccountType =
-      accountTypeValue
-        ? (accountTypeValue as AccountType)
-        : existingCustomer.accountType;
+    const nextAccountType = accountTypeValue
+      ? (accountTypeValue as AccountType)
+      : existingCustomer.accountType;
 
     const nextCompanyName =
       req.body.companyName !== undefined
         ? getOptionalString(req.body.companyName)
         : existingCustomer.companyName;
+
     const nextName =
       req.body.name !== undefined
         ? getString(req.body.name)
         : existingCustomer.name;
+
     const nextAccountsEmail =
       req.body.accountsEmail !== undefined
         ? getOptionalString(req.body.accountsEmail)?.toLowerCase() || null
         : existingCustomer.accountsEmail;
+
     const nextPhone =
       req.body.phone !== undefined
         ? getOptionalString(req.body.phone)
         : existingCustomer.phone;
+
     const nextMainContactName =
       req.body.mainContactName !== undefined
         ? getOptionalString(req.body.mainContactName)
         : existingCustomer.mainContactName;
 
-    if (
-      nextAccountType !== AccountType.PRIVATE &&
-      !nextCompanyName
-    ) {
+    if (nextAccountType !== AccountType.PRIVATE && !nextCompanyName) {
       return res.status(400).json({
         error: "Business name is required for business and trade accounts.",
       });
     }
 
-    if (
-      nextAccountType !== AccountType.PRIVATE &&
-      !nextAccountsEmail
-    ) {
+    if (nextAccountType !== AccountType.PRIVATE && !nextAccountsEmail) {
       return res.status(400).json({
-        error: "Accounts email address is required for business and trade accounts.",
+        error:
+          "Accounts email address is required for business and trade accounts.",
       });
     }
 
@@ -851,271 +1041,589 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const billingPaymentModeValue = getString(
+      req.body.billingPaymentMode,
+    ).toUpperCase();
+
+    const billingInvoiceModeValue = getString(
+      req.body.billingInvoiceMode,
+    ).toUpperCase();
+
+    const billingFrequencyValue = getString(
+      req.body.billingFrequency,
+    ).toUpperCase();
+
+    const billingPaymentMode =
+      billingPaymentModeValue &&
+      Object.values(BillingPaymentMode).includes(
+        billingPaymentModeValue as BillingPaymentMode,
+      )
+        ? (billingPaymentModeValue as BillingPaymentMode)
+        : undefined;
+
+    const billingInvoiceMode =
+      billingInvoiceModeValue &&
+      Object.values(BillingInvoiceMode).includes(
+        billingInvoiceModeValue as BillingInvoiceMode,
+      )
+        ? (billingInvoiceModeValue as BillingInvoiceMode)
+        : undefined;
+
+    const billingFrequency =
+      billingFrequencyValue &&
+      Object.values(BillingFrequency).includes(
+        billingFrequencyValue as BillingFrequency,
+      )
+        ? (billingFrequencyValue as BillingFrequency)
+        : undefined;
+
+    const billingAccountsEmail =
+      req.body.billingAccountsEmail !== undefined
+        ? getOptionalString(req.body.billingAccountsEmail)?.toLowerCase() ||
+          null
+        : undefined;
+
+    const paymentTermsDays =
+      req.body.paymentTermsDays !== undefined
+        ? Number.parseInt(String(req.body.paymentTermsDays), 10)
+        : undefined;
+
+    const invoiceDayOfWeek =
+      req.body.invoiceDayOfWeek !== undefined &&
+      req.body.invoiceDayOfWeek !== null
+        ? Number.parseInt(String(req.body.invoiceDayOfWeek), 10)
+        : undefined;
+
+    const invoiceDayOfMonth =
+      req.body.invoiceDayOfMonth !== undefined &&
+      req.body.invoiceDayOfMonth !== null
+        ? Number.parseInt(String(req.body.invoiceDayOfMonth), 10)
+        : undefined;
+
+    const creditLimit =
+      req.body.creditLimit !== undefined &&
+      req.body.creditLimit !== null &&
+      req.body.creditLimit !== ""
+        ? new Prisma.Decimal(req.body.creditLimit)
+        : req.body.creditLimit !== undefined
+          ? null
+          : undefined;
+
+    if (billingPaymentModeValue && !billingPaymentMode) {
+      return res.status(400).json({
+        error: "Invalid billing payment mode.",
+      });
+    }
+
+    if (billingInvoiceModeValue && !billingInvoiceMode) {
+      return res.status(400).json({
+        error: "Invalid invoice mode.",
+      });
+    }
+
+    if (billingFrequencyValue && !billingFrequency) {
+      return res.status(400).json({
+        error: "Invalid billing frequency.",
+      });
+    }
+
+    if (billingAccountsEmail && !isValidEmail(billingAccountsEmail)) {
+      return res.status(400).json({
+        error: "Enter a valid billing accounts email address.",
+      });
+    }
+
+    if (
+      paymentTermsDays !== undefined &&
+      ![7, 14, 30].includes(paymentTermsDays)
+    ) {
+      return res.status(400).json({
+        error: "Payment terms must be 7, 14 or 30 days.",
+      });
+    }
+
+    if (
+      invoiceDayOfWeek !== undefined &&
+      (!Number.isInteger(invoiceDayOfWeek) ||
+        invoiceDayOfWeek < 1 ||
+        invoiceDayOfWeek > 7)
+    ) {
+      return res.status(400).json({
+        error: "Invoice day of week must be between 1 and 7.",
+      });
+    }
+
+    if (
+      invoiceDayOfMonth !== undefined &&
+      (!Number.isInteger(invoiceDayOfMonth) ||
+        invoiceDayOfMonth < 1 ||
+        invoiceDayOfMonth > 28)
+    ) {
+      return res.status(400).json({
+        error: "Invoice day of month must be between 1 and 28.",
+      });
+    }
+
+    if (
+      creditLimit !== undefined &&
+      creditLimit !== null &&
+      creditLimit.lessThan(0)
+    ) {
+      return res.status(400).json({
+        error: "Credit limit cannot be negative.",
+      });
+    }
+
     const updatedCustomer = await prisma.user.update({
-      where: { id: req.params.id },
+      where: {
+        id: req.params.id,
+      },
       data: {
         accountType: accountTypeValue
           ? (accountTypeValue as AccountType)
           : undefined,
+
         accountStatus: accountStatusValue
           ? (accountStatusValue as AccountStatus)
           : undefined,
+
         companyName:
           req.body.companyName !== undefined
             ? getOptionalString(req.body.companyName)
             : undefined,
+
         name:
           req.body.name !== undefined
             ? getString(req.body.name)
             : undefined,
+
         email:
           req.body.email !== undefined
             ? getString(req.body.email).toLowerCase()
             : undefined,
+
         username:
           req.body.username !== undefined
             ? getOptionalString(req.body.username)?.toLowerCase() || null
             : undefined,
+
         phone:
           req.body.phone !== undefined
             ? getOptionalString(req.body.phone)
             : undefined,
+
         legalEntity:
           req.body.legalEntity !== undefined
             ? getOptionalString(req.body.legalEntity)
             : undefined,
+
         tradingName:
           req.body.tradingName !== undefined
             ? getOptionalString(req.body.tradingName)
             : undefined,
+
         companyRegistrationNumber:
           req.body.companyRegistrationNumber !== undefined
             ? getOptionalString(req.body.companyRegistrationNumber)
             : undefined,
+
         vatNumber:
           req.body.vatNumber !== undefined
             ? getOptionalString(req.body.vatNumber)
             : undefined,
+
         businessType:
           req.body.businessType !== undefined
             ? getOptionalString(req.body.businessType)
             : undefined,
+
         industry:
           req.body.industry !== undefined
             ? getOptionalString(req.body.industry)
             : undefined,
+
         companyWebsite:
           req.body.companyWebsite !== undefined
             ? getOptionalString(req.body.companyWebsite)
             : undefined,
+
         firstName:
           req.body.firstName !== undefined
             ? getOptionalString(req.body.firstName)
             : undefined,
+
         lastName:
           req.body.lastName !== undefined
             ? getOptionalString(req.body.lastName)
             : undefined,
+
         jobTitle:
           req.body.jobTitle !== undefined
             ? getOptionalString(req.body.jobTitle)
             : undefined,
+
         accountsEmail:
           req.body.accountsEmail !== undefined
             ? getOptionalString(req.body.accountsEmail)?.toLowerCase() || null
             : undefined,
+
         alternativeContactNumber:
           req.body.alternativeContactNumber !== undefined
             ? getOptionalString(req.body.alternativeContactNumber)
             : undefined,
+
         mainContactName:
           req.body.mainContactName !== undefined
             ? getOptionalString(req.body.mainContactName)
             : undefined,
+
         registeredAddressLine1:
           req.body.registeredAddressLine1 !== undefined
             ? getOptionalString(req.body.registeredAddressLine1)
             : undefined,
+
         registeredAddressLine2:
           req.body.registeredAddressLine2 !== undefined
             ? getOptionalString(req.body.registeredAddressLine2)
             : undefined,
+
         registeredTownCity:
           req.body.registeredTownCity !== undefined
             ? getOptionalString(req.body.registeredTownCity)
             : undefined,
+
         registeredCounty:
           req.body.registeredCounty !== undefined
             ? getOptionalString(req.body.registeredCounty)
             : undefined,
+
         registeredPostcode:
           req.body.registeredPostcode !== undefined
             ? getOptionalString(req.body.registeredPostcode)
             : undefined,
+
         registeredCountry:
           req.body.registeredCountry !== undefined
             ? getOptionalString(req.body.registeredCountry)
             : undefined,
+
         tradingAddressDifferent:
           req.body.tradingAddressDifferent !== undefined
             ? getBoolean(req.body.tradingAddressDifferent)
             : undefined,
+
         tradingAddressLine1:
           req.body.tradingAddressLine1 !== undefined
             ? getOptionalString(req.body.tradingAddressLine1)
             : undefined,
+
         tradingAddressLine2:
           req.body.tradingAddressLine2 !== undefined
             ? getOptionalString(req.body.tradingAddressLine2)
             : undefined,
+
         tradingTownCity:
           req.body.tradingTownCity !== undefined
             ? getOptionalString(req.body.tradingTownCity)
             : undefined,
+
         tradingCounty:
           req.body.tradingCounty !== undefined
             ? getOptionalString(req.body.tradingCounty)
             : undefined,
+
         tradingPostcode:
           req.body.tradingPostcode !== undefined
             ? getOptionalString(req.body.tradingPostcode)
             : undefined,
+
         tradingCountry:
           req.body.tradingCountry !== undefined
             ? getOptionalString(req.body.tradingCountry)
             : undefined,
+
         estimatedShipmentsPerMonth:
           req.body.estimatedShipmentsPerMonth !== undefined
             ? getOptionalString(req.body.estimatedShipmentsPerMonth)
             : undefined,
+
         typicalShipmentType:
           req.body.typicalShipmentType !== undefined
             ? getOptionalString(req.body.typicalShipmentType)
             : undefined,
+
         internalNote:
           req.body.internalNote !== undefined
             ? getOptionalString(req.body.internalNote)
             : undefined,
+
+        billingProfile: {
+          upsert: {
+            create: {
+              paymentMode:
+                billingPaymentMode ??
+                (nextAccountType === AccountType.TRADE
+                  ? BillingPaymentMode.PAY_LATER
+                  : BillingPaymentMode.PAY_NOW),
+
+              invoiceMode:
+                billingInvoiceMode ?? BillingInvoiceMode.PER_BOOKING,
+
+              billingFrequency:
+                billingFrequency ?? BillingFrequency.PER_BOOKING,
+
+              invoiceDayOfWeek:
+                billingFrequency === BillingFrequency.WEEKLY
+                  ? invoiceDayOfWeek ?? null
+                  : null,
+
+              invoiceDayOfMonth:
+                billingFrequency === BillingFrequency.MONTHLY
+                  ? invoiceDayOfMonth ?? null
+                  : null,
+
+              paymentTermsDays: paymentTermsDays ?? 30,
+
+              accountsEmail:
+                billingAccountsEmail ?? nextAccountsEmail,
+
+              poRequired:
+                req.body.poRequired !== undefined
+                  ? getBoolean(req.body.poRequired)
+                  : false,
+
+              creditLimit:
+                creditLimit !== undefined
+                  ? creditLimit
+                  : nextAccountType === AccountType.TRADE
+                    ? new Prisma.Decimal(2500)
+                    : null,
+
+              creditFacilityOnHold: false,
+
+              holdReason:
+                req.body.holdReason !== undefined
+                  ? getOptionalString(req.body.holdReason)
+                  : null,
+            },
+
+            update: {
+              paymentMode: billingPaymentMode,
+
+              invoiceMode: billingInvoiceMode,
+
+              billingFrequency,
+
+              invoiceDayOfWeek:
+                req.body.billingFrequency !== undefined ||
+                req.body.invoiceDayOfWeek !== undefined
+                  ? billingFrequency === BillingFrequency.WEEKLY
+                    ? invoiceDayOfWeek ?? null
+                    : null
+                  : undefined,
+
+              invoiceDayOfMonth:
+                req.body.billingFrequency !== undefined ||
+                req.body.invoiceDayOfMonth !== undefined
+                  ? billingFrequency === BillingFrequency.MONTHLY
+                    ? invoiceDayOfMonth ?? null
+                    : null
+                  : undefined,
+
+              paymentTermsDays,
+
+              accountsEmail: billingAccountsEmail,
+
+              poRequired:
+                req.body.poRequired !== undefined
+                  ? getBoolean(req.body.poRequired)
+                  : undefined,
+
+              creditLimit,
+
+              creditFacilityOnHold:
+                req.body.creditFacilityOnHold !== undefined
+                  ? getBoolean(req.body.creditFacilityOnHold)
+                  : undefined,
+
+              holdReason:
+                req.body.holdReason !== undefined
+                  ? getOptionalString(req.body.holdReason)
+                  : undefined,
+            },
+          },
+        },
+
         tradeAccount:
           nextAccountType === AccountType.TRADE
             ? {
                 upsert: {
                   create: {
                     companyName: nextCompanyName || nextName,
+
                     tradingName:
                       req.body.tradingName !== undefined
                         ? getOptionalString(req.body.tradingName)
                         : existingCustomer.tradingName,
+
                     companyRegistrationNumber:
                       req.body.companyRegistrationNumber !== undefined
                         ? getOptionalString(
                             req.body.companyRegistrationNumber,
                           )
                         : existingCustomer.companyRegistrationNumber,
+
                     vatNumber:
                       req.body.vatNumber !== undefined
                         ? getOptionalString(req.body.vatNumber)
                         : existingCustomer.vatNumber,
+
                     registeredAddressLine1:
                       req.body.registeredAddressLine1 !== undefined
                         ? getOptionalString(req.body.registeredAddressLine1)
                         : existingCustomer.registeredAddressLine1,
+
                     registeredAddressLine2:
                       req.body.registeredAddressLine2 !== undefined
                         ? getOptionalString(req.body.registeredAddressLine2)
                         : existingCustomer.registeredAddressLine2,
+
                     registeredTownCity:
                       req.body.registeredTownCity !== undefined
                         ? getOptionalString(req.body.registeredTownCity)
                         : existingCustomer.registeredTownCity,
+
                     registeredCounty:
                       req.body.registeredCounty !== undefined
                         ? getOptionalString(req.body.registeredCounty)
                         : existingCustomer.registeredCounty,
+
                     registeredPostcode:
                       req.body.registeredPostcode !== undefined
                         ? getOptionalString(req.body.registeredPostcode)
                         : existingCustomer.registeredPostcode,
+
                     registeredCountry:
                       req.body.registeredCountry !== undefined
                         ? getOptionalString(req.body.registeredCountry)
                         : existingCustomer.registeredCountry,
+
                     tradingAddressDifferent:
                       req.body.tradingAddressDifferent !== undefined
                         ? getBoolean(req.body.tradingAddressDifferent)
                         : existingCustomer.tradingAddressDifferent,
+
                     tradingAddressLine1:
                       req.body.tradingAddressLine1 !== undefined
                         ? getOptionalString(req.body.tradingAddressLine1)
                         : existingCustomer.tradingAddressLine1,
+
                     tradingAddressLine2:
                       req.body.tradingAddressLine2 !== undefined
                         ? getOptionalString(req.body.tradingAddressLine2)
                         : existingCustomer.tradingAddressLine2,
+
                     tradingTownCity:
                       req.body.tradingTownCity !== undefined
                         ? getOptionalString(req.body.tradingTownCity)
                         : existingCustomer.tradingTownCity,
+
                     tradingCounty:
                       req.body.tradingCounty !== undefined
                         ? getOptionalString(req.body.tradingCounty)
                         : existingCustomer.tradingCounty,
+
                     tradingPostcode:
                       req.body.tradingPostcode !== undefined
                         ? getOptionalString(req.body.tradingPostcode)
                         : existingCustomer.tradingPostcode,
+
                     tradingCountry:
                       req.body.tradingCountry !== undefined
                         ? getOptionalString(req.body.tradingCountry)
                         : existingCustomer.tradingCountry,
+
                     accountsContactName:
                       nextMainContactName || nextName,
+
                     accountsEmail: nextAccountsEmail,
+
                     accountsPhone: nextPhone,
+
                     primaryFirstName:
                       req.body.firstName !== undefined
                         ? getOptionalString(req.body.firstName)
                         : existingCustomer.firstName,
+
                     primaryLastName:
                       req.body.lastName !== undefined
                         ? getOptionalString(req.body.lastName)
                         : existingCustomer.lastName,
+
                     primaryEmail:
                       req.body.email !== undefined
                         ? getString(req.body.email).toLowerCase()
                         : existingCustomer.email,
+
                     primaryMobile: nextPhone,
                   },
+
                   update: {
                     companyName: nextCompanyName || nextName,
+
                     tradingName:
                       req.body.tradingName !== undefined
                         ? getOptionalString(req.body.tradingName)
                         : undefined,
+
                     companyRegistrationNumber:
                       req.body.companyRegistrationNumber !== undefined
                         ? getOptionalString(
                             req.body.companyRegistrationNumber,
                           )
                         : undefined,
+
                     vatNumber:
                       req.body.vatNumber !== undefined
                         ? getOptionalString(req.body.vatNumber)
                         : undefined,
+
                     accountsContactName:
                       nextMainContactName || nextName,
+
                     accountsEmail: nextAccountsEmail,
+
                     accountsPhone: nextPhone,
+
                     primaryEmail:
                       req.body.email !== undefined
                         ? getString(req.body.email).toLowerCase()
                         : undefined,
+
                     primaryMobile: nextPhone,
+
+                    creditLimit:
+                      creditLimit !== undefined && creditLimit !== null
+                        ? creditLimit
+                        : undefined,
+
+                    paymentTermsDays,
+
+                    creditFacilityOnHold:
+                      req.body.creditFacilityOnHold !== undefined
+                        ? getBoolean(req.body.creditFacilityOnHold)
+                        : undefined,
+
+                    creditHoldReason:
+                      req.body.holdReason !== undefined
+                        ? getOptionalString(req.body.holdReason)
+                        : undefined,
                   },
                 },
               }
             : undefined,
       },
+
       select: customerSelect(),
     });
 
@@ -1137,75 +1645,6 @@ router.patch("/:id", async (req, res) => {
 
     res.status(500).json({
       error: "Unable to update customer account.",
-    });
-  }
-});
-
-router.delete("/:id", async (req, res) => {
-  const admin = requireAdmin(req);
-
-  if (!admin.authorised) {
-    return res.status(admin.status).json({
-      error: admin.error,
-    });
-  }
-
-  try {
-    const customer = await prisma.user.findUnique({
-      where: { id: req.params.id },
-      select: {
-        id: true,
-        accountNumber: true,
-        email: true,
-      },
-    });
-
-    if (!customer) {
-      return res.status(404).json({
-        error: "Customer account not found.",
-      });
-    }
-
-    await prisma.$transaction(async (transaction) => {
-      await transaction.quote.updateMany({
-        where: { userId: customer.id },
-        data: { userId: null },
-      });
-
-      await transaction.booking.updateMany({
-        where: { userId: customer.id },
-        data: { userId: null },
-      });
-
-      await transaction.invoice.updateMany({
-        where: { userId: customer.id },
-        data: { userId: null },
-      });
-
-      await transaction.payment.updateMany({
-        where: { userId: customer.id },
-        data: { userId: null },
-      });
-
-      await transaction.document.updateMany({
-        where: { userId: customer.id },
-        data: { userId: null },
-      });
-
-      await transaction.user.delete({
-        where: { id: customer.id },
-      });
-    });
-
-    res.json({
-      success: true,
-      message: "Customer account deleted.",
-    });
-  } catch (error) {
-    console.error("Admin customer deletion error:", error);
-
-    res.status(500).json({
-      error: "Unable to delete customer account.",
     });
   }
 });

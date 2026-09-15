@@ -25,6 +25,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "multer": "^2.2.0",
+    "pdfkit": "^0.20.2",
     "resend": "^6.17.1",
     "stripe": "^22.2.0",
     "zod": "^4.1.12"
@@ -35,6 +36,7 @@
     "@types/express": "^5.0.5",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.10.1",
+    "@types/pdfkit": "^0.17.6",
     "prisma": "^6.19.3",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

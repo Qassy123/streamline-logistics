@@ -340,26 +340,30 @@ router.get("/", async (req, res) => {
 
     invoices.forEach((invoice) => {
       const booking = invoice.booking;
-      const customer = invoice.user || booking.user || null;
+      const customer = invoice.user || booking?.user || null;
 
       notifications.push({
         id: `invoice:${invoice.id}:${invoice.updatedAt.toISOString()}`,
         category: "INVOICE",
         priority: invoicePriority(invoice.status, invoice.dueDate),
         title: `Invoice ${String(invoice.status).toLowerCase()}`,
-        message: `${invoice.invoiceNumber} for ${booking.reference} is ${String(
-          invoice.status,
-        ).toLowerCase()}.`,
+        message: booking
+          ? `${invoice.invoiceNumber} for ${booking.reference} is ${String(
+              invoice.status,
+            ).toLowerCase()}.`
+          : `${invoice.invoiceNumber} is ${String(
+              invoice.status,
+            ).toLowerCase()}.`,
         createdAt: invoice.updatedAt,
-        bookingId: booking.id,
-        bookingReference: booking.reference,
+        bookingId: booking?.id || null,
+        bookingReference: booking?.reference || null,
         customerId: customer?.id || null,
         customerName:
           customer?.companyName || customer?.name || null,
-        driverId: booking.driver?.id || null,
-        driverName: booking.driver?.name || null,
-        vehicleId: booking.vehicle?.id || null,
-        vehicleName: booking.vehicle?.name || null,
+        driverId: booking?.driver?.id || null,
+        driverName: booking?.driver?.name || null,
+        vehicleId: booking?.vehicle?.id || null,
+        vehicleName: booking?.vehicle?.name || null,
         sourceType: "INVOICE",
         sourceId: invoice.id,
       });
