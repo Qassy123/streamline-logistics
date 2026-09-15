@@ -204,7 +204,9 @@ export default function CustomerInvoicesPage() {
                   <tr key={invoice.id} className="hover:bg-slate-50">
                     <td className="px-5 py-4">
                       <Link
-                        href="/admin/invoices"
+                        href={`/admin/invoices?invoice=${encodeURIComponent(
+                          invoice.invoiceNumber,
+                        )}`}
                         className="text-sm font-bold text-[#E55300] hover:underline"
                       >
                         {invoice.invoiceNumber}

@@ -346,15 +346,13 @@ export default function CustomerAccountPage() {
     );
   }, [customer]);
 
-  const issuedInvoices = useMemo(() => {
+  const paidClearedInvoices = useMemo(() => {
     if (!customer?.invoices) {
       return [];
     }
 
-    return customer.invoices.filter((invoice) =>
-      ["ISSUED", "PAID", "FINALISED", "FINALIZED"].includes(
-        invoice.status.toUpperCase(),
-      ),
+    return customer.invoices.filter(
+      (invoice) => invoice.status.toUpperCase() === "PAID",
     );
   }, [customer]);
 
@@ -1018,10 +1016,10 @@ export default function CustomerAccountPage() {
             />
 
             <InvoiceSection
-              title="All Finalized + Issued Invoices"
-              invoices={issuedInvoices}
+              title="Paid/Cleared Invoices"
+              invoices={paidClearedInvoices}
               customerId={customer.id}
-              emptyMessage="No finalized or issued invoices."
+              emptyMessage="No paid or cleared invoices."
             />
           </aside>
         </div>
