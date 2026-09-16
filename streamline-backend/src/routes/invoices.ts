@@ -1790,11 +1790,20 @@ router.post("/admin/process-reminders", async (req, res) => {
         continue;
       }
 
-      const eventType = `REMINDER_${reminderType}`;
-      if (invoice.auditEvents.some((event) => event.eventType === eventType)) {
+      // Only send one reminder per invoice per calendar day.
+      // The timestamp is persisted on the invoice so repeated scheduler runs
+      // cannot send the same reminder again during the same day.
+      const reminderAlreadySentToday =
+        invoice.lastReminderSentAt &&
+        invoice.lastReminderSentAt >= todayStart &&
+        invoice.lastReminderSentAt < todayEnd;
+
+      if (reminderAlreadySentToday) {
         skipped += 1;
         continue;
       }
+
+      const eventType = `REMINDER_${reminderType}`;
 
       const recipient =
         invoice.user.billingProfile?.accountsEmail ||
@@ -1834,12 +1843,16 @@ router.post("/admin/process-reminders", async (req, res) => {
               description: `${reminderType.replace(/_/g, " ").toLowerCase()} reminder sent to ${recipient}.`,
             },
           });
-          if (reminderType === "OVERDUE" && invoice.status !== "OVERDUE") {
-            await transaction.invoice.update({
-              where: { id: invoice.id },
-              data: { status: "OVERDUE" },
-            });
-          }
+
+          await transaction.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              lastReminderSentAt: new Date(),
+              ...(reminderType === "OVERDUE" && invoice.status !== "OVERDUE"
+                ? { status: "OVERDUE" }
+                : {}),
+            },
+          });
         });
         sent += 1;
       } catch (error) {

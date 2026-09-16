@@ -43,6 +43,10 @@ const navigationItems: NavigationItem[] = [
     href: "/admin/drivers",
   },
   {
+    label: "Trade Accounts",
+    href: "/admin/trade-accounts",
+  },
+  {
     label: "Tracking",
     href: "/admin/tracking",
   },

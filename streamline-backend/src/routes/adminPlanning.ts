@@ -91,6 +91,53 @@ function isBookingStatus(
   );
 }
 
+function complianceDaysUntil(value: Date | null | undefined) {
+  if (!value) return null;
+
+  const due = new Date(value);
+  if (Number.isNaN(due.getTime())) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+
+  return Math.ceil((due.getTime() - today.getTime()) / 86_400_000);
+}
+
+function vehicleComplianceWarnings(vehicle: {
+  taxDueDate?: Date | null;
+  motExpiry?: Date | null;
+}) {
+  const warnings: Array<{
+    type: "TAX" | "MOT";
+    dueDate: Date;
+    daysUntil: number;
+    expired: boolean;
+  }> = [];
+
+  const taxDays = complianceDaysUntil(vehicle.taxDueDate);
+  if (vehicle.taxDueDate && taxDays !== null && taxDays <= 30) {
+    warnings.push({
+      type: "TAX",
+      dueDate: vehicle.taxDueDate,
+      daysUntil: taxDays,
+      expired: taxDays < 0,
+    });
+  }
+
+  const motDays = complianceDaysUntil(vehicle.motExpiry);
+  if (vehicle.motExpiry && motDays !== null && motDays <= 30) {
+    warnings.push({
+      type: "MOT",
+      dueDate: vehicle.motExpiry,
+      daysUntil: motDays,
+      expired: motDays < 0,
+    });
+  }
+
+  return warnings;
+}
+
 function planningBookingInclude() {
   return {
     user: true,
@@ -458,6 +505,10 @@ router.patch(
         });
       }
 
+      const complianceOverride = getBoolean(
+        req.body.complianceOverride,
+      );
+
       const driverId =
         req.body.driverId === undefined
           ? undefined
@@ -521,6 +572,9 @@ router.patch(
                   active: true,
                   name: true,
                   registration: true,
+                  vehicleType: true,
+                  taxDueDate: true,
+                  motExpiry: true,
                 },
               },
             );
@@ -535,6 +589,33 @@ router.patch(
                 error:
                   "The selected vehicle is not available in the active fleet.",
               });
+          }
+
+          const complianceWarnings =
+            vehicleComplianceWarnings(
+              exactVehicle,
+            );
+
+          if (
+            complianceWarnings.length > 0 &&
+            !complianceOverride
+          ) {
+            return res.status(409).json({
+              success: false,
+              code: "VEHICLE_COMPLIANCE_WARNING",
+              error:
+                "The selected vehicle has a Tax or MOT compliance warning.",
+              vehicle: {
+                id: exactVehicle.id,
+                name: exactVehicle.name,
+                registration:
+                  exactVehicle.registration,
+                vehicleType:
+                  exactVehicle.vehicleType,
+              },
+              complianceWarnings,
+              canOverride: true,
+            });
           }
 
           const conflict =

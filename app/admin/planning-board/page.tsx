@@ -8,10 +8,14 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  MapPinned,
   Plus,
+  PoundSterling,
+  ReceiptText,
   RefreshCw,
   Trash2,
   Truck,
+  User,
   X,
 } from "lucide-react";
 
@@ -79,6 +83,8 @@ type Vehicle = {
   vehicleType: string;
   registration?: string | null;
   active?: boolean;
+  taxDueDate?: string | null;
+  motExpiry?: string | null;
 };
 
 type Booking = {
@@ -89,25 +95,95 @@ type Booking = {
   collectionWindow: string;
   estimatedStartTime?: string | null;
   estimatedEndTime?: string | null;
+  vehicleAvailableAt?: string | null;
   collectionAddress: string;
   deliveryAddress: string;
+  returnAddress?: string | null;
+  extraDrops?: unknown;
   totalPrice: string | number;
+  customerReference?: string | null;
+  purchaseOrderNumber?: string | null;
+  internalNotes?: string | null;
+  dispatchNotes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   user?: {
     id: string;
     name: string;
     companyName?: string | null;
+    legalEntity?: string | null;
+    tradingName?: string | null;
     email: string;
+    phone?: string | null;
+    accountType?: string | null;
+    accountNumber?: string | null;
   } | null;
   quote?: {
     id?: string;
+    status?: string | null;
     companyName?: string | null;
     customerName?: string | null;
     customerEmail?: string | null;
+    customerPhone?: string | null;
+    deliveryType?: string | null;
+    journeyType?: string | null;
     vehicleSize?: string | null;
+    capacityPercent?: number | null;
+    distanceMiles?: string | number | null;
+    basePrice?: string | number | null;
+    fuelSurcharge?: string | number | null;
+    adminPrice?: string | number | null;
+    vatAmount?: string | number | null;
     totalPrice?: string | number | null;
+    whatAreWeCollecting?: string | null;
+    loadDescription?: string | null;
+    specialInstructions?: string | null;
+    contactPreference?: string | null;
+    handoverContactName?: string | null;
+    handoverContactPhone?: string | null;
+    handoverContactNotes?: string | null;
+    fragileGoods?: boolean | null;
+    palletCount?: number | null;
   } | null;
   vehicle?: Vehicle | null;
   vehicleId?: string | null;
+  driver?: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    availability?: string | null;
+  } | null;
+  driverId?: string | null;
+  payments?: Array<{
+    id: string;
+    status?: string | null;
+    amount?: string | number | null;
+    createdAt?: string | null;
+  }>;
+  invoices?: Array<{
+    id: string;
+    invoiceNumber?: string | null;
+    status?: string | null;
+    total?: string | number | null;
+  }>;
+  pod?: {
+    status?: string | null;
+    recipientName?: string | null;
+    deliveredAt?: string | null;
+  } | null;
+  reservation?: {
+    status?: string | null;
+    reservedFrom?: string | null;
+    reservedUntil?: string | null;
+  } | null;
+  trackingEvents?: Array<{
+    id: string;
+    title?: string | null;
+    description?: string | null;
+    status?: string | null;
+    createdAt?: string | null;
+  }>;
 };
 
 type Calculation = {
@@ -158,6 +234,19 @@ type BookingPayload = {
   id?: string;
   code?: string;
   error?: string;
+  canOverride?: boolean;
+  complianceWarnings?: Array<{
+    type: "TAX" | "MOT";
+    dueDate: string;
+    daysUntil: number;
+    expired: boolean;
+  }>;
+  vehicle?: {
+    id: string;
+    name?: string | null;
+    registration?: string | null;
+    vehicleType?: string | null;
+  };
   credit?: {
     creditLimit?: string | number;
     exposure?: string | number;
@@ -245,6 +334,34 @@ function money(value: unknown) {
     style: "currency",
     currency: "GBP",
   }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function mileageRate(calculation: Calculation | null) {
+  if (!calculation || calculation.distanceMiles <= 0) return 0;
+
+  return Number(calculation.fuelSurcharge || 0) / calculation.distanceMiles;
+}
+
+function extraStopsPrice(calculation: Calculation | null) {
+  if (!calculation) return 0;
+
+  return Math.max(
+    Number(calculation.adminPrice || 0) -
+      Number(calculation.basePrice || 0) -
+      Number(calculation.fuelSurcharge || 0),
+    0,
+  );
+}
+
+function formatMileageRate(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "£0.00";
+
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function bookingCustomerName(booking: Booking) {
@@ -349,6 +466,10 @@ export default function AdminPlanningBoardPage() {
   const [calculating, setCalculating] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [draggingDraft, setDraggingDraft] = useState(false);
+  const [dragTarget, setDragTarget] = useState<{
+    vehicleId: string;
+    collectionWindow: string;
+  } | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -358,6 +479,12 @@ export default function AdminPlanningBoardPage() {
   const [editDeliveryAddress, setEditDeliveryAddress] = useState("");
   const [editVehicleId, setEditVehicleId] = useState("");
   const [editTotalPrice, setEditTotalPrice] = useState("");
+  const [editReturnAddress, setEditReturnAddress] = useState("");
+  const [editCustomerReference, setEditCustomerReference] = useState("");
+  const [editPurchaseOrderNumber, setEditPurchaseOrderNumber] = useState("");
+  const [editInternalNotes, setEditInternalNotes] = useState("");
+  const [editDispatchNotes, setEditDispatchNotes] = useState("");
+  const [loadingBookingDetails, setLoadingBookingDetails] = useState(false);
   const [savingBooking, setSavingBooking] = useState(false);
 
   useEffect(() => {
@@ -385,6 +512,7 @@ export default function AdminPlanningBoardPage() {
     () =>
       bookings.filter(
         (booking) =>
+          booking.status !== "CANCELLED" &&
           booking.vehicleId &&
           canonicalVehicles.some((vehicle) => vehicle.id === booking.vehicleId),
       ),
@@ -765,7 +893,11 @@ export default function AdminPlanningBoardPage() {
     return payload.booking;
   }
 
-  async function assignExactVehicle(bookingId: string, vehicleId: string) {
+  async function assignExactVehicle(
+    bookingId: string,
+    vehicleId: string,
+    complianceOverride = false,
+  ) {
     const response = await fetch(
       `${API_BASE}/api/admin/planning/bookings/${bookingId}/assignment`,
       {
@@ -776,11 +908,62 @@ export default function AdminPlanningBoardPage() {
         },
         body: JSON.stringify({
           vehicleId,
+          complianceOverride,
         }),
       },
     );
 
     const payload = (await response.json()) as BookingPayload;
+
+    if (
+      response.status === 409 &&
+      payload.code === "VEHICLE_COMPLIANCE_WARNING" &&
+      payload.canOverride &&
+      payload.complianceWarnings?.length
+    ) {
+      const vehicleLabel =
+        payload.vehicle?.registration ||
+        payload.vehicle?.name ||
+        payload.vehicle?.vehicleType ||
+        "Selected vehicle";
+
+      const warningLines = payload.complianceWarnings.map((warning) => {
+        const dueDate = new Date(warning.dueDate);
+        const formattedDate = Number.isNaN(dueDate.getTime())
+          ? warning.dueDate
+          : new Intl.DateTimeFormat("en-GB", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            }).format(dueDate);
+
+        if (warning.expired) {
+          return `${warning.type}: expired ${Math.abs(
+            warning.daysUntil,
+          )} day${Math.abs(warning.daysUntil) === 1 ? "" : "s"} ago (${formattedDate})`;
+        }
+
+        if (warning.daysUntil === 0) {
+          return `${warning.type}: due today (${formattedDate})`;
+        }
+
+        return `${warning.type}: due in ${warning.daysUntil} day${
+          warning.daysUntil === 1 ? "" : "s"
+        } (${formattedDate})`;
+      });
+
+      const confirmed = window.confirm(
+        `Vehicle compliance warning for ${vehicleLabel}:\n\n${warningLines.join(
+          "\n",
+        )}\n\nThis is a warning only. Continue anyway?`,
+      );
+
+      if (!confirmed) {
+        throw new Error("Vehicle assignment cancelled due to compliance warning.");
+      }
+
+      return assignExactVehicle(bookingId, vehicleId, true);
+    }
 
     if (!response.ok) {
       throw new Error(payload.error || "Unable to assign the vehicle.");
@@ -802,6 +985,7 @@ export default function AdminPlanningBoardPage() {
 
     setAssigning(true);
     setDraggingDraft(false);
+    setDragTarget(null);
     setError("");
     setMessage("");
 
@@ -880,15 +1064,56 @@ export default function AdminPlanningBoardPage() {
     }
   }
 
-  function openBookingEditor(booking: Booking) {
+  function populateBookingEditor(booking: Booking) {
     setEditingBooking(booking);
     setEditCollectionDate(localDateInput(booking.collectionDate));
     setEditCollectionWindow(booking.collectionWindow || "00:00-02:00");
     setEditCollectionAddress(booking.collectionAddress || "");
     setEditDeliveryAddress(booking.deliveryAddress || "");
+    setEditReturnAddress(booking.returnAddress || "");
     setEditVehicleId(booking.vehicleId || "");
     setEditTotalPrice(String(booking.totalPrice ?? ""));
+    setEditCustomerReference(booking.customerReference || "");
+    setEditPurchaseOrderNumber(booking.purchaseOrderNumber || "");
+    setEditInternalNotes(booking.internalNotes || "");
+    setEditDispatchNotes(booking.dispatchNotes || "");
+  }
+
+  async function openBookingEditor(booking: Booking) {
+    populateBookingEditor(booking);
+    setLoadingBookingDetails(true);
     setError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/bookings/admin/${booking.id}`,
+        {
+          headers: {
+            "x-admin-key": adminKey,
+          },
+          cache: "no-store",
+        },
+      );
+
+      const payload = (await response.json()) as {
+        booking?: Booking;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.booking) {
+        throw new Error(payload.error || "Unable to load full booking details.");
+      }
+
+      populateBookingEditor(payload.booking);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load full booking details.",
+      );
+    } finally {
+      setLoadingBookingDetails(false);
+    }
   }
 
   function closeBookingEditor() {
@@ -937,8 +1162,13 @@ export default function AdminPlanningBoardPage() {
             collectionWindow: editCollectionWindow,
             collectionAddress: editCollectionAddress.trim(),
             deliveryAddress: editDeliveryAddress.trim(),
+            returnAddress: editReturnAddress.trim() || null,
             vehicleId: editVehicleId || null,
             totalPrice: parsedTotal,
+            customerReference: editCustomerReference.trim() || null,
+            purchaseOrderNumber: editPurchaseOrderNumber.trim() || null,
+            internalNotes: editInternalNotes.trim() || null,
+            dispatchNotes: editDispatchNotes.trim() || null,
           }),
         },
       );
@@ -1363,66 +1593,248 @@ export default function AdminPlanningBoardPage() {
         <>
           {!boardOnly ? (
           <section className="mt-7 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
-                    New booking ready to plan
-                  </p>
-                  <h2 className="mt-1 text-xl font-bold text-slate-950">
-                    {form.accountId === "GUEST"
-                      ? form.guestCompanyName
-                      : selectedCustomer?.companyName ||
-                        selectedCustomer?.legalEntity ||
-                        selectedCustomer?.name ||
-                        "Customer"}
-                  </h2>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {form.collectionAddress} → {form.deliveryAddress}
-                  </p>
-                </div>
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_52%,_#006CFF_100%)] p-5 text-white sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#2D8CFF]">
+                      New booking ready to plan
+                    </p>
+                    <h2 className="mt-2 text-2xl font-bold">
+                      {form.accountId === "GUEST"
+                        ? form.guestCompanyName
+                        : selectedCustomer?.companyName ||
+                          selectedCustomer?.legalEntity ||
+                          selectedCustomer?.name ||
+                          "Customer"}
+                    </h2>
+                    <p className="mt-2 text-sm text-white/70">
+                      Admin quote breakdown before vehicle and time assignment
+                    </p>
+                  </div>
 
-                <div className="text-right">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Charge
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-slate-950">
-                    {money(calculation?.totalPrice)}
-                  </p>
+                  <div className="text-right">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                      Total Inc VAT
+                    </p>
+                    <p className="mt-1 text-3xl font-bold">
+                      {money(calculation?.totalPrice)}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className={`mt-5 grid gap-3 ${form.journeyType === "Multi" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-                <InfoBox
-                  label="Journey time"
-                  value={
-                    calculation?.durationMinutes != null
-                      ? `${calculation.durationMinutes} mins`
-                      : "Not returned"
-                  }
-                />
-                <InfoBox
-                  label="Distance"
-                  value={`${calculation?.distanceMiles ?? 0} miles`}
-                />
-                {form.journeyType !== "Multi" ? (
-                  <InfoBox
-                    label="Capacity"
-                    value={
-                      CAPACITY_OPTIONS.find(
-                        (option) => option.value === form.capacityPercent,
-                      )?.label || ""
-                    }
-                  />
-                ) : null}
+              <div className="grid gap-5 p-5 xl:grid-cols-[1.2fr_0.8fr]">
+                <div className="grid gap-5">
+                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                    <div className="mb-4 flex items-center gap-3">
+                      <Truck className="text-[#006CFF]" size={22} />
+                      <h3 className="text-lg font-bold text-[#071D49]">
+                        Service Details
+                      </h3>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <QuoteDetail label="Delivery Type" value="Dedicated" />
+                      <QuoteDetail
+                        label="Vehicle Size"
+                        value={`${capacityPricingVehicle(form.capacityPercent)} (final vehicle selected on grid)`}
+                      />
+                      <QuoteDetail
+                        label="Journey Type"
+                        value={form.journeyType === "Multi" ? "Multi Drop" : form.journeyType}
+                      />
+                      {form.journeyType !== "Multi" ? (
+                        <QuoteDetail
+                          label="Capacity Required"
+                          value={`${form.capacityPercent}%`}
+                        />
+                      ) : null}
+                      <QuoteDetail
+                        label="Collection Date"
+                        value={displayLongDate(planningDate)}
+                      />
+                      <QuoteDetail
+                        label="Collection Window"
+                        value="Select by dropping onto the planning grid"
+                      />
+                      <QuoteDetail
+                        label="Journey Time"
+                        value={
+                          calculation?.durationMinutes != null
+                            ? `${calculation.durationMinutes} mins`
+                            : "Not returned"
+                        }
+                      />
+                      <QuoteDetail
+                        label="Estimated Distance"
+                        value={`${calculation?.distanceMiles ?? 0} miles`}
+                      />
+                    </div>
+                  </section>
+
+                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                    <div className="mb-4 flex items-center gap-3">
+                      <MapPin className="text-[#006CFF]" size={22} />
+                      <h3 className="text-lg font-bold text-[#071D49]">
+                        Route Details
+                      </h3>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <QuoteAddress
+                        label="Collection Address"
+                        value={form.collectionAddress}
+                      />
+                      <QuoteAddress
+                        label="Delivery Address"
+                        value={form.deliveryAddress}
+                      />
+
+                      {form.journeyType === "Return" ? (
+                        <QuoteAddress
+                          label="Return Address"
+                          value={form.returnAddress}
+                        />
+                      ) : null}
+
+                      {form.journeyType === "Multi" && buildExtraDrops().length > 0 ? (
+                        <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+                          <p className="text-sm font-bold text-slate-500">
+                            Extra Stops
+                          </p>
+                          <div className="mt-3 grid gap-2">
+                            {buildExtraDrops().map((stop, index) => (
+                              <div
+                                key={`${stop.order}-${stop.address}`}
+                                className="rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-3"
+                              >
+                                <p className="text-xs font-bold text-[#071D49]">
+                                  Stop {index + 1}
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-slate-600">
+                                  {stop.address}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                    <div className="mb-4 flex items-center gap-3">
+                      <User className="text-[#006CFF]" size={22} />
+                      <h3 className="text-lg font-bold text-[#071D49]">
+                        Customer Details
+                      </h3>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <QuoteDetail
+                        label="Customer / Company"
+                        value={
+                          form.accountId === "GUEST"
+                            ? form.guestCompanyName
+                            : selectedCustomer?.companyName ||
+                              selectedCustomer?.legalEntity ||
+                              selectedCustomer?.name ||
+                              "Not provided"
+                        }
+                      />
+                      <QuoteDetail
+                        label="Email"
+                        value={
+                          form.accountId === "GUEST"
+                            ? form.guestEmail
+                            : selectedCustomer?.email || "Not provided"
+                        }
+                      />
+                      <QuoteDetail
+                        label="Phone"
+                        value={
+                          form.accountId === "GUEST"
+                            ? form.guestPhone
+                            : selectedCustomer?.phone || "Not provided"
+                        }
+                      />
+                      <QuoteDetail
+                        label="Account Type"
+                        value={
+                          form.accountId === "GUEST"
+                            ? "Guest"
+                            : selectedCustomer?.accountType || "Business"
+                        }
+                      />
+                    </div>
+                  </section>
+                </div>
+
+                <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5">
+                  <div className="mb-4 flex items-center gap-3">
+                    <ReceiptText className="text-[#006CFF]" size={22} />
+                    <h3 className="text-lg font-bold text-[#071D49]">
+                      Price breakdown
+                    </h3>
+                  </div>
+
+                  <div className="grid gap-3">
+                    <QuotePriceRow
+                      icon={<Truck size={20} />}
+                      label={`Base Fare (${capacityPricingVehicle(form.capacityPercent)})`}
+                      value={money(calculation?.basePrice)}
+                    />
+                    <QuotePriceRow
+                      icon={<MapPinned size={20} />}
+                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi × ${formatMileageRate(
+                        mileageRate(calculation),
+                      )})`}
+                      value={money(calculation?.fuelSurcharge)}
+                    />
+                    <QuotePriceRow
+                      icon={<MapPin size={20} />}
+                      label={`Extra Stops (${calculation?.extraDropCount ?? 0})`}
+                      value={money(extraStopsPrice(calculation))}
+                    />
+                    <QuotePriceRow
+                      icon={<ReceiptText size={20} />}
+                      label="Subtotal (ex VAT)"
+                      value={money(calculation?.adminPrice)}
+                    />
+                    <QuotePriceRow
+                      icon={<ReceiptText size={20} />}
+                      label="VAT @20%"
+                      value={money(calculation?.vatAmount)}
+                    />
+
+                    <div className="mt-1 rounded-2xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-4 text-white">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <PoundSterling size={20} />
+                          <p className="font-bold">Total Inc VAT</p>
+                        </div>
+                        <p className="text-xl font-bold">
+                          {money(calculation?.totalPrice)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
               </div>
             </div>
 
             <div
               draggable={!assigning && !createdBookingId}
-              onDragStart={() => setDraggingDraft(true)}
-              onDragEnd={() => setDraggingDraft(false)}
-              className={`flex min-h-[160px] w-full cursor-grab flex-col justify-center rounded-3xl border-2 border-dashed p-5 shadow-sm lg:w-[300px] ${
+              onDragStart={() => {
+                setDraggingDraft(true);
+                setDragTarget(null);
+              }}
+              onDragEnd={() => {
+                setDraggingDraft(false);
+                setDragTarget(null);
+              }}
+              className={`flex h-[88px] w-full cursor-grab flex-col justify-center overflow-hidden rounded-2xl border-2 border-dashed px-4 py-3 shadow-sm lg:w-[200px] ${
                 draggingDraft
                   ? "border-[#FF6A00] bg-orange-50"
                   : createdBookingId
@@ -1603,16 +2015,64 @@ export default function AdminPlanningBoardPage() {
                                 : "bg-white"
                             }`}
                             onDragOver={(event) => {
-                              if (!createdBookingId) {
+                              if (!createdBookingId && draggingDraft) {
                                 event.preventDefault();
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                const collectionWindow = windowFromDropOffset(
+                                  event.clientX - rect.left,
+                                );
+
+                                setDragTarget((current) =>
+                                  current?.vehicleId === vehicle.id &&
+                                  current.collectionWindow === collectionWindow
+                                    ? current
+                                    : {
+                                        vehicleId: vehicle.id,
+                                        collectionWindow,
+                                      },
+                                );
+                              }
+                            }}
+                            onDragLeave={(event) => {
+                              const nextTarget = event.relatedTarget as Node | null;
+
+                              if (
+                                !nextTarget ||
+                                !event.currentTarget.contains(nextTarget)
+                              ) {
+                                setDragTarget((current) =>
+                                  current?.vehicleId === vehicle.id ? null : current,
+                                );
                               }
                             }}
                             onDrop={(event) => {
                               if (!createdBookingId) {
+                                setDragTarget(null);
                                 void handleDraftDrop(event, vehicle);
                               }
                             }}
                           >
+                            {dragTarget?.vehicleId === vehicle.id ? (
+                              <div
+                                className="pointer-events-none absolute inset-y-0 z-[5] border-2 border-[#FF6A00] bg-orange-100/80"
+                                style={{
+                                  left:
+                                    COLLECTION_WINDOWS.indexOf(
+                                      dragTarget.collectionWindow as (typeof COLLECTION_WINDOWS)[number],
+                                    ) *
+                                    2 *
+                                    HOUR_WIDTH,
+                                  width: 2 * HOUR_WIDTH,
+                                }}
+                              >
+                                <div className="flex h-full items-center justify-center">
+                                  <span className="rounded-lg bg-[#FF6A00] px-2.5 py-1 text-xs font-bold text-white shadow-sm">
+                                    {dragTarget.collectionWindow}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : null}
+
                             {Array.from(
                               {
                                 length:
@@ -1640,7 +2100,7 @@ export default function AdminPlanningBoardPage() {
                                 <button
                                   type="button"
                                   key={booking.id}
-                                  onClick={() => openBookingEditor(booking)}
+                                  onClick={() => void openBookingEditor(booking)}
                                   className={`absolute top-3 z-10 h-[62px] overflow-hidden rounded-xl border px-3 py-2 text-left shadow-sm transition hover:ring-2 hover:ring-orange-300 ${
                                     isCreated
                                       ? "border-emerald-300 bg-emerald-50"
@@ -1718,18 +2178,23 @@ export default function AdminPlanningBoardPage() {
 
       {editingBooking ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 sm:p-6">
+          <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white p-5 sm:p-6">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
-                  Edit booking
+                  Booking details / edit
                 </p>
                 <h2 className="mt-1 text-2xl font-bold text-slate-950">
                   {editingBooking.reference}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {bookingCustomerName(editingBooking)}
-                </p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-[#E55300]">
+                    {editingBooking.status.replace(/_/g, " ")}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                    {bookingCustomerName(editingBooking)}
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
@@ -1742,108 +2207,148 @@ export default function AdminPlanningBoardPage() {
               </button>
             </div>
 
-            <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
-              <FieldLabel label="Collection Date">
-                <input
-                  type="date"
-                  value={editCollectionDate}
-                  onChange={(event) => setEditCollectionDate(event.target.value)}
-                  className="manual-input"
-                />
-              </FieldLabel>
-
-              <FieldLabel label="Collection Window">
-                <select
-                  value={editCollectionWindow}
-                  onChange={(event) => setEditCollectionWindow(event.target.value)}
-                  className="manual-input"
-                >
-                  {COLLECTION_WINDOWS.map((window) => (
-                    <option key={window} value={window}>
-                      {window}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
-
-              <div className="sm:col-span-2">
-                <FieldLabel label="Collection Address">
-                  <textarea
-                    rows={3}
-                    value={editCollectionAddress}
-                    onChange={(event) => setEditCollectionAddress(event.target.value)}
-                    className="manual-input resize-none"
-                  />
-                </FieldLabel>
+            {loadingBookingDetails ? (
+              <div className="flex min-h-[360px] items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-[#FF6A00]" />
               </div>
+            ) : (
+              <div className="space-y-6 p-5 sm:p-6">
+                <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <h3 className="text-lg font-bold text-slate-950">Customer</h3>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <InfoBox label="Customer / Company" value={bookingCustomerName(editingBooking)} />
+                    <InfoBox label="Email" value={editingBooking.user?.email || editingBooking.quote?.customerEmail || "Not provided"} />
+                    <InfoBox label="Phone" value={editingBooking.user?.phone || editingBooking.quote?.customerPhone || "Not provided"} />
+                    <InfoBox label="Account Type" value={editingBooking.user?.accountType || (editingBooking.user ? "Business" : "Guest")} />
+                  </div>
+                </section>
 
-              <div className="sm:col-span-2">
-                <FieldLabel label="Delivery Address">
-                  <textarea
-                    rows={3}
-                    value={editDeliveryAddress}
-                    onChange={(event) => setEditDeliveryAddress(event.target.value)}
-                    className="manual-input resize-none"
-                  />
-                </FieldLabel>
+                <section className="rounded-3xl border border-slate-200 bg-white p-5">
+                  <h3 className="text-lg font-bold text-slate-950">Journey & assignment</h3>
+                  <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                    <FieldLabel label="Collection Date">
+                      <input type="date" value={editCollectionDate} onChange={(event) => setEditCollectionDate(event.target.value)} className="manual-input" />
+                    </FieldLabel>
+                    <FieldLabel label="Collection Window">
+                      <select value={editCollectionWindow} onChange={(event) => setEditCollectionWindow(event.target.value)} className="manual-input">
+                        {COLLECTION_WINDOWS.map((window) => (
+                          <option key={window} value={window}>{window}</option>
+                        ))}
+                      </select>
+                    </FieldLabel>
+                    <div className="sm:col-span-2">
+                      <FieldLabel label="Collection Address">
+                        <textarea rows={3} value={editCollectionAddress} onChange={(event) => setEditCollectionAddress(event.target.value)} className="manual-input resize-none" />
+                      </FieldLabel>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <FieldLabel label="Delivery Address">
+                        <textarea rows={3} value={editDeliveryAddress} onChange={(event) => setEditDeliveryAddress(event.target.value)} className="manual-input resize-none" />
+                      </FieldLabel>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <FieldLabel label="Return Address">
+                        <textarea rows={2} value={editReturnAddress} onChange={(event) => setEditReturnAddress(event.target.value)} placeholder="Not required for one-way journeys" className="manual-input resize-none" />
+                      </FieldLabel>
+                    </div>
+                    <FieldLabel label="Vehicle">
+                      <select value={editVehicleId} onChange={(event) => setEditVehicleId(event.target.value)} className="manual-input">
+                        <option value="">Unassigned</option>
+                        {canonicalVehicles.map((vehicle) => (
+                          <option key={vehicle.id} value={vehicle.id}>
+                            {vehicle.registration || vehicle.name || vehicle.vehicleType} - {vehicle.vehicleType}
+                          </option>
+                        ))}
+                      </select>
+                    </FieldLabel>
+                    <FieldLabel label="Booking Charge">
+                      <input type="number" min="0" step="0.01" value={editTotalPrice} onChange={(event) => setEditTotalPrice(event.target.value)} className="manual-input" />
+                    </FieldLabel>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <InfoBox label="Journey Type" value={editingBooking.quote?.journeyType || "Not provided"} />
+                    <InfoBox label="Vehicle Size" value={editingBooking.quote?.vehicleSize || editingBooking.vehicle?.vehicleType || "Not provided"} />
+                    <InfoBox label="Distance" value={editingBooking.quote?.distanceMiles != null ? `${editingBooking.quote.distanceMiles} miles` : "Not provided"} />
+                    <InfoBox label="Driver" value={editingBooking.driver?.name || "Unassigned"} />
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                  <h3 className="text-lg font-bold text-[#071D49]">Quote / load details</h3>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <InfoBox label="Delivery Type" value={editingBooking.quote?.deliveryType || "Not provided"} />
+                    <InfoBox label="Capacity" value={editingBooking.quote?.capacityPercent != null ? `${editingBooking.quote.capacityPercent}%` : "Not provided"} />
+                    <InfoBox label="What Are We Collecting?" value={editingBooking.quote?.whatAreWeCollecting || "Not provided"} />
+                    <InfoBox label="Load Description" value={editingBooking.quote?.loadDescription || "Not provided"} />
+                    <InfoBox label="Fragile Goods" value={editingBooking.quote?.fragileGoods == null ? "Not provided" : editingBooking.quote.fragileGoods ? "Yes" : "No"} />
+                    <InfoBox label="Pallet Count" value={editingBooking.quote?.palletCount != null ? String(editingBooking.quote.palletCount) : "Not provided"} />
+                    <InfoBox label="Contact Preference" value={editingBooking.quote?.contactPreference || "Not provided"} />
+                    <InfoBox label="Handover Contact" value={editingBooking.quote?.handoverContactName || "Not provided"} />
+                    <InfoBox label="Handover Phone" value={editingBooking.quote?.handoverContactPhone || "Not provided"} />
+                  </div>
+                  {editingBooking.quote?.specialInstructions ? (
+                    <div className="mt-3 rounded-2xl border border-[#D7E6FF] bg-white p-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Special Instructions</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-[#071D49]">{editingBooking.quote.specialInstructions}</p>
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-white p-5">
+                  <h3 className="text-lg font-bold text-slate-950">References & admin notes</h3>
+                  <div className="mt-4 grid gap-5 sm:grid-cols-2">
+                    <FieldLabel label="Customer Reference">
+                      <input value={editCustomerReference} onChange={(event) => setEditCustomerReference(event.target.value)} className="manual-input" />
+                    </FieldLabel>
+                    <FieldLabel label="PO / Order Reference">
+                      <input value={editPurchaseOrderNumber} onChange={(event) => setEditPurchaseOrderNumber(event.target.value)} className="manual-input" />
+                    </FieldLabel>
+                    <FieldLabel label="Internal Notes">
+                      <textarea rows={3} value={editInternalNotes} onChange={(event) => setEditInternalNotes(event.target.value)} className="manual-input resize-none" />
+                    </FieldLabel>
+                    <FieldLabel label="Dispatch Notes">
+                      <textarea rows={3} value={editDispatchNotes} onChange={(event) => setEditDispatchNotes(event.target.value)} className="manual-input resize-none" />
+                    </FieldLabel>
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <h3 className="text-lg font-bold text-slate-950">Financial / operational status</h3>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <InfoBox label="Booking Total" value={money(editingBooking.totalPrice)} />
+                    <InfoBox label="Payments" value={editingBooking.payments?.length ? `${editingBooking.payments.length} payment record(s)` : "No payment records"} />
+                    <InfoBox label="Invoices" value={editingBooking.invoices?.length ? `${editingBooking.invoices.length} invoice(s)` : "No invoices"} />
+                    <InfoBox label="POD" value={editingBooking.pod?.status || "Not completed"} />
+                    <InfoBox label="Reservation" value={editingBooking.reservation?.status || "None"} />
+                    <InfoBox label="Tracking Events" value={editingBooking.trackingEvents?.length ? `${editingBooking.trackingEvents.length} event(s)` : "No events"} />
+                    <InfoBox label="Estimated Start" value={displayTime(editingBooking.estimatedStartTime) || "Not set"} />
+                    <InfoBox label="Estimated End" value={displayTime(editingBooking.estimatedEndTime) || "Not set"} />
+                  </div>
+                </section>
+
+                {error ? <ErrorBox text={error} /> : null}
               </div>
+            )}
 
-              <FieldLabel label="Vehicle">
-                <select
-                  value={editVehicleId}
-                  onChange={(event) => setEditVehicleId(event.target.value)}
-                  className="manual-input"
-                >
-                  <option value="">Unassigned</option>
-                  {canonicalVehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.registration || vehicle.name || vehicle.vehicleType} - {vehicle.vehicleType}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
-
-              <FieldLabel label="Booking Charge">
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editTotalPrice}
-                  onChange={(event) => setEditTotalPrice(event.target.value)}
-                  className="manual-input"
-                />
-              </FieldLabel>
-            </div>
-
-            {error ? (
-              <div className="px-5 sm:px-6">
-                <ErrorBox text={error} />
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-5 sm:p-6">
+            <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white p-5 sm:p-6">
               <button
                 type="button"
                 onClick={() => void cancelBooking()}
-                disabled={savingBooking || editingBooking.status === "CANCELLED"}
+                disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                 className="rounded-xl border border-red-300 bg-white px-5 py-3 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
               >
                 {editingBooking.status === "CANCELLED" ? "Booking Cancelled" : "Cancel Booking"}
               </button>
 
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={closeBookingEditor}
-                  disabled={savingBooking}
-                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
+                <button type="button" onClick={closeBookingEditor} disabled={savingBooking} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                   Close
                 </button>
                 <button
                   type="button"
                   onClick={() => void saveBookingChanges()}
-                  disabled={savingBooking || editingBooking.status === "CANCELLED"}
+                  disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
                 >
                   {savingBooking ? <Loader2 size={17} className="animate-spin" /> : null}
@@ -1906,6 +2411,62 @@ function InfoBox({
         {label}
       </p>
       <p className="mt-1 font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function QuoteDetail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-bold text-[#071D49]">
+        {value || "Not provided"}
+      </p>
+    </div>
+  );
+}
+
+function QuoteAddress({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+      <p className="text-sm font-bold text-slate-500">{label}</p>
+      <p className="mt-2 whitespace-pre-line break-words text-sm font-semibold leading-6 text-[#071D49]">
+        {value || "Not provided"}
+      </p>
+    </div>
+  );
+}
+
+function QuotePriceRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-4">
+      <div className="flex min-w-0 items-center gap-3 text-[#006CFF]">
+        <span className="shrink-0">{icon}</span>
+        <p className="min-w-0 text-sm font-bold text-[#071D49]">{label}</p>
+      </div>
+      <p className="shrink-0 text-sm font-bold text-[#071D49]">{value}</p>
     </div>
   );
 }

@@ -20,8 +20,8 @@ const API_BASE =
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 const PAGE_SIZE = 100;
 
-const START_HOUR = 6;
-const END_HOUR = 22;
+const START_HOUR = 0;
+const END_HOUR = 24;
 const HOUR_WIDTH = 100;
 const VEHICLE_COLUMN_WIDTH = 220;
 const ROW_HEIGHT = 88;
@@ -32,6 +32,8 @@ type Vehicle = {
   vehicleType: string;
   registration?: string | null;
   status: string;
+  taxDueDate?: string | null;
+  motExpiry?: string | null;
 };
 
 type Driver = {
@@ -187,6 +189,49 @@ function minutesFromStartOfDay(value?: string | null) {
   }
 
   return parsed.getHours() * 60 + parsed.getMinutes();
+}
+
+function daysUntil(value?: string | null) {
+  if (!value) return null;
+
+  const due = new Date(value);
+  if (Number.isNaN(due.getTime())) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+
+  return Math.ceil((due.getTime() - today.getTime()) / 86_400_000);
+}
+
+function vehicleComplianceWarnings(vehicle?: Vehicle | null) {
+  if (!vehicle) return [];
+
+  const warnings: string[] = [];
+  const taxDays = daysUntil(vehicle.taxDueDate);
+  const motDays = daysUntil(vehicle.motExpiry);
+
+  if (taxDays !== null && taxDays <= 30) {
+    warnings.push(
+      taxDays < 0
+        ? `Vehicle tax expired ${Math.abs(taxDays)} day${Math.abs(taxDays) === 1 ? "" : "s"} ago`
+        : taxDays === 0
+          ? "Vehicle tax is due today"
+          : `Vehicle tax is due in ${taxDays} day${taxDays === 1 ? "" : "s"}`,
+    );
+  }
+
+  if (motDays !== null && motDays <= 30) {
+    warnings.push(
+      motDays < 0
+        ? `MOT expired ${Math.abs(motDays)} day${Math.abs(motDays) === 1 ? "" : "s"} ago`
+        : motDays === 0
+          ? "MOT expires today"
+          : `MOT expires in ${motDays} day${motDays === 1 ? "" : "s"}`,
+    );
+  }
+
+  return warnings;
 }
 
 function statusClasses(status: string) {
@@ -484,7 +529,7 @@ export default function AdminBookingsPage() {
 
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
             <Clock3 size={17} />
-            06:00 - 22:00
+            00:00 - 24:00
           </div>
         </div>
 
@@ -600,6 +645,15 @@ export default function AdminBookingsPage() {
                         <p className="mt-1 truncate text-[11px] text-slate-400">
                           {vehicle.vehicleType}
                         </p>
+
+                        {vehicleComplianceWarnings(vehicle).length > 0 ? (
+                          <p
+                            className="mt-1 truncate text-[10px] font-bold text-amber-700"
+                            title={vehicleComplianceWarnings(vehicle).join(" · ")}
+                          >
+                            Tax / MOT due within 30 days
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
@@ -820,6 +874,26 @@ function BookingDetailsModal({
               {bookingTimeText(booking)}
             </span>
           </div>
+
+          {vehicleComplianceWarnings(booking.vehicle).length > 0 ? (
+            <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+              <p className="text-sm font-bold text-amber-950">
+                Vehicle compliance warning
+              </p>
+
+              <div className="mt-2 space-y-1">
+                {vehicleComplianceWarnings(booking.vehicle).map((warning) => (
+                  <p key={warning} className="text-sm font-semibold text-amber-800">
+                    {warning}
+                  </p>
+                ))}
+              </div>
+
+              <p className="mt-3 text-xs font-semibold text-amber-700">
+                Admin can bypass this warning and continue with the booking.
+              </p>
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <DetailItem

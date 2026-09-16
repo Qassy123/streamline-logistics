@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   Truck,
   UserRound,
   Wrench,
@@ -277,6 +278,7 @@ export default function AdminFleetPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -510,6 +512,50 @@ export default function AdminFleetPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteVehicle() {
+    if (!adminKey || !selected) return;
+
+    const confirmed = window.confirm(
+      `Delete ${selected.name}? This action cannot be undone.`,
+    );
+
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/vehicles/admin/${selected.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-admin-key": adminKey,
+          },
+        },
+      );
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to delete vehicle.");
+      }
+
+      setSelected(null);
+      setMessage("Vehicle deleted successfully.");
+      await loadFleet(true);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to delete vehicle.",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -1121,27 +1167,44 @@ export default function AdminFleetPage() {
               </EditorSection>
             </div>
 
-            <div className="sticky bottom-0 flex flex-col-reverse gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-7">
+            <div className="sticky bottom-0 flex flex-col gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
               <button
                 type="button"
-                onClick={() => setSelected(null)}
-                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                onClick={() => void deleteVehicle()}
+                disabled={saving || deleting}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-5 py-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveVehicle()}
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
-              >
-                {saving ? (
+                {deleting ? (
                   <Loader2 size={18} className="animate-spin" />
                 ) : (
-                  <CheckCircle2 size={18} />
+                  <Trash2 size={18} />
                 )}
-                Save vehicle
+                Delete vehicle
               </button>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  disabled={deleting}
+                  className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveVehicle()}
+                  disabled={saving || deleting}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
+                >
+                  {saving ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={18} />
+                  )}
+                  Save vehicle
+                </button>
+              </div>
             </div>
           </aside>
         </div>

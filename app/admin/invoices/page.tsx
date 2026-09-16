@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   FileText,
   Loader2,
@@ -258,6 +258,7 @@ function outstanding(invoice: Invoice) {
 }
 
 function AdminInvoicesContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const invoiceFromQuery = searchParams.get("invoice")?.trim() || "";
 
@@ -801,10 +802,10 @@ function AdminInvoicesContent() {
       ) : null}
 
       <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <AmountCard label="Invoiced" value={money(invoices.filter((i) => !["DRAFT", "VOID", "CANCELLED"].includes(i.status)).reduce((sum, i) => sum + Number(i.total || 0), 0))} />
-        <AmountCard label="Outstanding" value={money(invoices.reduce((sum, i) => sum + outstanding(i), 0))} />
-        <AmountCard label="Overdue" value={money(invoices.filter((i) => i.dueDate && new Date(i.dueDate) < new Date() && outstanding(i) > 0).reduce((sum, i) => sum + outstanding(i), 0))} />
-        <AmountCard label="Paid" value={money(invoices.reduce((sum, i) => sum + amountPaid(i), 0))} />
+        <AmountCard label="Invoiced" value={money(filteredInvoices.filter((i) => !["DRAFT", "VOID", "CANCELLED"].includes(i.status)).reduce((sum, i) => sum + Number(i.total || 0), 0))} />
+        <AmountCard label="Outstanding" value={money(filteredInvoices.reduce((sum, i) => sum + outstanding(i), 0))} />
+        <AmountCard label="Overdue" value={money(filteredInvoices.filter((i) => i.dueDate && new Date(i.dueDate) < new Date() && outstanding(i) > 0).reduce((sum, i) => sum + outstanding(i), 0))} />
+        <AmountCard label="Paid" value={money(filteredInvoices.reduce((sum, i) => sum + amountPaid(i), 0))} />
       </div>
 
       <div className="mt-7 grid gap-6 lg:grid-cols-[330px_minmax(0,1fr)]">
@@ -1093,6 +1094,7 @@ function AdminInvoicesContent() {
                 onClick={() => {
                   setSelectedInvoice(null);
                   setInvoiceMessage("");
+                  router.back();
                 }}
                 className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
                 aria-label="Close invoice"

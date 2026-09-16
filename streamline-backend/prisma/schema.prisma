@@ -533,6 +533,7 @@ model Invoice {
   pdfStorageKey       String?
   supplyDate          DateTime?
   sentAt              DateTime?
+  lastReminderSentAt  DateTime?
   accountingProvider  String?
   externalAccountingId String?
   accountingPostingStatus String?

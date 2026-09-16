@@ -821,6 +821,76 @@ router.patch("/admin/:id", async (req, res) => {
   }
 });
 
+
+router.delete("/admin/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const vehicle = await prisma.vehicle.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      select: {
+        id: true,
+        name: true,
+        _count: {
+          select: {
+            bookings: true,
+            reservations: true,
+          },
+        },
+      },
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({
+        error: "Vehicle not found.",
+      });
+    }
+
+    if (vehicle._count.bookings > 0 || vehicle._count.reservations > 0) {
+      return res.status(409).json({
+        error:
+          "This vehicle has booking or reservation history and cannot be deleted. Set it to inactive instead.",
+      });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.driver.updateMany({
+        where: {
+          vehicleId: vehicle.id,
+        },
+        data: {
+          vehicleId: null,
+        },
+      });
+
+      await transaction.vehicle.delete({
+        where: {
+          id: vehicle.id,
+        },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: `${vehicle.name} deleted successfully.`,
+    });
+  } catch (error) {
+    console.error("Admin vehicle deletion error:", error);
+
+    return res.status(500).json({
+      error: "Unable to delete vehicle.",
+    });
+  }
+});
+
 /* ---------------------------------
    Existing Public Vehicle Routes
 ---------------------------------- */

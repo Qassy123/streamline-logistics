@@ -483,8 +483,17 @@ export default function CustomerAccountPage() {
         );
       }
 
-      setCustomer(payload.customer);
-      setForm(toEditForm(payload.customer));
+      // Account settings edits do not change invoices. Preserve the invoices
+      // already loaded on this page because the PATCH response may not include
+      // the invoice relation. This keeps Pending Invoices visible immediately
+      // after saving without requiring a manual refresh.
+      const updatedCustomer: Customer = {
+        ...payload.customer,
+        invoices: customer?.invoices ?? payload.customer.invoices ?? [],
+      };
+
+      setCustomer(updatedCustomer);
+      setForm(toEditForm(updatedCustomer));
       setEditing(false);
       setMessage("Customer account updated successfully.");
     } catch (requestError) {

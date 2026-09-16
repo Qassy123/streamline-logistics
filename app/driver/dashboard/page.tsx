@@ -187,7 +187,7 @@ export default function DriverDashboardPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#07182f] text-white">
+      <main className="flex min-h-screen items-center justify-center bg-[#071D49] text-white">
         <div className="text-center">
           <RefreshCw className="mx-auto h-8 w-8 animate-spin" />
           <p className="mt-4 text-sm text-blue-100">Loading driver dashboard</p>
@@ -198,10 +198,10 @@ export default function DriverDashboardPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="bg-[#07182f] text-white">
+      <header className="bg-[#071D49] text-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#18a8ff] text-white">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#006CFF] text-white">
               <Truck className="h-6 w-6" />
             </div>
             <div>
@@ -252,7 +252,7 @@ export default function DriverDashboardPage() {
                     onClick={() => updateAvailability(value)}
                     className={`rounded-xl px-3 py-2 text-xs font-bold ${
                       data?.driver.availability === value
-                        ? "bg-[#18a8ff] text-white"
+                        ? "bg-[#006CFF] text-white"
                         : "bg-white/10 text-blue-100 hover:bg-white/20"
                     }`}
                   >
@@ -308,7 +308,7 @@ export default function DriverDashboardPage() {
               <button
                 onClick={() => loadDashboard(true)}
                 disabled={refreshing}
-                className="inline-flex items-center gap-2 rounded-full bg-[#07182f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0b2445] disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full bg-[#071D49] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#020B1F] disabled:opacity-60"
               >
                 <RefreshCw
                   className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
@@ -348,7 +348,7 @@ export default function DriverDashboardPage() {
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     onClick={() => router.push(`/driver/jobs/${activeJob.id}`)}
-                    className="rounded-full bg-[#18a8ff] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#008fe6]"
+                    className="rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
                   >
                     Open job
                   </button>
@@ -377,8 +377,8 @@ export default function DriverDashboardPage() {
             <h2 className="text-xl font-bold">Assigned vehicle</h2>
 
             {data?.driver.vehicle ? (
-              <div className="mt-5 rounded-3xl bg-[#07182f] p-5 text-white">
-                <Truck className="h-8 w-8 text-[#18a8ff]" />
+              <div className="mt-5 rounded-3xl bg-[#071D49] p-5 text-white">
+                <Truck className="h-8 w-8 text-[#006CFF]" />
                 <p className="mt-4 text-2xl font-bold">
                   {data.driver.vehicle.name}
                 </p>
@@ -400,7 +400,7 @@ export default function DriverDashboardPage() {
             <div className="mt-6">
               <button
                 onClick={() => router.push("/driver/jobs")}
-                className="w-full rounded-full bg-[#07182f] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#0b2445]"
+                className="w-full rounded-full bg-[#071D49] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#020B1F]"
               >
                 View all jobs
               </button>
@@ -408,39 +408,150 @@ export default function DriverDashboardPage() {
           </aside>
         </div>
 
-        <section className="mt-6 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <h2 className="text-xl font-bold">Today&apos;s schedule</h2>
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold">Today&apos;s schedule</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Jobs scheduled for today.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push("/driver/jobs")}
+                className="text-sm font-bold text-[#006CFF] hover:text-[#2D8CFF]"
+              >
+                All jobs
+              </button>
+            </div>
 
-          <div className="mt-5 space-y-3">
-            {(data?.todayJobs || []).length > 0 ? (
-              data?.todayJobs.map((job) => (
+            <div className="mt-5 space-y-3">
+              {(data?.todayJobs || []).length > 0 ? (
+                data?.todayJobs.map((job) => (
+                  <button
+                    key={job.id}
+                    onClick={() => router.push(`/driver/jobs/${job.id}`)}
+                    className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-[#006CFF] hover:bg-blue-50"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold">{job.reference}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatDate(job.collectionDate)} · {job.collectionWindow}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase text-slate-700">
+                        {statusLabel(job.status)}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-700">
+                      {job.collectionAddress} → {job.deliveryAddress}
+                    </p>
+
+                    {job.vehicle ? (
+                      <p className="mt-2 text-xs font-semibold text-slate-500">
+                        {job.vehicle.name}
+                        {job.vehicle.registration
+                          ? ` · ${job.vehicle.registration}`
+                          : ""}
+                      </p>
+                    ) : null}
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+                  No jobs scheduled for today.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold">Assigned jobs</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Current work assigned to you.
+                </p>
+              </div>
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-[#006CFF]">
+                {data?.assignedJobs.length || 0}
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {(data?.assignedJobs || []).length > 0 ? (
+                data?.assignedJobs.slice(0, 5).map((job) => (
+                  <button
+                    key={job.id}
+                    onClick={() => router.push(`/driver/jobs/${job.id}`)}
+                    className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:border-[#006CFF] hover:bg-blue-50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold">{job.reference}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatDate(job.collectionDate)} · {job.collectionWindow}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase text-[#006CFF]">
+                        {statusLabel(job.status)}
+                      </span>
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-700">
+                      {job.collectionAddress} → {job.deliveryAddress}
+                    </p>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+                  No assigned jobs.
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <section className="mt-6 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-bold">Recently completed</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Your latest completed deliveries.
+              </p>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+              {data?.completedJobs.length || 0}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {(data?.completedJobs || []).length > 0 ? (
+              data?.completedJobs.slice(0, 6).map((job) => (
                 <button
                   key={job.id}
                   onClick={() => router.push(`/driver/jobs/${job.id}`)}
-                  className="grid w-full gap-3 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-[#18a8ff] hover:bg-blue-50 md:grid-cols-[160px_1fr_140px]"
+                  className="rounded-2xl border border-slate-200 p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
                 >
-                  <div>
-                    <p className="font-bold">{job.collectionWindow}</p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(job.collectionDate)}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold">{job.reference}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {formatDate(job.collectionDate)}
+                      </p>
+                    </div>
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
                   </div>
-                  <div>
-                    <p className="font-semibold">{job.reference}</p>
-                    <p className="mt-1 line-clamp-1 text-sm text-slate-500">
-                      {job.collectionAddress} → {job.deliveryAddress}
-                    </p>
-                  </div>
-                  <div className="md:text-right">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase text-slate-700">
-                      {statusLabel(job.status)}
-                    </span>
-                  </div>
+                  <p className="mt-3 line-clamp-2 text-sm font-semibold text-slate-700">
+                    {job.collectionAddress} → {job.deliveryAddress}
+                  </p>
                 </button>
               ))
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-                No jobs scheduled for today.
+              <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 md:col-span-2">
+                No completed jobs yet.
               </div>
             )}
           </div>
@@ -463,7 +574,7 @@ function StatCard({
     <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-500">{title}</p>
-        <div className="rounded-xl bg-blue-50 p-2 text-[#18a8ff]">{icon}</div>
+        <div className="rounded-xl bg-blue-50 p-2 text-[#006CFF]">{icon}</div>
       </div>
       <p className="mt-4 text-4xl font-bold">{value}</p>
     </div>
