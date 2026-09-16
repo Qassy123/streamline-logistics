@@ -386,11 +386,7 @@ export default function AddNewCustomerPage() {
                     update("tradingCountry", value)
                   }
                 />
-              ) : (
-                <p className="text-sm text-slate-500">
-                  Same as Registered Office Address
-                </p>
-              )}
+              ) : null}
             </div>
           </ManualRow>
 
