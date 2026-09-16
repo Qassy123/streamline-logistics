@@ -54,13 +54,9 @@ type ReportPayload = {
     quotes: number;
     customers: number;
   }[];
-  vehicleUtilisation: {
-    vehicleId: string;
-    name: string;
+  vehicleCategoryUtilisation: {
     vehicleType: string;
-    active: boolean;
     bookings: number;
-    reservations: number;
   }[];
   error?: string;
 };
@@ -227,10 +223,15 @@ export default function AdminReportsPage() {
     )[0];
   }, [monthly]);
 
-  const vehicles = report?.vehicleUtilisation || [];
-  const mostUsedVehicle = vehicles.length ? vehicles[0] : null;
-  const leastUsedVehicle = vehicles.length
-    ? [...vehicles].sort((a, b) => a.bookings - b.bookings)[0]
+  const vehicleCategories = report?.vehicleCategoryUtilisation || [];
+  const categoriesWithBookings = vehicleCategories.filter(
+    (item) => item.bookings > 0,
+  );
+  const mostUsedVehicleCategory = categoriesWithBookings.length
+    ? categoriesWithBookings[0]
+    : null;
+  const leastUsedVehicleCategory = categoriesWithBookings.length
+    ? [...categoriesWithBookings].sort((a, b) => a.bookings - b.bookings)[0]
     : null;
 
   const maxMonthBookings = maxValue(
@@ -242,8 +243,8 @@ export default function AdminReportsPage() {
   const maxMonthlyRevenue = maxValue(
     monthly.map((item) => item.revenue),
   );
-  const maxVehicleBookings = maxValue(
-    vehicles.map((item) => item.bookings),
+  const maxVehicleCategoryBookings = maxValue(
+    vehicleCategories.map((item) => item.bookings),
   );
 
   return (
@@ -452,21 +453,21 @@ export default function AdminReportsPage() {
                   Van Usage
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  See which vans are going out more and which are going out less.
+                  Vehicle categories ranked from busiest to least busy for the selected reporting period.
                 </p>
               </div>
 
               <div className="grid gap-2 text-sm sm:grid-cols-2 sm:gap-6">
                 <p className="text-slate-600">
                   <span className="font-bold text-slate-950">Most used:</span>{" "}
-                  {mostUsedVehicle
-                    ? `${mostUsedVehicle.name} (${mostUsedVehicle.bookings})`
+                  {mostUsedVehicleCategory
+                    ? `${mostUsedVehicleCategory.vehicleType} (${mostUsedVehicleCategory.bookings})`
                     : "No data"}
                 </p>
                 <p className="text-slate-600">
                   <span className="font-bold text-slate-950">Least used:</span>{" "}
-                  {leastUsedVehicle
-                    ? `${leastUsedVehicle.name} (${leastUsedVehicle.bookings})`
+                  {leastUsedVehicleCategory
+                    ? `${leastUsedVehicleCategory.vehicleType} (${leastUsedVehicleCategory.bookings})`
                     : "No data"}
                 </p>
               </div>
@@ -474,13 +475,13 @@ export default function AdminReportsPage() {
 
             <div className="mt-7">
               <HorizontalBars
-                items={vehicles.map((vehicle) => ({
-                  key: vehicle.vehicleId,
-                  label: vehicle.name,
-                  detail: vehicle.vehicleType,
-                  value: vehicle.bookings,
+                items={vehicleCategories.map((category) => ({
+                  key: category.vehicleType,
+                  label: category.vehicleType,
+                  detail: "Vehicle category",
+                  value: category.bookings,
                 }))}
-                max={maxVehicleBookings}
+                max={maxVehicleCategoryBookings}
               />
             </div>
           </section>
@@ -489,18 +490,18 @@ export default function AdminReportsPage() {
             <InsightCard
               title="What to Improve"
               body={
-                leastUsedVehicle
-                  ? `${leastUsedVehicle.name} has the lowest recorded usage. Review whether this vehicle needs more work allocated to it or whether its running costs are justified.`
-                  : "More booking data is needed before the system can highlight a low-use vehicle."
+                leastUsedVehicleCategory
+                  ? `${leastUsedVehicleCategory.vehicleType} has the lowest recorded usage among vehicle categories used in this period. Review whether this category needs more work allocated to it.`
+                  : "More booking data is needed before the system can highlight a low-use vehicle category."
               }
               icon={Truck}
             />
             <InsightCard
               title="What to Invest In"
               body={
-                mostUsedVehicle
-                  ? `${mostUsedVehicle.name} has the highest recorded usage. This is the first vehicle to review when deciding where extra fleet capacity may be useful.`
-                  : "More booking data is needed before the system can highlight the most-used vehicle."
+                mostUsedVehicleCategory
+                  ? `${mostUsedVehicleCategory.vehicleType} has the highest recorded usage. This is the first vehicle category to review when deciding where extra fleet capacity may be useful.`
+                  : "More booking data is needed before the system can highlight the most-used vehicle category."
               }
               icon={TrendingUp}
             />

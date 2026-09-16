@@ -283,6 +283,83 @@ router.post("/business", async (req, res) => {
       },
     });
 
+
+    /*
+     * Link historical guest activity to the new business account.
+     *
+     * Safety rules:
+     * - only records that are still unowned are claimed;
+     * - matching is based on the normalised guest quote email;
+     * - the explicit quoteId linking flow below is preserved.
+     */
+    const guestQuotes = await prisma.quote.findMany({
+      where: {
+        userId: null,
+        customerEmail: {
+          equals: email,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const guestQuoteIds = guestQuotes.map((quote) => quote.id);
+
+    if (guestQuoteIds.length > 0) {
+      await prisma.$transaction([
+        prisma.quote.updateMany({
+          where: {
+            id: {
+              in: guestQuoteIds,
+            },
+            userId: null,
+          },
+          data: {
+            userId: user.id,
+          },
+        }),
+        prisma.booking.updateMany({
+          where: {
+            userId: null,
+            quoteId: {
+              in: guestQuoteIds,
+            },
+          },
+          data: {
+            userId: user.id,
+          },
+        }),
+        prisma.payment.updateMany({
+          where: {
+            userId: null,
+            booking: {
+              quoteId: {
+                in: guestQuoteIds,
+              },
+            },
+          },
+          data: {
+            userId: user.id,
+          },
+        }),
+        prisma.invoice.updateMany({
+          where: {
+            userId: null,
+            booking: {
+              quoteId: {
+                in: guestQuoteIds,
+              },
+            },
+          },
+          data: {
+            userId: user.id,
+          },
+        }),
+      ]);
+    }
+
     if (quoteId) {
       await prisma.quote.updateMany({
         where: {

@@ -249,6 +249,12 @@ async function buildReport(dateFrom: Date, dateTo: Date) {
         driverId: true,
         vehicleId: true,
         userId: true,
+        vehicleType: true,
+        quote: {
+          select: {
+            vehicleSize: true,
+          },
+        },
         vehicle: {
           select: {
             vehicleType: true,
@@ -532,16 +538,44 @@ async function buildReport(dateFrom: Date, dateTo: Date) {
     }))
     .sort((a, b) => b.bookings - a.bookings);
 
-  const vehicleUtilisation = vehicles
-    .map((vehicle) => ({
-      vehicleId: vehicle.id,
-      name: vehicle.name,
-      vehicleType: vehicle.vehicleType,
-      active: vehicle.active,
-      bookings: vehicle._count.bookings,
-      reservations: vehicle._count.reservations,
+  const canonicalVehicleCategories = [
+    "Small Van",
+    "SWB Van",
+    "LWB High Roof Van",
+    "XLWB High Roof Van",
+    "Luton Tail Lift Van",
+  ] as const;
+
+  const vehicleCategoryBookingTotals = new Map<string, number>(
+    canonicalVehicleCategories.map((vehicleType) => [vehicleType, 0]),
+  );
+
+  bookings.forEach((booking) => {
+    const vehicleType =
+      booking.vehicle?.vehicleType ||
+      booking.vehicleType ||
+      booking.quote?.vehicleSize ||
+      "";
+
+    if (!vehicleCategoryBookingTotals.has(vehicleType)) return;
+
+    vehicleCategoryBookingTotals.set(
+      vehicleType,
+      (vehicleCategoryBookingTotals.get(vehicleType) || 0) + 1,
+    );
+  });
+
+  const vehicleCategoryUtilisation = canonicalVehicleCategories
+    .map((vehicleType, categoryOrder) => ({
+      vehicleType,
+      bookings: vehicleCategoryBookingTotals.get(vehicleType) || 0,
+      categoryOrder,
     }))
-    .sort((a, b) => b.bookings - a.bookings);
+    .sort(
+      (a, b) =>
+        b.bookings - a.bookings || a.categoryOrder - b.categoryOrder,
+    )
+    .map(({ categoryOrder: _categoryOrder, ...item }) => item);
 
   return {
     range: {
@@ -590,7 +624,7 @@ async function buildReport(dateFrom: Date, dateTo: Date) {
     revenueByVehicleType: Array.from(revenueByVehicleTypeMap.values())
       .sort((a, b) => b.revenue - a.revenue),
     driverUtilisation,
-    vehicleUtilisation,
+    vehicleCategoryUtilisation,
     tradeAccounts: {
       total: tradeAccounts.length,
       totalCreditLimit: tradeAccounts.reduce(

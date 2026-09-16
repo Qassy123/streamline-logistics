@@ -206,7 +206,7 @@ export default async function PaymentSuccessPage({
                     </h2>
 
                     <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
-                      Use your Streamline account to manage tracking, saved details, booking history, invoices and faster future checkout.
+                      Track deliveries in real time and create your free Streamline account to access your booking history and make future bookings easier.
                     </p>
                   </div>
                 </div>
@@ -227,15 +227,9 @@ export default async function PaymentSuccessPage({
                   />
 
                   <FeatureItem
-                    icon="details"
-                    title="Saved Addresses & Details"
-                    text="Store your company and delivery addresses for faster bookings."
-                  />
-
-                  <FeatureItem
                     icon="history"
-                    title="Booking History & Invoices"
-                    text="Access past bookings, invoices and delivery documents anytime."
+                    title="Booking History"
+                    text="Access past bookings and create a business account."
                   />
 
                   <FeatureItem

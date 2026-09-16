@@ -354,14 +354,14 @@ export default async function QuoteDetailsPage({
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Detail label="Customer Name" value={quote.customerName} />
+                  <Detail label="Business Name" value={businessName} />
                   <Detail label="Email" value={quote.customerEmail} />
                   <Detail label="Phone" value={quote.customerPhone} />
                   <Detail
                     label="Contact Preference"
                     value={quote.contactPreference}
                   />
-                  <Detail label="Legal Entity Name" value={businessName} />
+                  <Detail label="Contact Name" value={quote.customerName} />
                   <Detail
                     label="Trading Name If Different"
                     value={quote.tradingName}

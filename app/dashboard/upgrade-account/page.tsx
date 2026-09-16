@@ -277,7 +277,7 @@ export default function UpgradeAccountPage() {
                   <Step
                     number="2"
                     title="Company Verification"
-                    text="Streamline reviews your company information and trade suitability."
+                    text="Streamline reviews your company information and trade suitability. In some cases we may carry out a credit check."
                   />
 
                   <Step

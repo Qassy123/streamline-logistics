@@ -281,7 +281,7 @@ function RegisterTradeForm() {
               <div className="rounded-3xl border border-[#2D8CFF]/30 bg-white/[0.08] p-5">
                 <p className="text-sm font-bold text-white">What happens next</p>
                 <div className="mt-4 grid gap-3 text-sm text-white/75">
-                  {["Application submitted", "Company verification and credit assessment", "Credit limit and payment terms reviewed", "you will be informed of the outcome typically within an 48 hour period.", "Once approved, bookings can use agreed trade credit terms"].map((item) => (
+                  {["Application submitted", "Company verification and credit assessment", "Credit limit and payment terms reviewed", "you will be informed of the outcome typically within a 48 hour period.", "Once approved, bookings can use agreed trade credit terms"].map((item) => (
                     <div key={item} className="flex items-center gap-3"><CheckCircle size={17} className="text-[#2D8CFF]" />{item}</div>
                   ))}
                 </div>
@@ -377,7 +377,7 @@ function RegisterTradeForm() {
             </FormSection>
 
             <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 sm:p-6">
-              <div className="mb-5 flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]"><Banknote size={24} /></span><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">Submit application</p><h2 className="mt-2 text-xl font-bold text-[#071D49]">Apply for Monthly Credit Account</h2><p className="mt-2 text-sm leading-6 text-slate-600">you will be informed of the outcome typically within an 48 hour period.</p></div></div>
+              <div className="mb-5 flex items-start gap-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006CFF]/10 text-[#006CFF]"><Banknote size={24} /></span><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">Submit application</p><h2 className="mt-2 text-xl font-bold text-[#071D49]">Apply for Monthly Credit Account</h2><p className="mt-2 text-sm leading-6 text-slate-600">you will be informed of the outcome typically within a 48 hour period.</p></div></div>
               <button type="submit" disabled={loading} className="w-full rounded-2xl bg-[linear-gradient(135deg,_#071D49_0%,_#0B2A63_50%,_#006CFF_100%)] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60">{loading ? "Submitting Trade Account Application..." : "Apply For Monthly Credit Account"}</button>
             </div>
           </form>

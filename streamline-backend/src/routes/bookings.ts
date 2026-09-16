@@ -15,11 +15,35 @@ const PAYMENT_RESERVATION_MINUTES = 30;
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
-function generateBookingReference() {
-  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const randomPart = Math.floor(100000 + Math.random() * 900000);
+async function generateBookingReference(
+  transaction: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  const existingReferences = await transaction.booking.findMany({
+    where: {
+      reference: {
+        not: {
+          contains: "-",
+        },
+      },
+    },
+    select: {
+      reference: true,
+    },
+  });
 
-  return `SL-${datePart}-${randomPart}`;
+  const highestReference = existingReferences.reduce((highest, booking) => {
+    if (!/^\\d+$/.test(booking.reference)) {
+      return highest;
+    }
+
+    const numericReference = Number.parseInt(booking.reference, 10);
+
+    return Number.isSafeInteger(numericReference)
+      ? Math.max(highest, numericReference)
+      : highest;
+  }, 0);
+
+  return String(highestReference + 1).padStart(3, "0");
 }
 
 function getString(value: unknown) {
@@ -742,7 +766,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       const guestBooking = await prisma.$transaction(async (transaction) => {
         const createdBooking = await transaction.booking.create({
           data: {
-            reference: generateBookingReference(),
+            reference: await generateBookingReference(transaction),
             status: BookingStatus.CONFIRMED,
             quoteId: quote.id,
             userId: null,
@@ -902,7 +926,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
     const booking = await prisma.$transaction(async (transaction) => {
       const createdBooking = await transaction.booking.create({
         data: {
-          reference: generateBookingReference(),
+          reference: await generateBookingReference(transaction),
           status: BookingStatus.CONFIRMED,
           quoteId: quote.id,
           userId: quote.userId,
@@ -1462,7 +1486,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     const booking = await prisma.booking.create({
       data: {
-        reference: generateBookingReference(),
+        reference: await generateBookingReference(),
         status: BookingStatus.PENDING_PAYMENT,
         quoteId: quote.id,
         userId: quote.userId,

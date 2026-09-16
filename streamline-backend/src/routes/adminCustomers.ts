@@ -715,6 +715,148 @@ router.post("/", async (req, res) => {
   }
 });
 
+
+/* ---------------------------------
+   Guest Bookings
+---------------------------------- */
+
+router.get("/guests", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = Math.min(
+      getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
+      MAX_PAGE_SIZE,
+    );
+    const search = getString(req.query.search);
+
+    const where: Prisma.BookingWhereInput = {
+      userId: null,
+    };
+
+    if (search) {
+      where.OR = [
+        {
+          reference: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          collectionAddress: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          deliveryAddress: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          customerReference: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          purchaseOrderNumber: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          quote: {
+            is: {
+              customerName: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          quote: {
+            is: {
+              customerEmail: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          quote: {
+            is: {
+              customerPhone: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          quote: {
+            is: {
+              companyName: {
+                contains: search,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+      ];
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          quote: true,
+          vehicle: true,
+          driver: true,
+          payments: true,
+          invoices: true,
+          pod: true,
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.booking.count({
+        where,
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      bookings,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    });
+  } catch (error) {
+    console.error("Admin guest booking list error:", error);
+
+    res.status(500).json({
+      error: "Unable to load guest bookings.",
+    });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   const admin = requireAdmin(req);
 

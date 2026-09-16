@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -680,13 +681,37 @@ function RegisterBusinessForm() {
                 <CheckboxField
                   checked={acceptedTerms}
                   onChange={setAcceptedTerms}
-                  label="I agree to the Terms & Conditions"
+                  label={
+                    <>
+                      I agree to the{" "}
+                      <Link
+                        href="/terms"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#006CFF] underline"
+                      >
+                        Terms & Conditions
+                      </Link>
+                    </>
+                  }
                 />
 
                 <CheckboxField
                   checked={acceptedPrivacy}
                   onChange={setAcceptedPrivacy}
-                  label="I agree to the Privacy Policy"
+                  label={
+                    <>
+                      I agree to the{" "}
+                      <Link
+                        href="/privacy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#006CFF] underline"
+                      >
+                        Privacy Policy
+                      </Link>
+                    </>
+                  }
                 />
               </div>
             </FormSection>
@@ -805,7 +830,7 @@ function CheckboxField({
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
-  label: string;
+  label: React.ReactNode;
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-bold text-[#071D49]">

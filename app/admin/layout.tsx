@@ -27,6 +27,10 @@ const navigationItems: NavigationItem[] = [
     exact: true,
   },
   {
+    label: "Guest Bookings",
+    href: "/admin/guest-bookings",
+  },
+  {
     label: "Existing Bookings",
     href: "/admin/bookings",
   },
