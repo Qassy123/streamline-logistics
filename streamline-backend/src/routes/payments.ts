@@ -870,8 +870,7 @@ router.get("/checkout-options/:quoteId", async (req, res) => {
     const position = await getTradeCheckoutPosition(user.id);
     const amount = new Prisma.Decimal(quote.totalPrice || 0);
     const approved =
-      position.user.tradeAccount?.status === "APPROVED" &&
-      position.paymentMode === "PAY_LATER";
+      position.user.tradeAccount?.status === "APPROVED";
     const withinCredit = amount.lessThanOrEqualTo(position.availableCredit);
     const payLaterAvailable =
       approved && !position.creditFacilityOnHold && withinCredit;
@@ -969,12 +968,6 @@ router.post("/pay-later", async (req, res) => {
     }
 
     const position = await getTradeCheckoutPosition(user.id);
-
-    if (position.paymentMode !== "PAY_LATER") {
-      return res.status(403).json({
-        error: "Pay Later is not enabled for this Trade Account.",
-      });
-    }
 
     if (position.creditFacilityOnHold) {
       return res.status(409).json({
