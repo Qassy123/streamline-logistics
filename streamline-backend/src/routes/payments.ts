@@ -926,7 +926,19 @@ router.post("/pay-later", async (req, res) => {
     const quote = await prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
-        booking: true,
+        booking: {
+          include: {
+            quote: true,
+            vehicle: true,
+            user: true,
+            reservation: true,
+            trackingEvents: {
+              orderBy: { createdAt: "asc" },
+            },
+            invoices: true,
+          },
+        },
+        reservations: true,
         user: {
           include: {
             billingProfile: true,
@@ -938,12 +950,6 @@ router.post("/pay-later", async (req, res) => {
 
     if (!quote || !quote.userId || quote.userId !== user.id) {
       return res.status(404).json({ error: "Quote not found for this account." });
-    }
-
-    if (quote.booking) {
-      return res.status(409).json({
-        error: "A booking already exists for this quote.",
-      });
     }
 
     if (!quote.totalPrice) {
@@ -987,6 +993,52 @@ router.post("/pay-later", async (req, res) => {
 
     const bookingAmount = new Prisma.Decimal(quote.totalPrice);
 
+    /*
+     * If this quote already has a non-pending booking, never create another
+     * booking or invoice. A confirmed/in-progress/completed booking with an
+     * invoice is treated idempotently; cancelled/expired bookings are rejected.
+     */
+    if (quote.booking && quote.booking.status !== BookingStatus.PENDING_PAYMENT) {
+      if (
+        (
+          quote.booking.status === BookingStatus.CONFIRMED ||
+          quote.booking.status === BookingStatus.ASSIGNED ||
+          quote.booking.status === BookingStatus.IN_PROGRESS ||
+          quote.booking.status === BookingStatus.COMPLETED
+        ) &&
+        quote.booking.invoices.length > 0
+      ) {
+        const existingInvoice = quote.booking.invoices[0];
+
+        return res.json({
+          success: true,
+          alreadyProcessed: true,
+          booking: quote.booking,
+          invoice: {
+            id: existingInvoice.id,
+            invoiceNumber: existingInvoice.invoiceNumber,
+            status: existingInvoice.status,
+            dueDate: existingInvoice.dueDate,
+          },
+          billing: {
+            paymentMode: "PAY_LATER",
+            paymentTermsDays: position.paymentTermsDays,
+          },
+        });
+      }
+
+      return res.status(409).json({
+        error: `This quote already has a booking with status ${quote.booking.status}.`,
+        code: "BOOKING_ALREADY_PROCESSED",
+      });
+    }
+
+    /*
+     * A PENDING_PAYMENT booking is not new credit exposure yet. The exposure
+     * helper only counts confirmed/assigned/in-progress/completed uninvoiced
+     * bookings, so the quote amount can safely be checked against available
+     * credit before converting the pending booking.
+     */
     if (bookingAmount.greaterThan(position.availableCredit)) {
       return res.status(409).json({
         error: "This booking exceeds the available Trade credit.",
@@ -1004,65 +1056,172 @@ router.post("/pay-later", async (req, res) => {
       6,
     );
 
-    const booking = await prisma.$transaction(async (transaction) => {
-      const created = await transaction.booking.create({
-        data: {
-          reference: generateBookingReference(),
-          status: BookingStatus.CONFIRMED,
-          quoteId: quote.id,
-          userId: user.id,
-          vehicleId: null,
-          driverId: null,
-          collectionDate: quote.collectionDate,
-          collectionWindow: quote.collectionWindow,
-          collectionAddress: quote.collectionAddress,
-          deliveryAddress: quote.deliveryAddress,
-          returnAddress: quote.returnAddress,
-          extraDrops:
-            quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
-          journeyType: quote.journeyType,
-          vehicleType: quote.vehicleSize,
-          estimatedStartTime: reservedFrom,
-          estimatedEndTime: reservedUntil,
-          vehicleAvailableAt: reservedUntil,
-          totalPrice: quote.totalPrice!,
-          purchaseOrderNumber,
-          customerReference: quote.customerReference,
-          trackingEvents: {
-            create: {
-              status: BookingStatus.CONFIRMED,
-              title: "Trade Booking Confirmed",
-              description:
-                "Your booking has been confirmed on your Trade Account and will be invoiced under your agreed payment terms.",
+    let booking;
+
+    if (quote.booking) {
+      /*
+       * Preserve the existing booking/reference and convert the normal
+       * PENDING_PAYMENT booking into a Trade booking.
+       */
+      booking = await prisma.$transaction(async (transaction) => {
+        const currentBooking = await transaction.booking.findUnique({
+          where: { id: quote.booking!.id },
+          include: {
+            reservation: true,
+            invoices: true,
+          },
+        });
+
+        if (!currentBooking) {
+          throw new Error("Existing booking could not be found.");
+        }
+
+        /*
+         * Protect against two Pay Later requests racing each other. If another
+         * request has already moved it out of PENDING_PAYMENT, stop this
+         * transaction instead of creating duplicate financial records.
+         */
+        if (currentBooking.status !== BookingStatus.PENDING_PAYMENT) {
+          throw new Error("TRADE_BOOKING_ALREADY_PROCESSED");
+        }
+
+        const updated = await transaction.booking.update({
+          where: { id: currentBooking.id },
+          data: {
+            status: BookingStatus.CONFIRMED,
+            userId: user.id,
+            purchaseOrderNumber:
+              purchaseOrderNumber ?? currentBooking.purchaseOrderNumber,
+            estimatedStartTime:
+              currentBooking.estimatedStartTime ?? reservedFrom,
+            estimatedEndTime:
+              currentBooking.estimatedEndTime ?? reservedUntil,
+            vehicleAvailableAt:
+              currentBooking.vehicleAvailableAt ?? reservedUntil,
+            trackingEvents: {
+              create: {
+                status: BookingStatus.CONFIRMED,
+                title: "Trade Booking Confirmed",
+                description:
+                  "Your booking has been confirmed on your Trade Account and will be invoiced under your agreed payment terms.",
+              },
             },
           },
-        },
-        include: {
-          quote: true,
-          vehicle: true,
-          user: true,
-          reservation: true,
-          trackingEvents: {
-            orderBy: { createdAt: "asc" },
+          include: {
+            quote: true,
+            vehicle: true,
+            user: true,
+            reservation: true,
+            trackingEvents: {
+              orderBy: { createdAt: "asc" },
+            },
           },
-        },
+        });
+
+        if (currentBooking.reservation) {
+          await transaction.vehicleReservation.update({
+            where: { id: currentBooking.reservation.id },
+            data: {
+              status: ReservationStatus.CONFIRMED,
+              reservedFrom,
+              reservedUntil,
+              expiresAt: null,
+            },
+          });
+        }
+
+        await transaction.quote.update({
+          where: { id: quote.id },
+          data: {
+            status: "Converted to Booking",
+            convertedAt: new Date(),
+          },
+        });
+
+        return updated;
       });
+    } else {
+      /*
+       * Some quote paths do not pre-create a booking. Keep supporting those
+       * without changing the existing public checkout behaviour.
+       */
+      booking = await prisma.$transaction(async (transaction) => {
+        const created = await transaction.booking.create({
+          data: {
+            reference: generateBookingReference(),
+            status: BookingStatus.CONFIRMED,
+            quoteId: quote.id,
+            userId: user.id,
+            vehicleId: null,
+            driverId: null,
+            collectionDate: quote.collectionDate,
+            collectionWindow: quote.collectionWindow,
+            collectionAddress: quote.collectionAddress,
+            deliveryAddress: quote.deliveryAddress,
+            returnAddress: quote.returnAddress,
+            extraDrops:
+              quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
+            journeyType: quote.journeyType,
+            vehicleType: quote.vehicleSize,
+            estimatedStartTime: reservedFrom,
+            estimatedEndTime: reservedUntil,
+            vehicleAvailableAt: reservedUntil,
+            totalPrice: quote.totalPrice!,
+            purchaseOrderNumber,
+            customerReference: quote.customerReference,
+            trackingEvents: {
+              create: {
+                status: BookingStatus.CONFIRMED,
+                title: "Trade Booking Confirmed",
+                description:
+                  "Your booking has been confirmed on your Trade Account and will be invoiced under your agreed payment terms.",
+              },
+            },
+          },
+          include: {
+            quote: true,
+            vehicle: true,
+            user: true,
+            reservation: true,
+            trackingEvents: {
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
 
-      await transaction.quote.update({
-        where: { id: quote.id },
-        data: {
-          status: "Converted to Booking",
-          convertedAt: new Date(),
-        },
+        await transaction.quote.update({
+          where: { id: quote.id },
+          data: {
+            status: "Converted to Booking",
+            convertedAt: new Date(),
+          },
+        });
+
+        return created;
       });
+    }
 
-      return created;
-    });
+    let invoice;
 
-    const invoice = await createTradeDraftInvoice(
-      booking,
-      position.paymentTermsDays,
-    );
+    try {
+      invoice = await createTradeDraftInvoice(
+        booking,
+        position.paymentTermsDays,
+      );
+    } catch (invoiceError) {
+      /*
+       * The booking has already been confirmed. Do not silently report success
+       * if its required Trade invoice failed to be created.
+       */
+      console.error("Trade invoice creation error:", invoiceError);
+      return res.status(500).json({
+        error:
+          "The Trade booking was confirmed, but its invoice could not be created. Please contact support before retrying.",
+        code: "TRADE_INVOICE_CREATION_FAILED",
+        bookingId: booking.id,
+        bookingReference: booking.reference,
+      });
+    }
 
     try {
       await sendCustomerBookingConfirmedEmail(booking);
@@ -1090,6 +1249,58 @@ router.post("/pay-later", async (req, res) => {
       },
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "TRADE_BOOKING_ALREADY_PROCESSED"
+    ) {
+      /*
+       * A concurrent/double-click request won the race. Re-read the completed
+       * result and return it instead of creating anything twice.
+       */
+      const quoteId = getString(req.body.quoteId);
+      const existing = quoteId
+        ? await prisma.quote.findUnique({
+            where: { id: quoteId },
+            include: {
+              booking: {
+                include: {
+                  quote: true,
+                  vehicle: true,
+                  user: true,
+                  reservation: true,
+                  trackingEvents: {
+                    orderBy: { createdAt: "asc" },
+                  },
+                  invoices: true,
+                },
+              },
+            },
+          })
+        : null;
+
+      if (existing?.booking && existing.booking.invoices.length > 0) {
+        const existingInvoice = existing.booking.invoices[0];
+
+        return res.json({
+          success: true,
+          alreadyProcessed: true,
+          booking: existing.booking,
+          invoice: {
+            id: existingInvoice.id,
+            invoiceNumber: existingInvoice.invoiceNumber,
+            status: existingInvoice.status,
+            dueDate: existingInvoice.dueDate,
+          },
+        });
+      }
+
+      return res.status(409).json({
+        error:
+          "This Trade booking is already being processed. Refresh the page before trying again.",
+        code: "TRADE_BOOKING_PROCESSING",
+      });
+    }
+
     console.error("Trade Pay Later error:", error);
 
     return res.status(500).json({
