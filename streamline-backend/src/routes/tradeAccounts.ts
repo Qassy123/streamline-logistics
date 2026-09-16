@@ -1,9 +1,11 @@
 import { Router } from "express";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import {
   AccountStatus,
   AccountType,
+  BillingFrequency,
+  BillingInvoiceMode,
+  BillingPaymentMode,
   Prisma,
   TradeAccountStatus,
 } from "@prisma/client";
@@ -39,6 +41,37 @@ function getBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
   return false;
+}
+
+function getAuthToken(req: { headers: { authorization?: string } }) {
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Bearer ")) return "";
+  return header.replace("Bearer ", "").trim();
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function getAuthenticatedUser(req: {
+  headers: { authorization?: string };
+}) {
+  const token = getAuthToken(req);
+  if (!token) return null;
+
+  const session = await prisma.userSession.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { user: { include: { tradeAccount: true } } },
+  });
+
+  if (!session || session.expiresAt <= new Date()) {
+    if (session) {
+      await prisma.userSession.delete({ where: { id: session.id } });
+    }
+    return null;
+  }
+
+  return session.user;
 }
 
 function isValidEmail(value: string) {
@@ -134,6 +167,7 @@ function tradeAccountSelect() {
     expectedMonthlySpend: true,
     estimatedShipmentsPerMonth: true,
     preferredPaymentTerms: true,
+    serviceSameDayDelivery: true,
     serviceNextDayDelivery: true,
     serviceMultiDrop: true,
     serviceDedicatedVehicles: true,
@@ -185,13 +219,41 @@ function tradeAccountSelect() {
 
 router.post("/apply", async (req, res) => {
   try {
-    const legalEntity = getString(req.body.legalEntity);
-    const firstName = getString(req.body.firstName);
-    const lastName = getString(req.body.lastName);
-    const email = getString(req.body.email).toLowerCase();
-    const mobileNumber = getString(req.body.mobileNumber);
-    const password = getString(req.body.password);
-    const confirmPassword = getString(req.body.confirmPassword);
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return res.status(401).json({
+        error: "You must be logged in to apply for a trade account.",
+      });
+    }
+
+    if (
+      user.accountType !== AccountType.BUSINESS ||
+      user.accountStatus !== AccountStatus.ACTIVE
+    ) {
+      return res.status(403).json({
+        error: "Only an active Business Account can apply for a Trade Account.",
+      });
+    }
+
+    if (user.tradeAccount) {
+      return res.status(409).json({
+        error: "A trade account application already exists for this account.",
+      });
+    }
+
+    const legalEntity =
+      getString(req.body.legalEntity) || user.legalEntity || user.companyName || "";
+    const firstName = getString(req.body.firstName) || user.firstName || "";
+    const lastName = getString(req.body.lastName) || user.lastName || "";
+    const email = user.email.toLowerCase();
+    const mobileNumber = getString(req.body.mobileNumber) || user.phone || "";
+    const accountsEmail =
+      getString(req.body.accountsEmail).toLowerCase() ||
+      user.accountsEmail?.toLowerCase() ||
+      email;
+    const invoiceDeliveryEmail =
+      getString(req.body.invoiceDeliveryEmail).toLowerCase() || accountsEmail;
 
     if (!legalEntity || !firstName || !lastName || !email || !mobileNumber) {
       return res.status(400).json({
@@ -199,15 +261,9 @@ router.post("/apply", async (req, res) => {
       });
     }
 
-    if (!password || password.length < 8) {
+    if (!isValidEmail(accountsEmail) || !isValidEmail(invoiceDeliveryEmail)) {
       return res.status(400).json({
-        error: "Password must be at least 8 characters.",
-      });
-    }
-
-    if (password !== confirmPassword) {
-      return res.status(400).json({
-        error: "Passwords do not match.",
+        error: "Enter valid accounts and invoice delivery email addresses.",
       });
     }
 
@@ -235,113 +291,83 @@ router.post("/apply", async (req, res) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-      include: { tradeAccount: true },
-    });
+    const serviceSameDayDelivery = getBoolean(req.body.serviceSameDayDelivery);
+    const serviceNextDayDelivery = getBoolean(req.body.serviceNextDayDelivery);
+    const serviceMultiDrop = getBoolean(req.body.serviceMultiDrop);
+    const serviceDedicatedVehicles = getBoolean(req.body.serviceDedicatedVehicles);
 
-    if (existingUser?.tradeAccount) {
-      return res.status(409).json({
-        error:
-          "A trade account application already exists for this email address.",
+    if (
+      !serviceSameDayDelivery &&
+      !serviceNextDayDelivery &&
+      !serviceMultiDrop &&
+      !serviceDedicatedVehicles
+    ) {
+      return res.status(400).json({
+        error: "Please select at least one service requirement.",
       });
     }
 
-    if (existingUser && existingUser.accountType === AccountType.TRADE) {
-      return res.status(409).json({
-        error: "A trade account already exists with this email address.",
+    const requestedCreditLimit = getNumber(req.body.requestedCreditLimit);
+    const preferredPaymentTerms = Number(
+      getString(req.body.preferredPaymentTerms),
+    );
+
+    if (requestedCreditLimit === null || requestedCreditLimit <= 0) {
+      return res.status(400).json({
+        error: "Please select a requested credit limit.",
       });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
-
-    const user =
-      existingUser ||
-      (await prisma.user.create({
-        data: {
-          accountType: AccountType.BUSINESS,
-          accountStatus: AccountStatus.INACTIVE,
-          name: `${firstName} ${lastName}`.trim(),
-          email,
-          phone: mobileNumber,
-          companyName: legalEntity,
-          passwordHash,
-          legalEntity,
-          tradingName: getOptionalString(req.body.tradingName),
-          companyRegistrationNumber: getOptionalString(
-            req.body.companyRegistrationNumber,
-          ),
-          vatNumber: getOptionalString(req.body.vatNumber),
-          businessType: getOptionalString(req.body.businessType),
-          companyWebsite: getOptionalString(req.body.companyWebsite),
-          firstName,
-          lastName,
-          jobTitle: getOptionalString(req.body.jobTitle),
-          accountsEmail:
-            getString(req.body.accountsEmail).toLowerCase() || null,
-          registeredAddressLine1: getOptionalString(
-            req.body.registeredAddressLine1,
-          ),
-          registeredAddressLine2: getOptionalString(
-            req.body.registeredAddressLine2,
-          ),
-          registeredTownCity: getOptionalString(req.body.registeredTownCity),
-          registeredCounty: getOptionalString(req.body.registeredCounty),
-          registeredPostcode: getOptionalString(req.body.registeredPostcode),
-          registeredCountry: getOptionalString(req.body.registeredCountry),
-          tradingAddressDifferent: getBoolean(req.body.tradingAddressDifferent),
-          tradingAddressLine1: getOptionalString(req.body.tradingAddressLine1),
-          tradingAddressLine2: getOptionalString(req.body.tradingAddressLine2),
-          tradingTownCity: getOptionalString(req.body.tradingTownCity),
-          tradingCounty: getOptionalString(req.body.tradingCounty),
-          tradingPostcode: getOptionalString(req.body.tradingPostcode),
-          tradingCountry: getOptionalString(req.body.tradingCountry),
-          estimatedShipmentsPerMonth: getOptionalString(
-            req.body.estimatedShipmentsPerMonth,
-          ),
-          typicalShipmentType: getOptionalString(req.body.typicalShipmentType),
-          authorisedToCreateAccount: getBoolean(req.body.authorisedToApply),
-          acceptedTerms: getBoolean(req.body.termsAccepted),
-          acceptedPrivacy: getBoolean(req.body.privacyAccepted),
-        },
-      }));
-
-    if (existingUser) {
-      await prisma.user.update({
-        where: { id: existingUser.id },
-        data: {
-          accountType: AccountType.BUSINESS,
-          accountStatus: AccountStatus.INACTIVE,
-          passwordHash: existingUser.passwordHash ? undefined : passwordHash,
-        },
+    if (![7, 14, 30].includes(preferredPaymentTerms)) {
+      return res.status(400).json({
+        error: "Please select valid preferred payment terms.",
       });
     }
 
     const tradeAccount = await prisma.tradeAccount.create({
       data: {
         userId: user.id,
+        status: TradeAccountStatus.PENDING,
         companyName: legalEntity,
-        tradingName: getOptionalString(req.body.tradingName),
-        companyRegistrationNumber: getOptionalString(
-          req.body.companyRegistrationNumber,
-        ),
-        vatNumber: getOptionalString(req.body.vatNumber),
+        tradingName:
+          getOptionalString(req.body.tradingName) || user.tradingName || null,
+        companyRegistrationNumber:
+          getOptionalString(req.body.companyRegistrationNumber) ||
+          user.companyRegistrationNumber ||
+          null,
+        vatNumber: getOptionalString(req.body.vatNumber) || user.vatNumber || null,
         dateBusinessEstablished: getOptionalString(
           req.body.dateBusinessEstablished,
         ),
-        businessType: getOptionalString(req.body.businessType),
-        companyWebsite: getOptionalString(req.body.companyWebsite),
+        businessType:
+          getOptionalString(req.body.businessType) || user.businessType || null,
+        companyWebsite:
+          getOptionalString(req.body.companyWebsite) || user.companyWebsite || null,
         annualTurnover: getOptionalString(req.body.annualTurnover),
-        registeredAddressLine1: getOptionalString(
-          req.body.registeredAddressLine1,
-        ),
-        registeredAddressLine2: getOptionalString(
-          req.body.registeredAddressLine2,
-        ),
-        registeredTownCity: getOptionalString(req.body.registeredTownCity),
-        registeredCounty: getOptionalString(req.body.registeredCounty),
-        registeredPostcode: getOptionalString(req.body.registeredPostcode),
-        registeredCountry: getOptionalString(req.body.registeredCountry),
+        registeredAddressLine1:
+          getOptionalString(req.body.registeredAddressLine1) ||
+          user.registeredAddressLine1 ||
+          null,
+        registeredAddressLine2:
+          getOptionalString(req.body.registeredAddressLine2) ||
+          user.registeredAddressLine2 ||
+          null,
+        registeredTownCity:
+          getOptionalString(req.body.registeredTownCity) ||
+          user.registeredTownCity ||
+          null,
+        registeredCounty:
+          getOptionalString(req.body.registeredCounty) ||
+          user.registeredCounty ||
+          null,
+        registeredPostcode:
+          getOptionalString(req.body.registeredPostcode) ||
+          user.registeredPostcode ||
+          null,
+        registeredCountry:
+          getOptionalString(req.body.registeredCountry) ||
+          user.registeredCountry ||
+          "United Kingdom",
         tradingAddressDifferent: getBoolean(req.body.tradingAddressDifferent),
         tradingAddressLine1: getOptionalString(req.body.tradingAddressLine1),
         tradingAddressLine2: getOptionalString(req.body.tradingAddressLine2),
@@ -351,34 +377,33 @@ router.post("/apply", async (req, res) => {
         tradingCountry: getOptionalString(req.body.tradingCountry),
         accountsContactName: getOptionalString(req.body.accountsContactName),
         accountsJobTitle: getOptionalString(req.body.accountsJobTitle),
-        accountsEmail: getString(req.body.accountsEmail).toLowerCase() || null,
-        accountsPhone: getOptionalString(req.body.accountsPhone),
-        invoiceDeliveryEmail:
-          getString(req.body.invoiceDeliveryEmail).toLowerCase() || null,
+        accountsEmail,
+        accountsPhone:
+          getOptionalString(req.body.accountsPhone) || user.phone || null,
+        invoiceDeliveryEmail,
         primaryFirstName: firstName,
         primaryLastName: lastName,
-        primaryPosition: getOptionalString(req.body.jobTitle),
+        primaryPosition:
+          getOptionalString(req.body.jobTitle) || user.jobTitle || null,
         primaryEmail: email,
         primaryMobile: mobileNumber,
-        requestedCreditLimit: getNumber(req.body.requestedCreditLimit),
+        requestedCreditLimit,
         expectedMonthlySpend: getOptionalString(req.body.expectedMonthlySpend),
         estimatedShipmentsPerMonth: getOptionalString(
           req.body.estimatedShipmentsPerMonth,
         ),
-        preferredPaymentTerms: getOptionalString(
-          req.body.preferredPaymentTerms,
-        ),
-        serviceNextDayDelivery: getBoolean(req.body.serviceNextDayDelivery),
-        serviceMultiDrop: getBoolean(req.body.serviceMultiDrop),
-        serviceDedicatedVehicles: getBoolean(req.body.serviceDedicatedVehicles),
-        creditCheckConsent: getBoolean(req.body.creditCheckConsent),
-        authorisedToApply: getBoolean(req.body.authorisedToApply),
-        creditSubjectToApproval: getBoolean(req.body.creditSubjectToApproval),
-        termsAccepted: getBoolean(req.body.termsAccepted),
-        privacyAccepted: getBoolean(req.body.privacyAccepted),
-        creditLimit: getNumber(req.body.requestedCreditLimit) || 2500,
-        paymentTermsDays:
-          Number(getString(req.body.preferredPaymentTerms)) || 30,
+        preferredPaymentTerms: String(preferredPaymentTerms),
+        serviceSameDayDelivery,
+        serviceNextDayDelivery,
+        serviceMultiDrop,
+        serviceDedicatedVehicles,
+        creditCheckConsent: true,
+        authorisedToApply: true,
+        creditSubjectToApproval: true,
+        termsAccepted: true,
+        privacyAccepted: true,
+        creditLimit: requestedCreditLimit,
+        paymentTermsDays: preferredPaymentTerms,
       },
     });
 
@@ -387,7 +412,7 @@ router.post("/apply", async (req, res) => {
       userId: user.id,
       tradeAccountId: tradeAccount.id,
       status: tradeAccount.status,
-      redirectUrl: "/payment-success?tradeAccountApplication=received",
+      redirectUrl: "/trade-account-success",
       message: "Trade account application submitted.",
     });
   } catch (error) {
@@ -697,6 +722,18 @@ router.patch("/admin/:id", async (req, res) => {
               : req.body.suspensionReason !== undefined
                 ? getOptionalString(req.body.suspensionReason)
                 : undefined,
+          creditFacilityOnHold:
+            nextStatus === TradeAccountStatus.APPROVED
+              ? false
+              : nextStatus === TradeAccountStatus.SUSPENDED
+                ? true
+                : undefined,
+          creditHoldReason:
+            nextStatus === TradeAccountStatus.APPROVED
+              ? null
+              : nextStatus === TradeAccountStatus.SUSPENDED
+                ? suspensionReason
+                : undefined,
           approvedAt:
             nextStatus === TradeAccountStatus.APPROVED ? now : undefined,
           rejectedAt:
@@ -755,10 +792,52 @@ router.patch("/admin/:id", async (req, res) => {
             accountStatus: AccountStatus.ACTIVE,
           },
         });
+
+        const approvedCreditLimit =
+          req.body.creditLimit !== undefined
+            ? (creditLimit as number)
+            : Number(existing.creditLimit);
+        const approvedPaymentTerms =
+          req.body.paymentTermsDays !== undefined
+            ? (paymentTermsDays as number)
+            : existing.paymentTermsDays;
+        const approvedAccountsEmail =
+          req.body.accountsEmail !== undefined
+            ? accountsEmail || existing.accountsEmail || existing.user.accountsEmail
+            : existing.accountsEmail || existing.user.accountsEmail;
+
+        await transaction.billingProfile.upsert({
+          where: { userId: existing.userId },
+          update: {
+            paymentMode: BillingPaymentMode.PAY_LATER,
+            paymentTermsDays: approvedPaymentTerms,
+            accountsEmail: approvedAccountsEmail || null,
+            creditLimit: approvedCreditLimit,
+            creditFacilityOnHold: false,
+            holdReason: null,
+          },
+          create: {
+            userId: existing.userId,
+            paymentMode: BillingPaymentMode.PAY_LATER,
+            invoiceMode: BillingInvoiceMode.PER_BOOKING,
+            billingFrequency: BillingFrequency.PER_BOOKING,
+            paymentTermsDays: approvedPaymentTerms,
+            accountsEmail: approvedAccountsEmail || null,
+            creditLimit: approvedCreditLimit,
+            creditFacilityOnHold: false,
+          },
+        });
       } else if (nextStatus === TradeAccountStatus.SUSPENDED) {
         await transaction.user.update({
           where: { id: existing.userId },
           data: { ...commonUserData, accountStatus: AccountStatus.SUSPENDED },
+        });
+        await transaction.billingProfile.updateMany({
+          where: { userId: existing.userId },
+          data: {
+            creditFacilityOnHold: true,
+            holdReason: suspensionReason,
+          },
         });
       } else if (nextStatus === TradeAccountStatus.REJECTED) {
         await transaction.user.update({
@@ -766,7 +845,15 @@ router.patch("/admin/:id", async (req, res) => {
           data: {
             ...commonUserData,
             accountType: AccountType.BUSINESS,
-            accountStatus: AccountStatus.INACTIVE,
+            accountStatus: AccountStatus.ACTIVE,
+          },
+        });
+        await transaction.billingProfile.updateMany({
+          where: { userId: existing.userId },
+          data: {
+            paymentMode: BillingPaymentMode.PAY_NOW,
+            creditFacilityOnHold: false,
+            holdReason: null,
           },
         });
       } else {

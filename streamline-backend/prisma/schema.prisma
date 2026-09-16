@@ -196,6 +196,7 @@ model TradeAccount {
   estimatedShipmentsPerMonth String?
   preferredPaymentTerms      String?
 
+  serviceSameDayDelivery   Boolean @default(false)
   serviceNextDayDelivery   Boolean @default(false)
   serviceMultiDrop         Boolean @default(false)
   serviceDedicatedVehicles Boolean @default(false)

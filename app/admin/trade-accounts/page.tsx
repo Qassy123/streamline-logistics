@@ -69,6 +69,7 @@ type TradeAccount = {
   expectedMonthlySpend?: string | null;
   estimatedShipmentsPerMonth?: string | null;
   preferredPaymentTerms?: string | null;
+  serviceSameDayDelivery: boolean;
   serviceNextDayDelivery: boolean;
   serviceMultiDrop: boolean;
   serviceDedicatedVehicles: boolean;
@@ -717,7 +718,7 @@ export default function TradeAccountsPage() {
                     value={selected.expectedMonthlySpend || "Not provided"}
                   />
                   <Info
-                    label="Shipments per month"
+                    label="Deliveries per month"
                     value={
                       selected.estimatedShipmentsPerMonth || "Not provided"
                     }
@@ -846,6 +847,10 @@ export default function TradeAccountsPage() {
               </Section>
               <Section title="Services and declarations">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <Check
+                    label="Same-day delivery"
+                    value={selected.serviceSameDayDelivery}
+                  />
                   <Check
                     label="Next-day delivery"
                     value={selected.serviceNextDayDelivery}
