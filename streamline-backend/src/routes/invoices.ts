@@ -907,8 +907,23 @@ router.post("/admin/:id/adjustments", async (req, res) => {
       ? roundMoney(netAmount.mul(vatRate).div(100))
       : new Prisma.Decimal(0);
 
+    const existingAdjustmentNetTotal = invoice.adjustments.reduce(
+      (sum, adjustment) => sum.add(adjustment.netAmount),
+      new Prisma.Decimal(0),
+    );
+    const existingAdjustmentVatTotal = invoice.adjustments.reduce(
+      (sum, adjustment) => sum.add(adjustment.vatAmount),
+      new Prisma.Decimal(0),
+    );
+    const baseSubtotal = roundMoney(
+      invoice.subtotal.sub(existingAdjustmentNetTotal),
+    );
+    const baseVat = roundMoney(baseSubtotal.mul(vatRate).div(100));
+
     const nextSubtotal = roundMoney(invoice.subtotal.add(netAmount));
-    const nextVat = roundMoney(invoice.vatAmount.add(vatAmount));
+    const nextVat = roundMoney(
+      baseVat.add(existingAdjustmentVatTotal).add(vatAmount),
+    );
     const nextTotal = roundMoney(nextSubtotal.add(nextVat));
 
     if (
@@ -1018,10 +1033,37 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
       });
     }
 
+    const remainingAdjustments = await prisma.invoiceAdjustment.findMany({
+      where: {
+        invoiceId: invoice.id,
+        id: { not: adjustment.id },
+      },
+    });
+
+    const settings = await prisma.companySettings.findFirst({
+      select: { vatRate: true },
+    });
+    const vatRate = settings?.vatRate ?? new Prisma.Decimal(20);
+
+    const allAdjustmentNetTotal = await prisma.invoiceAdjustment.aggregate({
+      where: { invoiceId: invoice.id },
+      _sum: { netAmount: true },
+    });
+    const baseSubtotal = roundMoney(
+      invoice.subtotal.sub(
+        allAdjustmentNetTotal._sum.netAmount ?? new Prisma.Decimal(0),
+      ),
+    );
+    const baseVat = roundMoney(baseSubtotal.mul(vatRate).div(100));
+    const remainingAdjustmentVatTotal = remainingAdjustments.reduce(
+      (sum, item) => sum.add(item.vatAmount),
+      new Prisma.Decimal(0),
+    );
+
     const nextSubtotal = roundMoney(
       invoice.subtotal.sub(adjustment.netAmount),
     );
-    const nextVat = roundMoney(invoice.vatAmount.sub(adjustment.vatAmount));
+    const nextVat = roundMoney(baseVat.add(remainingAdjustmentVatTotal));
     const nextTotal = roundMoney(nextSubtotal.add(nextVat));
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
