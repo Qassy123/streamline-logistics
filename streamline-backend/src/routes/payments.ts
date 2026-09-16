@@ -699,7 +699,6 @@ async function createTradeDraftInvoice(booking: {
   customerReference?: string | null;
   quote?: {
     deliveryType?: string | null;
-    adminPrice?: Prisma.Decimal | null;
     vatAmount?: Prisma.Decimal | null;
     totalPrice?: Prisma.Decimal | null;
   } | null;
@@ -710,119 +709,154 @@ async function createTradeDraftInvoice(booking: {
 
   if (existingInvoice) return existingInvoice;
 
-  return prisma.$transaction(async (transaction) => {
-    const settings = await transaction.companySettings.findFirst({
-      orderBy: { createdAt: "asc" },
-    });
+  /*
+   * Invoice numbering must be able to recover if CompanySettings.nextInvoiceNumber
+   * is behind an invoice number that already exists. The previous implementation
+   * retried the same duplicate number forever because the failed transaction also
+   * rolled back the counter increment.
+   *
+   * We now skip numbers that already exist and retry a concurrent unique-number
+   * collision safely. This keeps invoice creation idempotent and self-healing.
+   */
+  const maxAttempts = 5;
 
-    if (!settings) {
-      throw new Error(
-        "Company settings must be configured before invoices can be created.",
-      );
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (transaction) => {
+        const invoiceAlreadyCreated = await transaction.invoice.findFirst({
+          where: { bookingId: booking.id },
+        });
+
+        if (invoiceAlreadyCreated) return invoiceAlreadyCreated;
+
+        const settings = await transaction.companySettings.findFirst({
+          orderBy: { createdAt: "asc" },
+        });
+
+        if (!settings) {
+          throw new Error(
+            "Company settings must be configured before invoices can be created.",
+          );
+        }
+
+        let candidateNumber = settings.nextInvoiceNumber;
+        let invoiceNumber = `${settings.invoicePrefix}-${String(
+          candidateNumber,
+        ).padStart(6, "0")}`;
+
+        while (
+          await transaction.invoice.findUnique({
+            where: { invoiceNumber },
+            select: { id: true },
+          })
+        ) {
+          candidateNumber += 1;
+          invoiceNumber = `${settings.invoicePrefix}-${String(
+            candidateNumber,
+          ).padStart(6, "0")}`;
+        }
+
+        const total = new Prisma.Decimal(
+          booking.quote?.totalPrice || booking.totalPrice,
+        ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+        const vatRate = new Prisma.Decimal(settings.vatRate);
+        const subtotal = vatRate.greaterThan(0)
+          ? total
+              .div(new Prisma.Decimal(1).add(vatRate.div(100)))
+              .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+          : total;
+        const vatAmount = total
+          .sub(subtotal)
+          .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+        const now = new Date();
+        const dueDate = new Date(now);
+        dueDate.setUTCDate(dueDate.getUTCDate() + paymentTermsDays);
+
+        const routeDescription = `${booking.collectionAddress} → ${booking.deliveryAddress}`;
+        const serviceDescription =
+          booking.quote?.deliveryType || "Courier delivery";
+
+        const invoice = await transaction.invoice.create({
+          data: {
+            invoiceNumber,
+            bookingId: booking.id,
+            userId: booking.userId,
+            status: "DRAFT",
+            invoiceType: "SINGLE",
+            subtotal,
+            vatAmount,
+            total,
+            dueDate,
+            supplyDate: booking.collectionDate,
+            paymentTerms: `${paymentTermsDays} days`,
+            customerReference: booking.customerReference || null,
+            purchaseOrderNumber: booking.purchaseOrderNumber || null,
+          },
+        });
+
+        await transaction.invoiceBooking.create({
+          data: {
+            invoiceId: invoice.id,
+            bookingId: booking.id,
+            bookingReference: booking.reference,
+            bookingDate: booking.collectionDate,
+            poReference: booking.purchaseOrderNumber || null,
+            routeDescription,
+            serviceDescription,
+            netAmount: subtotal,
+            vatAmount,
+            grossAmount: total,
+          },
+        });
+
+        await transaction.invoiceLine.create({
+          data: {
+            invoiceId: invoice.id,
+            bookingId: booking.id,
+            chargeType: "BASE_SERVICE",
+            description: serviceDescription,
+            quantity: new Prisma.Decimal(1),
+            unitPrice: subtotal,
+            netAmount: subtotal,
+            vatRate,
+            vatAmount,
+            grossAmount: total,
+            bookingReference: booking.reference,
+            sourceType: "BOOKING",
+            sourceId: booking.id,
+          },
+        });
+
+        await transaction.invoiceAuditEvent.create({
+          data: {
+            invoiceId: invoice.id,
+            eventType: "TRADE_DRAFT_INVOICE_CREATED",
+            description: `Trade draft invoice ${invoiceNumber} created for booking ${booking.reference}.`,
+          },
+        });
+
+        await transaction.companySettings.update({
+          where: { id: settings.id },
+          data: {
+            nextInvoiceNumber: candidateNumber + 1,
+          },
+        });
+
+        return invoice;
+      });
+    } catch (error) {
+      const isUniqueCollision =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002";
+
+      if (!isUniqueCollision || attempt === maxAttempts) {
+        throw error;
+      }
     }
+  }
 
-    const reservedSettings = await transaction.companySettings.update({
-      where: { id: settings.id },
-      data: { nextInvoiceNumber: { increment: 1 } },
-    });
-
-    const invoiceNumber = `${reservedSettings.invoicePrefix}-${String(
-      reservedSettings.nextInvoiceNumber - 1,
-    ).padStart(6, "0")}`;
-
-    const total = new Prisma.Decimal(
-      booking.quote?.totalPrice || booking.totalPrice,
-    ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
-    const vatRate = new Prisma.Decimal(reservedSettings.vatRate);
-    const subtotal = booking.quote?.adminPrice
-      ? new Prisma.Decimal(booking.quote.adminPrice).toDecimalPlaces(
-          2,
-          Prisma.Decimal.ROUND_HALF_UP,
-        )
-      : vatRate.greaterThan(0)
-        ? total
-            .div(new Prisma.Decimal(1).add(vatRate.div(100)))
-            .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
-        : total;
-    const vatAmount = booking.quote?.vatAmount
-      ? new Prisma.Decimal(booking.quote.vatAmount).toDecimalPlaces(
-          2,
-          Prisma.Decimal.ROUND_HALF_UP,
-        )
-      : total.sub(subtotal).toDecimalPlaces(
-          2,
-          Prisma.Decimal.ROUND_HALF_UP,
-        );
-
-    const now = new Date();
-    const dueDate = new Date(now);
-    dueDate.setDate(dueDate.getDate() + paymentTermsDays);
-
-    const routeDescription = `${booking.collectionAddress} → ${booking.deliveryAddress}`;
-    const serviceDescription =
-      booking.quote?.deliveryType || "Courier delivery";
-
-    const invoice = await transaction.invoice.create({
-      data: {
-        invoiceNumber,
-        bookingId: booking.id,
-        userId: booking.userId,
-        status: "DRAFT",
-        invoiceType: "SINGLE",
-        subtotal,
-        vatAmount,
-        total,
-        dueDate,
-        supplyDate: booking.collectionDate,
-        paymentTerms: `${paymentTermsDays} days`,
-        customerReference: booking.customerReference || null,
-        purchaseOrderNumber: booking.purchaseOrderNumber || null,
-      },
-    });
-
-    await transaction.invoiceBooking.create({
-      data: {
-        invoiceId: invoice.id,
-        bookingId: booking.id,
-        bookingReference: booking.reference,
-        bookingDate: booking.collectionDate,
-        poReference: booking.purchaseOrderNumber || null,
-        routeDescription,
-        serviceDescription,
-        netAmount: subtotal,
-        vatAmount,
-        grossAmount: total,
-      },
-    });
-
-    await transaction.invoiceLine.create({
-      data: {
-        invoiceId: invoice.id,
-        bookingId: booking.id,
-        chargeType: "BASE_SERVICE",
-        description: serviceDescription,
-        quantity: new Prisma.Decimal(1),
-        unitPrice: subtotal,
-        netAmount: subtotal,
-        vatRate,
-        vatAmount,
-        grossAmount: total,
-        bookingReference: booking.reference,
-        sourceType: "BOOKING",
-        sourceId: booking.id,
-      },
-    });
-
-    await transaction.invoiceAuditEvent.create({
-      data: {
-        invoiceId: invoice.id,
-        eventType: "TRADE_DRAFT_INVOICE_CREATED",
-        description: `Trade draft invoice ${invoiceNumber} created for booking ${booking.reference}.`,
-      },
-    });
-
-    return invoice;
-  });
+  throw new Error("Unable to reserve a unique invoice number.");
 }
 
 router.get("/checkout-options/:quoteId", async (req, res) => {
@@ -936,6 +970,7 @@ router.post("/pay-later", async (req, res) => {
               orderBy: { createdAt: "asc" },
             },
             invoices: true,
+            payments: true,
           },
         },
         reservations: true,
@@ -999,15 +1034,13 @@ router.post("/pay-later", async (req, res) => {
      * invoice is treated idempotently; cancelled/expired bookings are rejected.
      */
     if (quote.booking && quote.booking.status !== BookingStatus.PENDING_PAYMENT) {
-      if (
-        (
-          quote.booking.status === BookingStatus.CONFIRMED ||
-          quote.booking.status === BookingStatus.ASSIGNED ||
-          quote.booking.status === BookingStatus.IN_PROGRESS ||
-          quote.booking.status === BookingStatus.COMPLETED
-        ) &&
-        quote.booking.invoices.length > 0
-      ) {
+      const activeBooking =
+        quote.booking.status === BookingStatus.CONFIRMED ||
+        quote.booking.status === BookingStatus.ASSIGNED ||
+        quote.booking.status === BookingStatus.IN_PROGRESS ||
+        quote.booking.status === BookingStatus.COMPLETED;
+
+      if (activeBooking && quote.booking.invoices.length > 0) {
         const existingInvoice = quote.booking.invoices[0];
 
         return res.json({
@@ -1023,6 +1056,52 @@ router.post("/pay-later", async (req, res) => {
           billing: {
             paymentMode: "PAY_LATER",
             paymentTermsDays: position.paymentTermsDays,
+          },
+        });
+      }
+
+      /*
+       * A previous Trade Pay Later request may have confirmed the booking but
+       * failed while creating its invoice. That is a recoverable partial state,
+       * not a reason to strand the customer on checkout forever.
+       *
+       * Never recover a booking as Trade credit if a successful card payment
+       * already exists for it.
+       */
+      if (activeBooking && quote.booking.invoices.length === 0) {
+        const hasSuccessfulPayment = quote.booking.payments.some(
+          (payment) => payment.status === PaymentStatus.PAID,
+        );
+
+        if (hasSuccessfulPayment) {
+          return res.status(409).json({
+            error:
+              "This booking has already been paid. It cannot be converted to Trade Pay Later.",
+            code: "BOOKING_ALREADY_PAID",
+          });
+        }
+
+        const recoveredInvoice = await createTradeDraftInvoice(
+          quote.booking,
+          position.paymentTermsDays,
+        );
+
+        return res.json({
+          success: true,
+          alreadyProcessed: true,
+          recovered: true,
+          booking: quote.booking,
+          invoice: {
+            id: recoveredInvoice.id,
+            invoiceNumber: recoveredInvoice.invoiceNumber,
+            status: recoveredInvoice.status,
+            dueDate: recoveredInvoice.dueDate,
+          },
+          billing: {
+            paymentMode: "PAY_LATER",
+            paymentTermsDays: position.paymentTermsDays,
+            bookingAmount: Number(bookingAmount),
+            availableCreditAfterBooking: Number(position.availableCredit),
           },
         });
       }
