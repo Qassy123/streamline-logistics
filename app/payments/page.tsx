@@ -1,4 +1,5 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import PaymentActions from "./PaymentActions";
 import {
   MapPinned,
   MapPin,
@@ -45,37 +46,6 @@ async function getQuote(id: string): Promise<QuoteDetails | null> {
     console.error("Payment quote fetch error:", error);
     return null;
   }
-}
-
-async function createCheckoutSession(formData: FormData) {
-  "use server";
-
-  const quoteId = String(formData.get("quoteId") || "");
-
-  if (!quoteId) {
-    throw new Error("Missing quote ID");
-  }
-
-  const response = await fetch(`${BACKEND_API_URL}/payments/create-checkout-session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ quoteId }),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to create Stripe checkout session");
-  }
-
-  const data = await response.json();
-
-  if (!data.checkoutUrl) {
-    throw new Error("Stripe checkout URL missing");
-  }
-
-  redirect(data.checkoutUrl);
 }
 
 function formatMoney(value: string | number | null) {
@@ -271,15 +241,10 @@ export default async function PaymentsPage({
                 ))}
               </div>
 
-              <form action={createCheckoutSession} className="mt-5">
-                <input type="hidden" name="quoteId" value={quote.id} />
-                <button
-                  type="submit"
-                  className="inline-flex w-full items-center justify-center rounded-full bg-[#006CFF] px-8 py-4 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
-                >
-                  Pay Securely Now
-                </button>
-              </form>
+              <PaymentActions
+                quoteId={quote.id}
+                totalPrice={Number(quote.totalPrice || 0)}
+              />
             </aside>
           </div>
         </section>

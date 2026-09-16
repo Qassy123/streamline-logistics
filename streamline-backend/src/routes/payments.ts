@@ -593,6 +593,521 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
   return assignedBooking || booking;
 }
 
+
+async function getTradeCheckoutPosition(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      billingProfile: true,
+      tradeAccount: true,
+    },
+  });
+
+  if (!user) {
+    throw new Error("Customer account not found.");
+  }
+
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      userId,
+      status: {
+        notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"],
+      },
+    },
+    include: {
+      allocations: true,
+      creditNotes: true,
+    },
+  });
+
+  const outstandingInvoices = invoices.reduce((sum, invoice) => {
+    const allocated = invoice.allocations.reduce(
+      (paid, allocation) => paid.add(allocation.amount),
+      new Prisma.Decimal(0),
+    );
+    const credited = invoice.creditNotes
+      .filter((note) => note.status === "ISSUED")
+      .reduce(
+        (total, note) => total.add(note.amount),
+        new Prisma.Decimal(0),
+      );
+    const remaining = invoice.total.sub(allocated).sub(credited);
+    return sum.add(remaining.greaterThan(0) ? remaining : 0);
+  }, new Prisma.Decimal(0));
+
+  const uninvoicedBookings = await prisma.booking.aggregate({
+    where: {
+      userId,
+      status: {
+        in: [
+          BookingStatus.CONFIRMED,
+          BookingStatus.ASSIGNED,
+          BookingStatus.IN_PROGRESS,
+          BookingStatus.COMPLETED,
+        ],
+      },
+      invoices: { none: {} },
+      invoiceBookings: { none: {} },
+    },
+    _sum: { totalPrice: true },
+  });
+
+  const committed = new Prisma.Decimal(
+    uninvoicedBookings._sum.totalPrice || 0,
+  );
+  const exposure = outstandingInvoices
+    .add(committed)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  const creditLimit = new Prisma.Decimal(
+    user.billingProfile?.creditLimit ?? user.tradeAccount?.creditLimit ?? 0,
+  );
+  const availableCredit = creditLimit
+    .sub(exposure)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  return {
+    user,
+    creditLimit,
+    exposure,
+    availableCredit,
+    paymentTermsDays:
+      user.billingProfile?.paymentTermsDays ??
+      user.tradeAccount?.paymentTermsDays ??
+      30,
+    poRequired: user.billingProfile?.poRequired ?? false,
+    paymentMode: user.billingProfile?.paymentMode ?? "PAY_NOW",
+    creditFacilityOnHold:
+      user.billingProfile?.creditFacilityOnHold ??
+      user.tradeAccount?.creditFacilityOnHold ??
+      false,
+    holdReason:
+      user.billingProfile?.holdReason ??
+      user.tradeAccount?.creditHoldReason ??
+      null,
+  };
+}
+
+async function createTradeDraftInvoice(booking: {
+  id: string;
+  userId: string | null;
+  totalPrice: Prisma.Decimal;
+  reference: string;
+  collectionDate: Date;
+  collectionAddress: string;
+  deliveryAddress: string;
+  purchaseOrderNumber?: string | null;
+  customerReference?: string | null;
+  quote?: {
+    deliveryType?: string | null;
+    adminPrice?: Prisma.Decimal | null;
+    vatAmount?: Prisma.Decimal | null;
+    totalPrice?: Prisma.Decimal | null;
+  } | null;
+}, paymentTermsDays: number) {
+  const existingInvoice = await prisma.invoice.findFirst({
+    where: { bookingId: booking.id },
+  });
+
+  if (existingInvoice) return existingInvoice;
+
+  return prisma.$transaction(async (transaction) => {
+    const settings = await transaction.companySettings.findFirst({
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (!settings) {
+      throw new Error(
+        "Company settings must be configured before invoices can be created.",
+      );
+    }
+
+    const reservedSettings = await transaction.companySettings.update({
+      where: { id: settings.id },
+      data: { nextInvoiceNumber: { increment: 1 } },
+    });
+
+    const invoiceNumber = `${reservedSettings.invoicePrefix}-${String(
+      reservedSettings.nextInvoiceNumber - 1,
+    ).padStart(6, "0")}`;
+
+    const total = new Prisma.Decimal(
+      booking.quote?.totalPrice || booking.totalPrice,
+    ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    const vatRate = new Prisma.Decimal(reservedSettings.vatRate);
+    const subtotal = booking.quote?.adminPrice
+      ? new Prisma.Decimal(booking.quote.adminPrice).toDecimalPlaces(
+          2,
+          Prisma.Decimal.ROUND_HALF_UP,
+        )
+      : vatRate.greaterThan(0)
+        ? total
+            .div(new Prisma.Decimal(1).add(vatRate.div(100)))
+            .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+        : total;
+    const vatAmount = booking.quote?.vatAmount
+      ? new Prisma.Decimal(booking.quote.vatAmount).toDecimalPlaces(
+          2,
+          Prisma.Decimal.ROUND_HALF_UP,
+        )
+      : total.sub(subtotal).toDecimalPlaces(
+          2,
+          Prisma.Decimal.ROUND_HALF_UP,
+        );
+
+    const now = new Date();
+    const dueDate = new Date(now);
+    dueDate.setDate(dueDate.getDate() + paymentTermsDays);
+
+    const routeDescription = `${booking.collectionAddress} → ${booking.deliveryAddress}`;
+    const serviceDescription =
+      booking.quote?.deliveryType || "Courier delivery";
+
+    const invoice = await transaction.invoice.create({
+      data: {
+        invoiceNumber,
+        bookingId: booking.id,
+        userId: booking.userId,
+        status: "DRAFT",
+        invoiceType: "SINGLE",
+        subtotal,
+        vatAmount,
+        total,
+        dueDate,
+        supplyDate: booking.collectionDate,
+        paymentTerms: `${paymentTermsDays} days`,
+        customerReference: booking.customerReference || null,
+        purchaseOrderNumber: booking.purchaseOrderNumber || null,
+      },
+    });
+
+    await transaction.invoiceBooking.create({
+      data: {
+        invoiceId: invoice.id,
+        bookingId: booking.id,
+        bookingReference: booking.reference,
+        bookingDate: booking.collectionDate,
+        poReference: booking.purchaseOrderNumber || null,
+        routeDescription,
+        serviceDescription,
+        netAmount: subtotal,
+        vatAmount,
+        grossAmount: total,
+      },
+    });
+
+    await transaction.invoiceLine.create({
+      data: {
+        invoiceId: invoice.id,
+        bookingId: booking.id,
+        chargeType: "BASE_SERVICE",
+        description: serviceDescription,
+        quantity: new Prisma.Decimal(1),
+        unitPrice: subtotal,
+        netAmount: subtotal,
+        vatRate,
+        vatAmount,
+        grossAmount: total,
+        bookingReference: booking.reference,
+        sourceType: "BOOKING",
+        sourceId: booking.id,
+      },
+    });
+
+    await transaction.invoiceAuditEvent.create({
+      data: {
+        invoiceId: invoice.id,
+        eventType: "TRADE_DRAFT_INVOICE_CREATED",
+        description: `Trade draft invoice ${invoiceNumber} created for booking ${booking.reference}.`,
+      },
+    });
+
+    return invoice;
+  });
+}
+
+router.get("/checkout-options/:quoteId", async (req, res) => {
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: { id: req.params.quoteId },
+      include: {
+        user: {
+          include: {
+            billingProfile: true,
+            tradeAccount: true,
+          },
+        },
+      },
+    });
+
+    if (!quote) {
+      return res.status(404).json({ error: "Quote not found." });
+    }
+
+    const user = await getAuthenticatedUser(req);
+
+    if (!user || !quote.userId || quote.userId !== user.id) {
+      return res.json({
+        accountType: "GUEST",
+        payNowAvailable: true,
+        payLaterAvailable: false,
+      });
+    }
+
+    if (user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({
+        error: "This customer account is not active. Checkout is unavailable.",
+      });
+    }
+
+    if (user.accountType !== "TRADE") {
+      return res.json({
+        accountType: user.accountType,
+        payNowAvailable: true,
+        payLaterAvailable: false,
+      });
+    }
+
+    const position = await getTradeCheckoutPosition(user.id);
+    const amount = new Prisma.Decimal(quote.totalPrice || 0);
+    const approved =
+      position.user.tradeAccount?.status === "APPROVED" &&
+      position.paymentMode === "PAY_LATER";
+    const withinCredit = amount.lessThanOrEqualTo(position.availableCredit);
+    const payLaterAvailable =
+      approved && !position.creditFacilityOnHold && withinCredit;
+
+    return res.json({
+      accountType: "TRADE",
+      payNowAvailable: true,
+      payLaterAvailable,
+      tradeStatus: position.user.tradeAccount?.status || null,
+      paymentMode: position.paymentMode,
+      paymentTermsDays: position.paymentTermsDays,
+      poRequired: position.poRequired,
+      creditFacilityOnHold: position.creditFacilityOnHold,
+      holdReason: position.holdReason,
+      creditLimit: Number(position.creditLimit),
+      exposure: Number(position.exposure),
+      availableCredit: Number(position.availableCredit),
+      quoteAmount: Number(amount),
+      reason: !approved
+        ? "This Trade Account is not approved for Pay Later."
+        : position.creditFacilityOnHold
+          ? position.holdReason || "Trade credit is currently on hold."
+          : !withinCredit
+            ? "This booking exceeds the available Trade credit."
+            : null,
+    });
+  } catch (error) {
+    console.error("Checkout options error:", error);
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to load checkout options.",
+    });
+  }
+});
+
+router.post("/pay-later", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+
+    if (!user) {
+      return res.status(401).json({ error: "Not authenticated." });
+    }
+
+    const quoteId = getString(req.body.quoteId);
+    const purchaseOrderNumber = getString(req.body.purchaseOrderNumber) || null;
+
+    if (!quoteId) {
+      return res.status(400).json({ error: "quoteId is required." });
+    }
+
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        booking: true,
+        user: {
+          include: {
+            billingProfile: true,
+            tradeAccount: true,
+          },
+        },
+      },
+    });
+
+    if (!quote || !quote.userId || quote.userId !== user.id) {
+      return res.status(404).json({ error: "Quote not found for this account." });
+    }
+
+    if (quote.booking) {
+      return res.status(409).json({
+        error: "A booking already exists for this quote.",
+      });
+    }
+
+    if (!quote.totalPrice) {
+      return res.status(400).json({ error: "Quote has no total price." });
+    }
+
+    if (!quote.collectionWindow || quote.collectionWindow === "ASAP") {
+      return res.status(400).json({
+        error: "A fixed collection window is required before booking.",
+      });
+    }
+
+    if (
+      user.accountStatus !== "ACTIVE" ||
+      user.accountType !== "TRADE" ||
+      !quote.user?.tradeAccount ||
+      quote.user.tradeAccount.status !== "APPROVED"
+    ) {
+      return res.status(403).json({
+        error: "This account is not approved for Trade Pay Later.",
+      });
+    }
+
+    const position = await getTradeCheckoutPosition(user.id);
+
+    if (position.paymentMode !== "PAY_LATER") {
+      return res.status(403).json({
+        error: "Pay Later is not enabled for this Trade Account.",
+      });
+    }
+
+    if (position.creditFacilityOnHold) {
+      return res.status(409).json({
+        error: position.holdReason
+          ? `Trade credit is on hold: ${position.holdReason}`
+          : "Trade credit is currently on hold.",
+        code: "CREDIT_FACILITY_ON_HOLD",
+      });
+    }
+
+    if (position.poRequired && !purchaseOrderNumber) {
+      return res.status(400).json({
+        error: "A PO/order reference is required for this Trade Account.",
+        code: "PO_REQUIRED",
+      });
+    }
+
+    const bookingAmount = new Prisma.Decimal(quote.totalPrice);
+
+    if (bookingAmount.greaterThan(position.availableCredit)) {
+      return res.status(409).json({
+        error: "This booking exceeds the available Trade credit.",
+        code: "CREDIT_LIMIT_EXCEEDED",
+        creditLimit: Number(position.creditLimit),
+        exposure: Number(position.exposure),
+        availableCredit: Number(position.availableCredit),
+        requestedAmount: Number(bookingAmount),
+      });
+    }
+
+    const { reservedFrom, reservedUntil } = getReservationWindow(
+      quote.collectionDate,
+      quote.collectionWindow,
+      6,
+    );
+
+    const booking = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.booking.create({
+        data: {
+          reference: generateBookingReference(),
+          status: BookingStatus.CONFIRMED,
+          quoteId: quote.id,
+          userId: user.id,
+          vehicleId: null,
+          driverId: null,
+          collectionDate: quote.collectionDate,
+          collectionWindow: quote.collectionWindow,
+          collectionAddress: quote.collectionAddress,
+          deliveryAddress: quote.deliveryAddress,
+          returnAddress: quote.returnAddress,
+          extraDrops:
+            quote.extraDrops === null ? Prisma.JsonNull : quote.extraDrops,
+          journeyType: quote.journeyType,
+          vehicleType: quote.vehicleSize,
+          estimatedStartTime: reservedFrom,
+          estimatedEndTime: reservedUntil,
+          vehicleAvailableAt: reservedUntil,
+          totalPrice: quote.totalPrice!,
+          purchaseOrderNumber,
+          customerReference: quote.customerReference,
+          trackingEvents: {
+            create: {
+              status: BookingStatus.CONFIRMED,
+              title: "Trade Booking Confirmed",
+              description:
+                "Your booking has been confirmed on your Trade Account and will be invoiced under your agreed payment terms.",
+            },
+          },
+        },
+        include: {
+          quote: true,
+          vehicle: true,
+          user: true,
+          reservation: true,
+          trackingEvents: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+
+      await transaction.quote.update({
+        where: { id: quote.id },
+        data: {
+          status: "Converted to Booking",
+          convertedAt: new Date(),
+        },
+      });
+
+      return created;
+    });
+
+    const invoice = await createTradeDraftInvoice(
+      booking,
+      position.paymentTermsDays,
+    );
+
+    try {
+      await sendCustomerBookingConfirmedEmail(booking);
+    } catch (emailError) {
+      console.error("Trade booking confirmation email error:", emailError);
+    }
+
+    return res.status(201).json({
+      success: true,
+      booking,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        dueDate: invoice.dueDate,
+      },
+      billing: {
+        paymentMode: "PAY_LATER",
+        paymentTermsDays: position.paymentTermsDays,
+        previousExposure: Number(position.exposure),
+        bookingAmount: Number(bookingAmount),
+        availableCreditAfterBooking: Number(
+          position.availableCredit.sub(bookingAmount),
+        ),
+      },
+    });
+  } catch (error) {
+    console.error("Trade Pay Later error:", error);
+
+    return res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to create Trade Pay Later booking.",
+    });
+  }
+});
+
 router.post("/create-checkout-session", async (req, res) => {
   try {
     const { quoteId } = req.body;

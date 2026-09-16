@@ -699,6 +699,44 @@ function AdminInvoicesContent() {
     finally { setInvoiceWorking(false); }
   }
 
+  async function downloadInvoicePdf(invoice: Invoice) {
+    if (!invoice.pdfUrl) return;
+
+    setInvoiceWorking(true);
+    setError("");
+    setInvoiceMessage("");
+
+    try {
+      const response = await fetch(invoice.pdfUrl);
+
+      if (!response.ok) {
+        throw new Error("Unable to download the issued invoice PDF.");
+      }
+
+      const pdfBlob = await response.blob();
+      const pdfFile = new Blob([pdfBlob], { type: "application/pdf" });
+      const objectUrl = window.URL.createObjectURL(pdfFile);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = `${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+
+      setInvoiceMessage(`${invoice.invoiceNumber}.pdf downloaded.`);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to download the issued invoice PDF.",
+      );
+    } finally {
+      setInvoiceWorking(false);
+    }
+  }
+
   async function sendInvoice() {
     if (!selectedInvoice) return;
 
@@ -1338,15 +1376,19 @@ function AdminInvoicesContent() {
                       The stored issued copy of {selectedInvoice.invoiceNumber}.
                     </p>
                   </div>
-                  <a
-                    href={selectedInvoice.pdfUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50"
+                  <button
+                    type="button"
+                    onClick={() => void downloadInvoicePdf(selectedInvoice)}
+                    disabled={invoiceWorking}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <FileText size={17} />
-                    View / Download PDF
-                  </a>
+                    {invoiceWorking ? (
+                      <Loader2 size={17} className="animate-spin" />
+                    ) : (
+                      <FileText size={17} />
+                    )}
+                    Download PDF
+                  </button>
                 </div>
               ) : null}
 

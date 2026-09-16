@@ -184,7 +184,7 @@ async function renderInvoicePdf(
   const infoY = 90;
   const infoRows = [
     ["Invoice No", invoice.invoiceNumber],
-    ["Status", invoice.status.replaceAll("_", " ")],
+    ["Status", invoice.status.replace(/_/g, " ")],
     ["Issue Date", date(invoice.issuedAt || invoice.finalisedAt)],
     ["Supply Date", date(invoice.supplyDate)],
     ["Due Date", date(invoice.dueDate)],
