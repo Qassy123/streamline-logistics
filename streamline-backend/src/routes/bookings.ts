@@ -17,12 +17,33 @@ const MAX_PAGE_SIZE = 100;
 async function generateBookingReference(
   transaction: Prisma.TransactionClient | typeof prisma = prisma,
 ) {
+  const latestBooking = await transaction.booking.findFirst({
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      createdAt: true,
+    },
+  });
+
+  const now = new Date();
+  const referenceDate =
+    latestBooking && latestBooking.createdAt > now
+      ? latestBooking.createdAt
+      : now;
+
+  const datePart = [
+    referenceDate.getUTCFullYear(),
+    String(referenceDate.getUTCMonth() + 1).padStart(2, "0"),
+    String(referenceDate.getUTCDate()).padStart(2, "0"),
+  ].join("");
+
+  const prefix = `SL-${datePart}-`;
+
   const existingReferences = await transaction.booking.findMany({
     where: {
       reference: {
-        not: {
-          contains: "-",
-        },
+        startsWith: prefix,
       },
     },
     select: {
@@ -30,19 +51,21 @@ async function generateBookingReference(
     },
   });
 
-  const highestReference = existingReferences.reduce((highest, booking) => {
-    if (!/^\\d+$/.test(booking.reference)) {
+  const highestSequence = existingReferences.reduce((highest, booking) => {
+    const sequence = booking.reference.slice(prefix.length);
+
+    if (!/^\\d+$/.test(sequence)) {
       return highest;
     }
 
-    const numericReference = Number.parseInt(booking.reference, 10);
+    const numericSequence = Number.parseInt(sequence, 10);
 
-    return Number.isSafeInteger(numericReference)
-      ? Math.max(highest, numericReference)
+    return Number.isSafeInteger(numericSequence)
+      ? Math.max(highest, numericSequence)
       : highest;
   }, 0);
 
-  return String(highestReference + 1).padStart(3, "0");
+  return `${prefix}${String(highestSequence + 1).padStart(6, "0")}`;
 }
 
 function getString(value: unknown) {
