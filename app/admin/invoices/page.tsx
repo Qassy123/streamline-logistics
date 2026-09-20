@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  CreditCard,
   FileText,
   Loader2,
   Plus,
@@ -278,6 +279,15 @@ function AdminInvoicesContent() {
   const [invoiceWorking, setInvoiceWorking] = useState(false);
   const [error, setError] = useState("");
   const [invoiceMessage, setInvoiceMessage] = useState("");
+  const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [paymentDate, setPaymentDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [paymentWorking, setPaymentWorking] = useState(false);
 
   const [showCreateDraft, setShowCreateDraft] = useState(false);
   const [draftCandidates, setDraftCandidates] = useState<DraftCandidate[]>([]);
@@ -795,6 +805,91 @@ function AdminInvoicesContent() {
     }
   }
 
+  function openRecordPayment() {
+    if (!selectedInvoice) return;
+
+    setPaymentAmount(outstanding(selectedInvoice).toFixed(2));
+    setPaymentMethod("BANK_TRANSFER");
+    setPaymentReference("");
+    setPaymentNotes("");
+    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setInvoiceMessage("");
+    setError("");
+    setShowRecordPayment(true);
+  }
+
+  async function recordPayment() {
+    if (!selectedInvoice || !adminKey) return;
+
+    const amount = Number(paymentAmount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid payment amount.");
+      return;
+    }
+
+    if (amount > outstanding(selectedInvoice) + 0.001) {
+      setError(
+        `Payment cannot exceed the outstanding balance of ${money(outstanding(selectedInvoice))}.`,
+      );
+      return;
+    }
+
+    setPaymentWorking(true);
+    setError("");
+    setInvoiceMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/record-payment`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            amount,
+            paymentMethod,
+            reference: paymentReference.trim() || null,
+            notes: paymentNotes.trim() || null,
+            paidAt: paymentDate
+              ? new Date(`${paymentDate}T12:00:00`).toISOString()
+              : null,
+          }),
+        },
+      );
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok || !payload.invoice) {
+        throw new Error(payload.error || "Unable to record payment.");
+      }
+
+      const updated = payload.invoice;
+
+      setSelectedInvoice(updated);
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === updated.id ? updated : invoice,
+        ),
+      );
+      setShowRecordPayment(false);
+      setInvoiceMessage(
+        payload.message ||
+          `Payment of ${money(amount)} recorded against ${updated.invoiceNumber}.`,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to record payment.",
+      );
+    } finally {
+      setPaymentWorking(false);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-[1280px]">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1114,6 +1209,139 @@ function AdminInvoicesContent() {
         </div>
       ) : null}
 
+      {showRecordPayment && selectedInvoice ? (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+          <section className="w-full max-w-2xl rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
+                  Payment
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-950">
+                  Record Payment
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  {selectedInvoice.invoiceNumber} · Outstanding {money(outstanding(selectedInvoice))}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRecordPayment(false)}
+                disabled={paymentWorking}
+                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Close record payment"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-700">
+                    Amount
+                  </span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={outstanding(selectedInvoice)}
+                    value={paymentAmount}
+                    onChange={(event) => setPaymentAmount(event.target.value)}
+                    disabled={paymentWorking}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-700">
+                    Payment Method
+                  </span>
+                  <select
+                    value={paymentMethod}
+                    onChange={(event) => setPaymentMethod(event.target.value)}
+                    disabled={paymentWorking}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                  >
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="CARD">Card</option>
+                    <option value="CASH">Cash</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-700">
+                    Payment Date
+                  </span>
+                  <input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(event) => setPaymentDate(event.target.value)}
+                    disabled={paymentWorking}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-700">
+                    Reference
+                  </span>
+                  <input
+                    type="text"
+                    value={paymentReference}
+                    onChange={(event) => setPaymentReference(event.target.value)}
+                    placeholder="Bank reference or transaction ID"
+                    disabled={paymentWorking}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                  />
+                </label>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="mb-2 block text-sm font-bold text-slate-700">
+                  Notes
+                </span>
+                <textarea
+                  rows={3}
+                  value={paymentNotes}
+                  onChange={(event) => setPaymentNotes(event.target.value)}
+                  placeholder="Optional payment notes"
+                  disabled={paymentWorking}
+                  className="w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                />
+              </label>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRecordPayment(false)}
+                  disabled={paymentWorking}
+                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void recordPayment()}
+                  disabled={paymentWorking || !paymentAmount || !paymentDate}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {paymentWorking ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : (
+                    <CreditCard size={17} />
+                  )}
+                  Record Payment
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {selectedInvoice ? (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
           <section className="max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
@@ -1406,6 +1634,27 @@ function AdminInvoicesContent() {
                   value={money(selectedInvoice.total)}
                 />
               </div>
+
+              {["FINALISED", "SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && outstanding(selectedInvoice) > 0 ? (
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Record payment</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Record a received payment and allocate it to this invoice.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openRecordPayment}
+                    disabled={invoiceWorking || paymentWorking}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <CreditCard size={17} />
+                    Record Payment
+                  </button>
+                </div>
+              ) : null}
 
               {["DRAFT", "FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE"].includes(selectedInvoice.status) ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">

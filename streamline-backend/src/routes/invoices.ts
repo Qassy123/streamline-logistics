@@ -1715,6 +1715,179 @@ router.post("/admin/:id/credit-notes", async (req, res) => {
   }
 });
 
+
+router.post("/admin/:id/record-payment", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const amountValue = getNumber(req.body.amount);
+    const paymentMethod = getString(req.body.paymentMethod);
+    const reference = getOptionalString(req.body.reference);
+    const notes = getOptionalString(req.body.notes);
+    const paidAtValue = getOptionalString(req.body.paidAt);
+
+    const allowedPaymentMethods = [
+      "BANK_TRANSFER",
+      "CASH",
+      "CARD",
+      "OTHER",
+    ];
+
+    if (amountValue == null || amountValue <= 0) {
+      return res.status(400).json({ error: "Payment amount must be greater than zero." });
+    }
+
+    if (!paymentMethod || !allowedPaymentMethods.includes(paymentMethod)) {
+      return res.status(400).json({
+        error: "Select a valid payment method.",
+      });
+    }
+
+    let paidAt = new Date();
+
+    if (paidAtValue) {
+      const parsedPaidAt = new Date(paidAtValue);
+
+      if (Number.isNaN(parsedPaidAt.getTime())) {
+        return res.status(400).json({ error: "Payment date is invalid." });
+      }
+
+      paidAt = parsedPaidAt;
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: {
+        allocations: true,
+        creditNotes: true,
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (["DRAFT", "VOID", "CREDITED", "CANCELLED", "PAID"].includes(invoice.status)) {
+      return res.status(400).json({
+        error: "A payment cannot be recorded against this invoice.",
+      });
+    }
+
+    const credits = invoice.creditNotes
+      .filter((creditNote) => creditNote.status === "ISSUED")
+      .reduce(
+        (sum, creditNote) => sum.add(creditNote.amount),
+        new Prisma.Decimal(0),
+      );
+
+    const alreadyPaid = invoice.allocations.reduce(
+      (sum, allocation) => sum.add(allocation.amount),
+      new Prisma.Decimal(0),
+    );
+
+    const invoiceOutstanding = roundMoney(
+      invoice.total.sub(credits).sub(alreadyPaid),
+    );
+
+    if (invoiceOutstanding.lessThanOrEqualTo(0)) {
+      return res.status(400).json({
+        error: "This invoice has no outstanding balance.",
+      });
+    }
+
+    const amount = roundMoney(new Prisma.Decimal(amountValue));
+
+    if (amount.greaterThan(invoiceOutstanding)) {
+      return res.status(400).json({
+        error: `Payment exceeds the invoice outstanding balance of £${invoiceOutstanding.toFixed(2)}.`,
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          bookingId: invoice.bookingId,
+          invoiceId: invoice.id,
+          userId: invoice.userId,
+          provider: "MANUAL",
+          paymentMethod: paymentMethod as
+            | "BANK_TRANSFER"
+            | "CASH"
+            | "CARD"
+            | "OTHER",
+          status: "PAID",
+          amount,
+          currency: "GBP",
+          reference,
+          notes,
+          paidAt,
+        },
+      });
+
+      await tx.paymentAllocation.create({
+        data: {
+          paymentId: payment.id,
+          invoiceId: invoice.id,
+          amount,
+          notes,
+        },
+      });
+
+      const newOutstanding = roundMoney(invoiceOutstanding.sub(amount));
+      const status =
+        newOutstanding.lessThanOrEqualTo(0) ? "PAID" : "PARTIALLY_PAID";
+
+      await tx.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: "PAYMENT_RECORDED",
+          description: `Manual ${paymentMethod.replace(/_/g, " ").toLowerCase()} payment of £${amount.toFixed(2)} recorded${reference ? ` (${reference})` : ""}.`,
+          metadata: {
+            paymentId: payment.id,
+            paymentMethod,
+            amount: amount.toFixed(2),
+            reference,
+            paidAt: paidAt.toISOString(),
+          },
+        },
+      });
+
+      const updatedInvoice = await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status,
+          paidAt: status === "PAID" ? paidAt : null,
+        },
+        include: invoiceInclude(),
+      });
+
+      return { payment, invoice: updatedInvoice };
+    });
+
+    res.status(201).json({
+      success: true,
+      payment: result.payment,
+      invoice: result.invoice,
+      message:
+        result.invoice.status === "PAID"
+          ? `${result.invoice.invoiceNumber} marked as paid.`
+          : `Payment recorded against ${result.invoice.invoiceNumber}.`,
+    });
+  } catch (error) {
+    console.error("Record invoice payment error:", error);
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to record invoice payment.",
+    });
+  }
+});
+
+
 router.post("/admin/:id/payment-allocations", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
