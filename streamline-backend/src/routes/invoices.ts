@@ -1628,6 +1628,97 @@ router.post("/admin/consolidated-draft", async (req, res) => {
   }
 });
 
+router.post("/admin/:id/reopen", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: invoiceInclude(),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "Invoice not found." });
+    }
+
+    if (!["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(invoice.status)) {
+      return res.status(400).json({
+        error: "Only an issued unpaid invoice can be reopened for editing.",
+      });
+    }
+
+    const allocatedTotal = invoice.allocations.reduce(
+      (sum, allocation) => sum.add(allocation.amount),
+      new Prisma.Decimal(0),
+    );
+    const issuedCreditTotal = invoice.creditNotes
+      .filter((creditNote) => creditNote.status === "ISSUED")
+      .reduce(
+        (sum, creditNote) => sum.add(creditNote.amount),
+        new Prisma.Decimal(0),
+      );
+
+    if (allocatedTotal.greaterThan(0) || issuedCreditTotal.greaterThan(0)) {
+      return res.status(400).json({
+        error:
+          "This invoice already has a payment or issued credit note. Use the payment/credit-note correction workflow instead of editing its financial values.",
+      });
+    }
+
+    const previousStatus = invoice.status;
+    const previousPdfStorageKey = invoice.pdfStorageKey;
+    const wasPreviouslySent = Boolean(invoice.sentAt);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.invoiceAuditEvent.create({
+        data: {
+          invoiceId: invoice.id,
+          eventType: "REOPENED_FOR_EDIT",
+          description: wasPreviouslySent
+            ? `Previously sent invoice reopened for correction from ${previousStatus}. It must be finalised and resent after editing.`
+            : `Invoice reopened for correction from ${previousStatus}. It must be finalised again after editing.`,
+          metadata: {
+            previousStatus,
+            previousPdfStorageKey,
+            wasPreviouslySent,
+          },
+        },
+      });
+
+      return tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "DRAFT",
+          finalisedAt: null,
+          issuedAt: null,
+          pdfUrl: null,
+          pdfStorageKey: null,
+        },
+        include: invoiceInclude(),
+      });
+    });
+
+    res.json({
+      success: true,
+      message: wasPreviouslySent
+        ? `${updated.invoiceNumber} reopened for editing. Finalise and resend the corrected invoice when ready.`
+        : `${updated.invoiceNumber} reopened for editing. Finalise it again when ready.`,
+      invoice: updated,
+    });
+  } catch (error) {
+    console.error("Invoice reopen error:", error);
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reopen invoice for editing.",
+    });
+  }
+});
+
 router.post("/admin/:id/finalise", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });

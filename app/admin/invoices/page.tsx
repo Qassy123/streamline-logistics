@@ -76,7 +76,20 @@ type Invoice = {
   invoiceType?: "SINGLE" | "CONSOLIDATED" | "ADDITIONAL_CHARGE";
   lines?: { id: string; description: string; chargeType: string; bookingReference?: string | null; quantity: string | number; unitPrice: string | number; netAmount: string | number; vatAmount: string | number; grossAmount: string | number }[];
   invoiceBookings?: { id: string; bookingReference: string; poReference?: string | null; routeDescription?: string | null; grossAmount: string | number }[];
-  allocations?: { id: string; amount: string | number; allocatedAt: string }[];
+  allocations?: {
+    id: string;
+    amount: string | number;
+    allocatedAt: string;
+    payment?: {
+      id: string;
+      paymentMethod: string;
+      status: string;
+      amount: string | number;
+      reference?: string | null;
+      notes?: string | null;
+      paidAt?: string | null;
+    } | null;
+  }[];
   creditNotes?: { id: string; creditNoteNumber: string; amount: string | number; status: string; reason?: string | null }[];
   booking?: {
     id: string;
@@ -707,6 +720,57 @@ function AdminInvoicesContent() {
       setInvoiceMessage("Invoice finalised. Financial values are now locked.");
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Unable to finalise invoice."); }
     finally { setInvoiceWorking(false); }
+  }
+
+  async function reopenInvoiceForEditing() {
+    if (!selectedInvoice || !adminKey) return;
+
+    const confirmed = window.confirm(
+      `Edit ${selectedInvoice.invoiceNumber}? The current issued PDF will be replaced when you finalise the corrected invoice again.`,
+    );
+
+    if (!confirmed) return;
+
+    setInvoiceWorking(true);
+    setError("");
+    setInvoiceMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/reopen`,
+        {
+          method: "POST",
+          headers: {
+            "x-admin-key": adminKey,
+          },
+        },
+      );
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok || !payload.invoice) {
+        throw new Error(payload.error || "Unable to reopen invoice for editing.");
+      }
+
+      const updated = payload.invoice;
+      setSelectedInvoice(updated);
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === updated.id ? updated : invoice,
+        ),
+      );
+      setInvoiceMessage(
+        `${updated.invoiceNumber} reopened for editing. Make the correction, then finalise it again before resending.`,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to reopen invoice for editing.",
+      );
+    } finally {
+      setInvoiceWorking(false);
+    }
   }
 
   async function downloadInvoicePdf(invoice: Invoice) {
@@ -1402,11 +1466,13 @@ function AdminInvoicesContent() {
                 <InfoCard
                   label="Payment"
                   value={
-                    selectedInvoice.booking?.payments?.[0]?.status
-                      ? formatStatus(selectedInvoice.booking.payments[0].status)
-                      : amountPaid(selectedInvoice) > 0
-                        ? money(amountPaid(selectedInvoice))
-                        : "Not recorded"
+                    selectedInvoice.status === "PAID"
+                      ? "Paid"
+                      : selectedInvoice.status === "PARTIALLY_PAID"
+                        ? `Partially Paid · ${money(amountPaid(selectedInvoice))} paid`
+                        : amountPaid(selectedInvoice) > 0
+                          ? `${money(amountPaid(selectedInvoice))} paid`
+                          : "Not recorded"
                   }
                 />
               </div>
@@ -1620,7 +1686,7 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <AmountCard
                   label="Subtotal"
                   value={money(selectedInvoice.subtotal)}
@@ -1630,10 +1696,80 @@ function AdminInvoicesContent() {
                   value={money(selectedInvoice.vatAmount)}
                 />
                 <AmountCard
-                  label="Total"
+                  label="Invoice Total"
                   value={money(selectedInvoice.total)}
                 />
+                <AmountCard
+                  label="Amount Paid"
+                  value={money(amountPaid(selectedInvoice))}
+                />
+                <AmountCard
+                  label="Outstanding"
+                  value={money(outstanding(selectedInvoice))}
+                />
               </div>
+
+              {selectedInvoice.allocations?.length ? (
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+                    <h3 className="font-bold text-slate-950">Payment History</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Individual payments allocated to this invoice.
+                    </p>
+                  </div>
+                  <div className="divide-y divide-slate-200">
+                    {selectedInvoice.allocations.map((allocation) => (
+                      <div
+                        key={allocation.id}
+                        className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_150px] sm:items-center"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-950">
+                            {allocation.payment?.paymentMethod
+                              ? formatStatus(allocation.payment.paymentMethod)
+                              : "Payment"}
+                          </p>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {date(allocation.payment?.paidAt || allocation.allocatedAt)}
+                            {allocation.payment?.reference
+                              ? ` · Ref ${allocation.payment.reference}`
+                              : ""}
+                          </p>
+                          {allocation.payment?.notes ? (
+                            <p className="mt-1 text-sm text-slate-500">
+                              {allocation.payment.notes}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="text-lg font-bold text-slate-950 sm:text-right">
+                          {money(allocation.amount)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && amountPaid(selectedInvoice) === 0 && creditTotal(selectedInvoice) === 0 ? (
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Edit invoice</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Reopen this invoice to correct charges or discounts, then finalise and resend the corrected PDF.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void reopenInvoiceForEditing()}
+                    disabled={invoiceWorking || paymentWorking}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileText size={17} />
+                    Edit Invoice
+                  </button>
+                </div>
+              ) : null}
 
               {["FINALISED", "SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && outstanding(selectedInvoice) > 0 ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -1662,7 +1798,7 @@ function AdminInvoicesContent() {
                     <p className="font-bold text-slate-950">
                       {selectedInvoice.status === "SENT" || selectedInvoice.sentAt
                         ? "Resend invoice"
-                        : "Send pending invoice"}
+                        : "Send invoice"}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
                       {selectedInvoice.user?.email
