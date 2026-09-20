@@ -1081,27 +1081,17 @@ router.post("/pay-later", async (req, res) => {
           });
         }
 
-        const recoveredInvoice = await createTradeDraftInvoice(
-          quote.booking,
-          position.paymentTermsDays,
-        );
-
         return res.json({
           success: true,
           alreadyProcessed: true,
-          recovered: true,
           booking: quote.booking,
-          invoice: {
-            id: recoveredInvoice.id,
-            invoiceNumber: recoveredInvoice.invoiceNumber,
-            status: recoveredInvoice.status,
-            dueDate: recoveredInvoice.dueDate,
-          },
+          invoice: null,
           billing: {
             paymentMode: "PAY_LATER",
             paymentTermsDays: position.paymentTermsDays,
             bookingAmount: Number(bookingAmount),
             availableCreditAfterBooking: Number(position.availableCredit),
+            invoicePendingBillingCycle: true,
           },
         });
       }
@@ -1280,28 +1270,6 @@ router.post("/pay-later", async (req, res) => {
       });
     }
 
-    let invoice;
-
-    try {
-      invoice = await createTradeDraftInvoice(
-        booking,
-        position.paymentTermsDays,
-      );
-    } catch (invoiceError) {
-      /*
-       * The booking has already been confirmed. Do not silently report success
-       * if its required Trade invoice failed to be created.
-       */
-      console.error("Trade invoice creation error:", invoiceError);
-      return res.status(500).json({
-        error:
-          "The Trade booking was confirmed, but its invoice could not be created. Please contact support before retrying.",
-        code: "TRADE_INVOICE_CREATION_FAILED",
-        bookingId: booking.id,
-        bookingReference: booking.reference,
-      });
-    }
-
     try {
       await sendCustomerBookingConfirmedEmail(booking);
     } catch (emailError) {
@@ -1311,15 +1279,11 @@ router.post("/pay-later", async (req, res) => {
     return res.status(201).json({
       success: true,
       booking,
-      invoice: {
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        status: invoice.status,
-        dueDate: invoice.dueDate,
-      },
+      invoice: null,
       billing: {
         paymentMode: "PAY_LATER",
         paymentTermsDays: position.paymentTermsDays,
+        invoicePendingBillingCycle: true,
         previousExposure: Number(position.exposure),
         bookingAmount: Number(bookingAmount),
         availableCreditAfterBooking: Number(
