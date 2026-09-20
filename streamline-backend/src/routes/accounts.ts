@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -51,6 +52,7 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
       user: {
         include: {
           tradeAccount: true,
+          billingProfile: true,
         },
       },
     },
@@ -110,6 +112,14 @@ function publicUser(user: {
     currentBalance: unknown;
     paymentTermsDays: number;
   } | null;
+  billingProfile?: {
+    creditLimit: unknown;
+    paymentTermsDays: number;
+  } | null;
+}, tradeBilling?: {
+  creditLimit: number;
+  currentBalance: number;
+  paymentTermsDays: number;
 }) {
   return {
     id: user.id,
@@ -149,7 +159,98 @@ function publicUser(user: {
     tradingPostcode: user.tradingPostcode,
     tradingCountry: user.tradingCountry,
 
-    tradeAccount: user.tradeAccount || null,
+    tradeAccount: user.tradeAccount
+      ? {
+          ...user.tradeAccount,
+          creditLimit:
+            tradeBilling?.creditLimit ??
+            user.billingProfile?.creditLimit ??
+            user.tradeAccount.creditLimit,
+          currentBalance:
+            tradeBilling?.currentBalance ?? user.tradeAccount.currentBalance,
+          paymentTermsDays:
+            tradeBilling?.paymentTermsDays ??
+            user.billingProfile?.paymentTermsDays ??
+            user.tradeAccount.paymentTermsDays,
+        }
+      : null,
+  };
+}
+
+async function getTradeBillingPosition(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      billingProfile: true,
+      tradeAccount: true,
+    },
+  });
+
+  if (!user?.tradeAccount) return null;
+
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      userId,
+      status: {
+        notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"],
+      },
+    },
+    include: {
+      allocations: true,
+      creditNotes: true,
+    },
+  });
+
+  const outstandingInvoices = invoices.reduce((sum, invoice) => {
+    const allocated = invoice.allocations.reduce(
+      (paid, allocation) => paid.add(allocation.amount),
+      new Prisma.Decimal(0),
+    );
+
+    const credited = invoice.creditNotes
+      .filter((note) => note.status === "ISSUED")
+      .reduce(
+        (total, note) => total.add(note.amount),
+        new Prisma.Decimal(0),
+      );
+
+    const remaining = invoice.total.sub(allocated).sub(credited);
+    return sum.add(remaining.greaterThan(0) ? remaining : 0);
+  }, new Prisma.Decimal(0));
+
+  const uninvoicedBookings = await prisma.booking.aggregate({
+    where: {
+      userId,
+      status: {
+        in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS", "COMPLETED"],
+      },
+      invoices: { none: {} },
+      invoiceBookings: { none: {} },
+    },
+    _sum: {
+      totalPrice: true,
+    },
+  });
+
+  const committed = new Prisma.Decimal(
+    uninvoicedBookings._sum.totalPrice || 0,
+  );
+
+  const exposure = outstandingInvoices
+    .add(committed)
+    .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  const creditLimit = new Prisma.Decimal(
+    user.billingProfile?.creditLimit ?? user.tradeAccount.creditLimit ?? 0,
+  ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+  return {
+    creditLimit: Number(creditLimit),
+    currentBalance: Number(exposure),
+    paymentTermsDays:
+      user.billingProfile?.paymentTermsDays ??
+      user.tradeAccount.paymentTermsDays ??
+      30,
   };
 }
 
@@ -531,8 +632,13 @@ router.get("/me", async (req, res) => {
       });
     }
 
+    const tradeBilling =
+      user.accountType === "TRADE" || user.tradeAccount?.status === "APPROVED"
+        ? await getTradeBillingPosition(user.id)
+        : null;
+
     res.json({
-      user: publicUser(user),
+      user: publicUser(user, tradeBilling || undefined),
     });
   } catch (error) {
     console.error("Get current user error:", error);
