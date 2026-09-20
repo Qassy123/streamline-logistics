@@ -6,7 +6,6 @@ import {
 import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
-import { assignRandomAvailableDriverToBooking } from "../lib/assignDriver";
 import { getReservationWindow } from "../lib/reservationWindow";
 
 const router = Router();
@@ -322,6 +321,69 @@ async function getTradeCreditPosition(userId: string) {
       30,
     poRequired: user.billingProfile?.poRequired ?? false,
   };
+}
+
+async function findAvailableVehicleForWindow(params: {
+  vehicleType: string;
+  reservedFrom: Date;
+  reservedUntil: Date;
+  excludeBookingId?: string;
+}) {
+  const vehicles = await prisma.vehicle.findMany({
+    where: {
+      active: true,
+      vehicleType: params.vehicleType,
+    },
+    orderBy: { createdAt: "asc" },
+    include: {
+      reservations: {
+        where: {
+          status: {
+            in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
+          },
+          reservedFrom: { lt: params.reservedUntil },
+          reservedUntil: { gt: params.reservedFrom },
+          ...(params.excludeBookingId
+            ? { bookingId: { not: params.excludeBookingId } }
+            : {}),
+        },
+      },
+    },
+  });
+
+  const overlappingBookings = await prisma.booking.findMany({
+    where: {
+      vehicleId: { not: null },
+      ...(params.excludeBookingId
+        ? { id: { not: params.excludeBookingId } }
+        : {}),
+      status: {
+        in: [
+          BookingStatus.PENDING_PAYMENT,
+          BookingStatus.CONFIRMED,
+          BookingStatus.ASSIGNED,
+          BookingStatus.IN_PROGRESS,
+        ],
+      },
+      estimatedStartTime: { lt: params.reservedUntil },
+      estimatedEndTime: { gt: params.reservedFrom },
+    },
+    select: { vehicleId: true },
+  });
+
+  const blockedVehicleIds = new Set(
+    overlappingBookings
+      .map((booking) => booking.vehicleId)
+      .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
+  );
+
+  return (
+    vehicles.find(
+      (vehicle) =>
+        vehicle.reservations.length === 0 &&
+        !blockedVehicleIds.has(vehicle.id),
+    ) || null
+  );
 }
 
 /* ---------------------------------
@@ -717,14 +779,10 @@ router.patch("/admin/:id", async (req, res) => {
  *
  * Admin-only booking creation from an already calculated quote.
  *
- * This deliberately does NOT:
- * - choose a vehicle
- * - create a vehicle reservation
- * - assign a driver
- * - start the payment reservation flow
- *
- * The booking is created unassigned so it can be placed onto an exact
- * vehicle from the planning board.
+ * The booking remains operationally unassigned (no exact vehicle/driver),
+ * but fleet capacity is reserved immediately against a physical vehicle slot.
+ * Planning can later move that reservation to the exact vehicle selected by
+ * the admin, without allowing the same capacity to be sold twice.
  */
 router.post("/admin/from-quote/:quoteId", async (req, res) => {
   const admin = requireAdmin(req);
@@ -763,6 +821,19 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
         quote.collectionWindow,
       );
 
+      const reservedVehicle = await findAvailableVehicleForWindow({
+        vehicleType: quote.vehicleSize,
+        reservedFrom,
+        reservedUntil,
+      });
+
+      if (!reservedVehicle) {
+        return res.status(409).json({
+          error: "No vehicle available for this collection window.",
+          code: "NO_VEHICLE_CAPACITY",
+        });
+      }
+
       const guestBooking = await prisma.$transaction(async (transaction) => {
         const createdBooking = await transaction.booking.create({
           data: {
@@ -772,6 +843,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
             userId: null,
             vehicleId: null,
             driverId: null,
+            vehicleType: quote.vehicleSize,
             collectionDate: quote.collectionDate,
             collectionWindow: quote.collectionWindow,
             collectionAddress: quote.collectionAddress,
@@ -783,6 +855,16 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
             vehicleAvailableAt: reservedUntil,
             totalPrice: quote.totalPrice!,
             customerReference: getOptionalString(req.body.customerReference),
+            reservation: {
+              create: {
+                vehicleId: reservedVehicle.id,
+                quoteId: quote.id,
+                status: ReservationStatus.CONFIRMED,
+                reservedFrom,
+                reservedUntil,
+                expiresAt: null,
+              },
+            },
             trackingEvents: {
               create: {
                 status: BookingStatus.CONFIRMED,
@@ -923,6 +1005,19 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       quote.collectionWindow,
     );
 
+    const reservedVehicle = await findAvailableVehicleForWindow({
+      vehicleType: quote.vehicleSize,
+      reservedFrom,
+      reservedUntil,
+    });
+
+    if (!reservedVehicle) {
+      return res.status(409).json({
+        error: "No vehicle available for this collection window.",
+        code: "NO_VEHICLE_CAPACITY",
+      });
+    }
+
     const booking = await prisma.$transaction(async (transaction) => {
       const createdBooking = await transaction.booking.create({
         data: {
@@ -937,6 +1032,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
            */
           vehicleId: null,
           driverId: null,
+          vehicleType: quote.vehicleSize,
 
           collectionDate: quote.collectionDate,
           collectionWindow: quote.collectionWindow,
@@ -952,6 +1048,17 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
           totalPrice: quote.totalPrice!,
           purchaseOrderNumber,
           customerReference,
+
+          reservation: {
+            create: {
+              vehicleId: reservedVehicle.id,
+              quoteId: quote.id,
+              status: ReservationStatus.CONFIRMED,
+              reservedFrom,
+              reservedUntil,
+              expiresAt: null,
+            },
+          },
 
           trackingEvents: {
             create: {
@@ -1490,7 +1597,8 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         status: BookingStatus.PENDING_PAYMENT,
         quoteId: quote.id,
         userId: quote.userId,
-        vehicleId: availableVehicle.id,
+        vehicleId: null,
+        vehicleType: quote.vehicleSize,
         collectionDate: quote.collectionDate,
         collectionWindow: quote.collectionWindow,
         collectionAddress: quote.collectionAddress,
@@ -1615,7 +1723,6 @@ router.post("/:id/confirm-payment", async (req, res) => {
     });
 
     await autoSaveRouteFromConfirmedBooking(updatedBooking.id);
-    await assignRandomAvailableDriverToBooking(updatedBooking.id);
 
     const finalBooking = await prisma.booking.findUnique({
       where: {

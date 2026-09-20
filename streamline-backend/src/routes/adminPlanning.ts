@@ -1,6 +1,7 @@
 import {
   BookingStatus,
   Prisma,
+  ReservationStatus,
 } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
@@ -161,33 +162,39 @@ async function hasVehicleConflict(
     return false;
   }
 
-  const conflict = await prisma.booking.findFirst({
-    where: {
-      id: {
-        not: bookingId,
+  const [bookingConflict, reservationConflict] = await Promise.all([
+    prisma.booking.findFirst({
+      where: {
+        id: { not: bookingId },
+        vehicleId,
+        status: {
+          in: [
+            BookingStatus.PENDING_PAYMENT,
+            BookingStatus.CONFIRMED,
+            BookingStatus.ASSIGNED,
+            BookingStatus.IN_PROGRESS,
+          ],
+        },
+        estimatedStartTime: { lt: end },
+        estimatedEndTime: { gt: start },
       },
-      vehicleId,
-      status: {
-        in: [
-          BookingStatus.PENDING_PAYMENT,
-          BookingStatus.CONFIRMED,
-          BookingStatus.ASSIGNED,
-          BookingStatus.IN_PROGRESS,
-        ],
+      select: { id: true },
+    }),
+    prisma.vehicleReservation.findFirst({
+      where: {
+        bookingId: { not: bookingId },
+        vehicleId,
+        status: {
+          in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
+        },
+        reservedFrom: { lt: end },
+        reservedUntil: { gt: start },
       },
-      estimatedStartTime: {
-        lt: end,
-      },
-      estimatedEndTime: {
-        gt: start,
-      },
-    },
-    select: {
-      id: true,
-    },
-  });
+      select: { id: true },
+    }),
+  ]);
 
-  return Boolean(conflict);
+  return Boolean(bookingConflict || reservationConflict);
 }
 
 async function hasDriverConflict(
@@ -591,6 +598,15 @@ router.patch(
               });
           }
 
+          if (
+            booking.vehicleType &&
+            exactVehicle.vehicleType !== booking.vehicleType
+          ) {
+            return res.status(409).json({
+              error: `This booking requires ${booking.vehicleType}. Select a vehicle from that category.`,
+            });
+          }
+
           const complianceWarnings =
             vehicleComplianceWarnings(
               exactVehicle,
@@ -799,6 +815,28 @@ router.patch(
                     planningBookingInclude(),
                 },
               );
+
+            if (vehicleId) {
+              const existingReservation =
+                await transaction.vehicleReservation.findUnique({
+                  where: { bookingId: booking.id },
+                });
+
+              if (existingReservation) {
+                await transaction.vehicleReservation.update({
+                  where: { bookingId: booking.id },
+                  data: {
+                    vehicleId,
+                    status: ReservationStatus.CONFIRMED,
+                    reservedFrom:
+                      booking.estimatedStartTime || existingReservation.reservedFrom,
+                    reservedUntil:
+                      booking.estimatedEndTime || existingReservation.reservedUntil,
+                    expiresAt: null,
+                  },
+                });
+              }
+            }
 
             if (driverId) {
               await transaction.driver.update(
