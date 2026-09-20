@@ -399,6 +399,10 @@ export default function AdminBookingsPage() {
     });
 
     bookings.forEach((booking) => {
+      if (["CANCELLED", "EXPIRED"].includes(booking.status)) {
+        return;
+      }
+
       if (!booking.vehicle?.id) {
         return;
       }
@@ -411,9 +415,17 @@ export default function AdminBookingsPage() {
     return map;
   }, [bookings, vehicles]);
 
-  const unassignedBookings = useMemo(
-    () => bookings.filter((booking) => !booking.vehicle?.id),
+  const operationalBookings = useMemo(
+    () =>
+      bookings.filter(
+        (booking) => !["CANCELLED", "EXPIRED"].includes(booking.status),
+      ),
     [bookings],
+  );
+
+  const unassignedBookings = useMemo(
+    () => operationalBookings.filter((booking) => !booking.vehicle?.id),
+    [operationalBookings],
   );
 
   return (
@@ -757,6 +769,10 @@ export default function AdminBookingsPage() {
             setSelectedBooking(null);
             await loadBookings(true);
           }}
+          onCancelled={async () => {
+            setSelectedBooking(null);
+            await loadBookings(true);
+          }}
           onClose={() => setSelectedBooking(null)}
         />
       ) : null}
@@ -835,6 +851,7 @@ function BookingDetailsModal({
   drivers,
   adminKey,
   onAssigned,
+  onCancelled,
   onClose,
 }: {
   booking: Booking;
@@ -842,6 +859,7 @@ function BookingDetailsModal({
   drivers: Driver[];
   adminKey: string;
   onAssigned: () => Promise<void>;
+  onCancelled: () => Promise<void>;
   onClose: () => void;
 }) {
   const requiredVehicleType =
@@ -855,6 +873,8 @@ function BookingDetailsModal({
   const [driverId, setDriverId] = useState(booking.driver?.id || "");
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancellationError, setCancellationError] = useState("");
 
   async function submitAssignment(complianceOverride = false) {
     if (!vehicleId || !driverId) {
@@ -919,6 +939,48 @@ function BookingDetailsModal({
       );
     } finally {
       setAssigning(false);
+    }
+  }
+
+  async function cancelBooking() {
+    const confirmed = window.confirm(
+      `Cancel ${booking.reference}? This will release any reserved vehicle capacity and keep the booking as Cancelled for history.`,
+    );
+
+    if (!confirmed) return;
+
+    setCancelling(true);
+    setCancellationError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/bookings/admin/${booking.id}/cancel`,
+        {
+          method: "POST",
+          headers: {
+            "x-admin-key": adminKey,
+          },
+        },
+      );
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to cancel this booking.");
+      }
+
+      await onCancelled();
+    } catch (requestError) {
+      setCancellationError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to cancel this booking.",
+      );
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -1152,6 +1214,25 @@ function BookingDetailsModal({
                     Assign Booking
                   </>
                 )}
+              </button>
+            </div>
+          ) : null}
+
+          {!["CANCELLED", "COMPLETED", "EXPIRED"].includes(booking.status) ? (
+            <div className="mt-6 border-t border-slate-200 pt-6">
+              {cancellationError ? (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                  {cancellationError}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void cancelBooking()}
+                disabled={cancelling || assigning}
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {cancelling ? "Cancelling Booking..." : "Cancel Booking"}
               </button>
             </div>
           ) : null}

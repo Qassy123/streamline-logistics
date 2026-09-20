@@ -613,6 +613,137 @@ router.get("/admin/:id", async (req, res) => {
   }
 });
 
+router.post("/admin/:id/cancel", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({ error: admin.error });
+  }
+
+  try {
+    const current = await prisma.booking.findUnique({
+      where: { id: req.params.id },
+      include: { reservation: true },
+    });
+
+    if (!current) {
+      return res.status(404).json({ error: "Booking not found." });
+    }
+
+    if (current.status === BookingStatus.COMPLETED) {
+      return res.status(409).json({
+        error: "A completed booking cannot be cancelled.",
+      });
+    }
+
+    if (current.status === BookingStatus.CANCELLED) {
+      const booking = await prisma.booking.findUnique({
+        where: { id: current.id },
+        include: adminBookingInclude(),
+      });
+
+      return res.json({ success: true, booking });
+    }
+
+    const booking = await prisma.$transaction(async (transaction) => {
+      const updated = await transaction.booking.update({
+        where: { id: current.id },
+        data: {
+          status: BookingStatus.CANCELLED,
+          reservation: current.reservation
+            ? {
+                update: {
+                  status: ReservationStatus.CANCELLED,
+                  expiresAt: null,
+                },
+              }
+            : undefined,
+          trackingEvents: {
+            create: {
+              status: BookingStatus.CANCELLED,
+              title: "Booking cancelled",
+              description: "Booking cancelled by the administration team.",
+              userVisible: true,
+            },
+          },
+        },
+        include: adminBookingInclude(),
+      });
+
+      if (current.driverId) {
+        const otherDriverBooking = await transaction.booking.findFirst({
+          where: {
+            id: { not: current.id },
+            driverId: current.driverId,
+            status: {
+              in: [
+                BookingStatus.CONFIRMED,
+                BookingStatus.ASSIGNED,
+                BookingStatus.IN_PROGRESS,
+              ],
+            },
+          },
+          select: { id: true },
+        });
+
+        if (!otherDriverBooking) {
+          await transaction.driver.update({
+            where: { id: current.driverId },
+            data: { availability: "AVAILABLE" },
+          });
+        }
+      }
+
+      if (current.vehicleId) {
+        const [otherVehicleBooking, otherVehicleReservation] = await Promise.all([
+          transaction.booking.findFirst({
+            where: {
+              id: { not: current.id },
+              vehicleId: current.vehicleId,
+              status: {
+                in: [
+                  BookingStatus.PENDING_PAYMENT,
+                  BookingStatus.CONFIRMED,
+                  BookingStatus.ASSIGNED,
+                  BookingStatus.IN_PROGRESS,
+                ],
+              },
+            },
+            select: { id: true },
+          }),
+          transaction.vehicleReservation.findFirst({
+            where: {
+              bookingId: { not: current.id },
+              vehicleId: current.vehicleId,
+              status: {
+                in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
+              },
+            },
+            select: { id: true },
+          }),
+        ]);
+
+        if (!otherVehicleBooking && !otherVehicleReservation) {
+          await transaction.vehicle.update({
+            where: { id: current.vehicleId },
+            data: { status: "AVAILABLE" },
+          });
+        }
+      }
+
+      return updated;
+    });
+
+    return res.json({ success: true, booking });
+  } catch (error) {
+    console.error("Admin booking cancellation error:", error);
+
+    return res.status(500).json({
+      error: "Unable to cancel booking.",
+    });
+  }
+});
+
 router.patch("/admin/:id", async (req, res) => {
   const admin = requireAdmin(req);
 
