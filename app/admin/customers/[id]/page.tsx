@@ -317,7 +317,7 @@ export default function CustomerAccountPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [accountAction, setAccountAction] = useState<
-    "SUSPEND" | "DELETE" | null
+    "SUSPEND" | "LIVE" | "DELETE" | null
   >(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
@@ -582,6 +582,69 @@ export default function CustomerAccountPage() {
     }
   }
 
+  async function makeAccountLive() {
+    if (!customerId || !customer || customer.accountStatus === "ACTIVE") {
+      return;
+    }
+
+    const adminKey =
+      window.localStorage
+        .getItem(ADMIN_KEY_STORAGE_KEY)
+        ?.trim() || "";
+
+    if (!adminKey) {
+      setError("Admin key is required.");
+      return;
+    }
+
+    setAccountAction("LIVE");
+    setError("");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/admin/customers/${customerId}/status`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            status: "ACTIVE",
+          }),
+        },
+      );
+
+      const contentType = response.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json")
+        ? ((await response.json()) as CustomerPayload)
+        : ({
+            error: `Unable to make customer account live. Server returned ${response.status}.`,
+          } as CustomerPayload);
+
+      if (!response.ok || !payload.customer) {
+        throw new Error(
+          payload.error ||
+            payload.message ||
+            "Unable to make customer account live.",
+        );
+      }
+
+      setCustomer(payload.customer);
+      setForm(toEditForm(payload.customer));
+      setMessage("Customer account is now live.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to make customer account live.",
+      );
+    } finally {
+      setAccountAction(null);
+    }
+  }
+
   async function deleteAccount() {
     if (!customerId || !customer) {
       return;
@@ -628,8 +691,12 @@ export default function CustomerAccountPage() {
         },
       );
 
-      const payload =
-        (await response.json()) as CustomerPayload;
+      const contentType = response.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json")
+        ? ((await response.json()) as CustomerPayload)
+        : ({
+            error: `Unable to delete customer account. Server returned ${response.status}.`,
+          } as CustomerPayload);
 
       if (!response.ok || !payload.success) {
         throw new Error(
@@ -1118,22 +1185,35 @@ export default function CustomerAccountPage() {
                     {displayAccountStatus(customer.accountStatus)}
                   </span>
 
-                  <button
-                    type="button"
-                    onClick={() => void suspendAccount()}
-                    disabled={
-                      customer.accountStatus === "SUSPENDED" ||
-                      accountAction !== null
-                    }
-                    className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {accountAction === "SUSPEND" ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Ban size={15} />
-                    )}
-                    Suspend Account
-                  </button>
+                  {customer.accountStatus === "SUSPENDED" ? (
+                    <button
+                      type="button"
+                      onClick={() => void makeAccountLive()}
+                      disabled={accountAction !== null}
+                      className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {accountAction === "LIVE" ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <CheckCircle2 size={15} />
+                      )}
+                      Live
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void suspendAccount()}
+                      disabled={accountAction !== null}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {accountAction === "SUSPEND" ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Ban size={15} />
+                      )}
+                      Suspend Account
+                    </button>
+                  )}
 
                   <button
                     type="button"

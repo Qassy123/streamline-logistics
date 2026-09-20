@@ -1791,4 +1791,130 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
+
+router.delete("/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+
+  if (!admin.authorised) {
+    return res.status(admin.status).json({
+      error: admin.error,
+    });
+  }
+
+  try {
+    const existingCustomer = await prisma.user.findUnique({
+      where: {
+        id: req.params.id,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!existingCustomer) {
+      return res.status(404).json({
+        error: "Customer account not found.",
+      });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      // Keep financial and operational history, but detach it from the
+      // customer login/account that is being removed.
+      await transaction.quote.updateMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+        data: {
+          userId: null,
+        },
+      });
+
+      await transaction.booking.updateMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+        data: {
+          userId: null,
+        },
+      });
+
+      await transaction.invoice.updateMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+        data: {
+          userId: null,
+        },
+      });
+
+      await transaction.payment.updateMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+        data: {
+          userId: null,
+        },
+      });
+
+      // Account-only records cannot exist after the customer account is gone.
+      await transaction.userSession.deleteMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+      });
+
+      await transaction.savedRoute.deleteMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+      });
+
+      await transaction.customerNote.deleteMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+      });
+
+      await transaction.billingProfile.deleteMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+      });
+
+      await transaction.tradeAccount.deleteMany({
+        where: {
+          userId: existingCustomer.id,
+        },
+      });
+
+      await transaction.user.delete({
+        where: {
+          id: existingCustomer.id,
+        },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: "Customer account deleted successfully.",
+    });
+  } catch (error) {
+    console.error("Admin customer deletion error:", error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2003"
+    ) {
+      return res.status(409).json({
+        error:
+          "This customer account still has a linked record that prevents deletion.",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Unable to delete customer account.",
+    });
+  }
+});
+
 export default router;
