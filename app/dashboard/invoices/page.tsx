@@ -225,6 +225,37 @@ export default function InvoicesPage() {
     void loadInvoices();
   }, []);
 
+  async function downloadInvoicePdf(invoice: Invoice) {
+    if (!invoice.pdfUrl) return;
+
+    try {
+      const response = await fetch(invoice.pdfUrl);
+
+      if (!response.ok) {
+        throw new Error("Failed to download invoice PDF.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = `${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (downloadError) {
+      console.error("Invoice PDF download error:", downloadError);
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "Failed to download invoice PDF.",
+      );
+    }
+  }
+
   async function loadInvoices() {
     setLoading(true);
     setError("");
@@ -358,15 +389,14 @@ export default function InvoicesPage() {
                             </div>
 
                             {invoice.pdfUrl ? (
-                              <a
-                                href={invoice.pdfUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => void downloadInvoicePdf(invoice)}
                                 className="inline-flex items-center justify-center gap-2 rounded-full bg-[#006CFF] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#2D8CFF]"
                               >
                                 <Download size={17} />
                                 Invoice PDF
-                              </a>
+                              </button>
                             ) : (
                               <span className="inline-flex items-center justify-center rounded-full border border-[#D7E6FF] bg-white px-5 py-3 text-sm font-bold text-slate-400">
                                 PDF not available yet
