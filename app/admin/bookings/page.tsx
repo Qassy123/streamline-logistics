@@ -62,6 +62,7 @@ type Booking = {
   internalNotes?: string | null;
   dispatchNotes?: string | null;
   totalPrice: string | number;
+  vehicleType?: string | null;
   createdAt: string;
   updatedAt: string;
   user?: {
@@ -271,6 +272,7 @@ export default function AdminBookingsPage() {
   const [adminKey, setAdminKey] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => dateInputValue());
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
@@ -290,6 +292,7 @@ export default function AdminBookingsPage() {
       if (!adminKey) {
         setBookings([]);
         setVehicles([]);
+        setDrivers([]);
         setLoading(false);
         setError(
           "Admin key is required. Unlock the admin area from Driver Management.",
@@ -339,9 +342,11 @@ export default function AdminBookingsPage() {
 
         setBookings(payload.bookings || []);
         setVehicles(payload.vehicles || []);
+        setDrivers(payload.drivers || []);
       } catch (requestError) {
         setBookings([]);
         setVehicles([]);
+        setDrivers([]);
 
         setError(
           requestError instanceof Error
@@ -745,6 +750,13 @@ export default function AdminBookingsPage() {
       {selectedBooking ? (
         <BookingDetailsModal
           booking={selectedBooking}
+          vehicles={vehicles}
+          drivers={drivers}
+          adminKey={adminKey}
+          onAssigned={async () => {
+            setSelectedBooking(null);
+            await loadBookings(true);
+          }}
           onClose={() => setSelectedBooking(null)}
         />
       ) : null}
@@ -819,11 +831,97 @@ function BookingBlock({
 
 function BookingDetailsModal({
   booking,
+  vehicles,
+  drivers,
+  adminKey,
+  onAssigned,
   onClose,
 }: {
   booking: Booking;
+  vehicles: Vehicle[];
+  drivers: Driver[];
+  adminKey: string;
+  onAssigned: () => Promise<void>;
   onClose: () => void;
 }) {
+  const requiredVehicleType =
+    booking.vehicleType || booking.quote?.vehicleSize || booking.vehicle?.vehicleType || "";
+
+  const eligibleVehicles = vehicles.filter(
+    (vehicle) => !requiredVehicleType || vehicle.vehicleType === requiredVehicleType,
+  );
+
+  const [vehicleId, setVehicleId] = useState(booking.vehicle?.id || "");
+  const [driverId, setDriverId] = useState(booking.driver?.id || "");
+  const [assigning, setAssigning] = useState(false);
+  const [assignmentError, setAssignmentError] = useState("");
+
+  async function submitAssignment(complianceOverride = false) {
+    if (!vehicleId || !driverId) {
+      setAssignmentError("Select both a vehicle and a driver.");
+      return;
+    }
+
+    setAssigning(true);
+    setAssignmentError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/admin/planning/bookings/${booking.id}/assignment`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({
+            vehicleId,
+            driverId,
+            complianceOverride,
+          }),
+        },
+      );
+
+      const payload = (await response.json()) as {
+        success?: boolean;
+        code?: string;
+        error?: string;
+      };
+
+      if (
+        response.status === 409 &&
+        payload.code === "VEHICLE_COMPLIANCE_WARNING" &&
+        !complianceOverride
+      ) {
+        const continueAssignment = window.confirm(
+          `${payload.error || "The selected vehicle has a compliance warning."}\n\nDo you want to override the warning and assign it anyway?`,
+        );
+
+        if (continueAssignment) {
+          setAssigning(false);
+          await submitAssignment(true);
+          return;
+        }
+
+        throw new Error("Vehicle assignment cancelled because of the compliance warning.");
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Unable to assign this booking.");
+      }
+
+      await onAssigned();
+    } catch (requestError) {
+      setAssignmentError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to assign this booking.",
+      );
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm sm:p-6"
@@ -955,6 +1053,108 @@ function BookingDetailsModal({
               />
             ) : null}
           </div>
+
+          {!booking.vehicle?.id || !booking.driver?.id ? (
+            <div className="mt-6 border-t border-slate-200 pt-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-950">
+                    Planning Assignment
+                  </h3>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Assign the exact fleet vehicle and driver for this booking.
+                    {requiredVehicleType
+                      ? ` Required vehicle category: ${requiredVehicleType}.`
+                      : ""}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label>
+                  <span className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                    Vehicle
+                  </span>
+
+                  <select
+                    value={vehicleId}
+                    onChange={(event) => {
+                      setVehicleId(event.target.value);
+                      setAssignmentError("");
+                    }}
+                    disabled={assigning}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="">Select vehicle</option>
+
+                    {eligibleVehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.name}
+                        {vehicle.registration ? ` · ${vehicle.registration}` : " · No registration"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                    Driver
+                  </span>
+
+                  <select
+                    value={driverId}
+                    onChange={(event) => {
+                      setDriverId(event.target.value);
+                      setAssignmentError("");
+                    }}
+                    disabled={assigning}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="">Select driver</option>
+
+                    {drivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.name}
+                        {driver.availability ? ` · ${statusLabel(driver.availability)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {eligibleVehicles.length === 0 ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                  No active {requiredVehicleType || "matching"} fleet vehicle is available to select.
+                </div>
+              ) : null}
+
+              {assignmentError ? (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                  {assignmentError}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void submitAssignment()}
+                disabled={assigning || !vehicleId || !driverId}
+                className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {assigning ? (
+                  <>
+                    <Loader2 size={17} className="animate-spin" />
+                    Assigning Booking
+                  </>
+                ) : (
+                  <>
+                    <Truck size={17} />
+                    Assign Booking
+                  </>
+                )}
+              </button>
+            </div>
+          ) : null}
 
           {booking.internalNotes || booking.dispatchNotes ? (
             <div className="mt-6 border-t border-slate-200 pt-6">
