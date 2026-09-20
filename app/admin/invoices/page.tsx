@@ -1146,7 +1146,7 @@ function AdminInvoicesContent() {
                   Create Draft Invoice
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
-                  Only bookings without an existing invoice are available.
+                  Only bookings without an existing invoice are available. Trade accounts automatically consolidate multiple completed bookings from the same 30-day cycle.
                 </p>
               </div>
 

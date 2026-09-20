@@ -457,6 +457,7 @@ router.get("/admin/draft-candidates", async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: {
         invoices: { none: {} },
+        invoiceBookings: { none: {} },
         status: { notIn: ["CANCELLED", "EXPIRED", "PENDING_PAYMENT"] },
       },
       orderBy: [{ collectionDate: "desc" }, { createdAt: "desc" }],
@@ -521,6 +522,9 @@ router.post("/admin/draft", async (req, res) => {
         invoices: {
           select: { id: true, invoiceNumber: true },
         },
+        invoiceBookings: {
+          select: { id: true, invoice: { select: { invoiceNumber: true } } },
+        },
         quote: {
           select: {
             vatAmount: true,
@@ -528,14 +532,9 @@ router.post("/admin/draft", async (req, res) => {
           },
         },
         user: {
-          select: {
-            id: true,
-            accountType: true,
-            tradeAccount: {
-              select: {
-                paymentTermsDays: true,
-              },
-            },
+          include: {
+            tradeAccount: true,
+            billingProfile: true,
           },
         },
       },
@@ -559,6 +558,71 @@ router.post("/admin/draft", async (req, res) => {
       });
     }
 
+    if (booking.invoiceBookings.length > 0) {
+      return res.status(409).json({
+        error: `Invoice ${booking.invoiceBookings[0].invoice.invoiceNumber} already includes this booking.`,
+      });
+    }
+
+    // Trade accounts are billed as a 30-day cycle. When more than one
+    // completed, uninvoiced booking falls inside the same cycle, the draft is
+    // automatically consolidated. A single eligible booking remains a normal
+    // single invoice.
+    let cycleBookings = [
+      {
+        id: booking.id,
+        totalPrice: booking.totalPrice,
+        reference: booking.reference,
+        collectionDate: booking.collectionDate,
+        purchaseOrderNumber: booking.purchaseOrderNumber,
+        collectionAddress: booking.collectionAddress,
+        deliveryAddress: booking.deliveryAddress,
+        vehicleType: booking.vehicleType,
+        journeyType: booking.journeyType,
+      },
+    ];
+
+    if (booking.user?.accountType === "TRADE" && booking.userId) {
+      const cycleEnd = new Date(booking.collectionDate);
+      cycleEnd.setUTCHours(23, 59, 59, 999);
+
+      const cycleStart = new Date(cycleEnd);
+      cycleStart.setUTCDate(cycleStart.getUTCDate() - 29);
+      cycleStart.setUTCHours(0, 0, 0, 0);
+
+      const tradeBookings = await prisma.booking.findMany({
+        where: {
+          userId: booking.userId,
+          status: "COMPLETED",
+          collectionDate: {
+            gte: cycleStart,
+            lte: cycleEnd,
+          },
+          invoices: { none: {} },
+          invoiceBookings: { none: {} },
+        },
+        select: {
+          id: true,
+          totalPrice: true,
+          reference: true,
+          collectionDate: true,
+          purchaseOrderNumber: true,
+          collectionAddress: true,
+          deliveryAddress: true,
+          vehicleType: true,
+          journeyType: true,
+        },
+        orderBy: [{ collectionDate: "asc" }, { createdAt: "asc" }],
+      });
+
+      if (tradeBookings.some((item) => item.id === booking.id)) {
+        cycleBookings = tradeBookings;
+      }
+    }
+
+    const shouldConsolidate =
+      booking.user?.accountType === "TRADE" && cycleBookings.length > 1;
+
     const result = await prisma.$transaction(async (transaction) => {
       const settings = await transaction.companySettings.findFirst();
 
@@ -568,29 +632,120 @@ router.post("/admin/draft", async (req, res) => {
         );
       }
 
-      const total = roundMoney(new Prisma.Decimal(booking.totalPrice));
       const vatRate = new Prisma.Decimal(settings.vatRate);
-
-      const subtotal = vatRate.greaterThan(0)
-        ? roundMoney(
-            total.div(new Prisma.Decimal(1).add(vatRate.div(100))),
-          )
-        : total;
-
-      const vatAmount = roundMoney(total.sub(subtotal));
-
       const invoiceNumber = `${settings.invoicePrefix}-${String(
         settings.nextInvoiceNumber,
       ).padStart(6, "0")}`;
 
       const paymentTermsDays =
         booking.user?.accountType === "TRADE"
-          ? booking.user.tradeAccount?.paymentTermsDays ??
+          ? booking.user.billingProfile?.paymentTermsDays ??
+            booking.user.tradeAccount?.paymentTermsDays ??
             settings.paymentTermsDays
           : settings.paymentTermsDays;
 
       const dueDate = new Date();
       dueDate.setUTCDate(dueDate.getUTCDate() + paymentTermsDays);
+
+      if (shouldConsolidate) {
+        let subtotal = new Prisma.Decimal(0);
+        let vatAmount = new Prisma.Decimal(0);
+        let total = new Prisma.Decimal(0);
+
+        const amounts = cycleBookings.map((item) => {
+          const gross = roundMoney(new Prisma.Decimal(item.totalPrice));
+          const net = vatRate.greaterThan(0)
+            ? roundMoney(
+                gross.div(new Prisma.Decimal(1).add(vatRate.div(100))),
+              )
+            : gross;
+          const vat = roundMoney(gross.sub(net));
+
+          subtotal = subtotal.add(net);
+          vatAmount = vatAmount.add(vat);
+          total = total.add(gross);
+
+          return { booking: item, net, vat, gross };
+        });
+
+        const invoice = await transaction.invoice.create({
+          data: {
+            invoiceNumber,
+            userId: booking.userId,
+            status: "DRAFT",
+            invoiceType: "CONSOLIDATED",
+            subtotal: roundMoney(subtotal),
+            vatAmount: roundMoney(vatAmount),
+            total: roundMoney(total),
+            dueDate,
+            paymentTerms: `${paymentTermsDays} days`,
+          },
+        });
+
+        for (const item of amounts) {
+          await transaction.invoiceLine.create({
+            data: {
+              invoiceId: invoice.id,
+              bookingId: item.booking.id,
+              chargeType: "BASE_SERVICE",
+              description: `Courier service · ${item.booking.reference}`,
+              quantity: new Prisma.Decimal(1),
+              unitPrice: item.net,
+              netAmount: item.net,
+              vatRate,
+              vatAmount: item.vat,
+              grossAmount: item.gross,
+              bookingReference: item.booking.reference,
+              sourceType: "BOOKING",
+              sourceId: item.booking.id,
+            },
+          });
+
+          await transaction.invoiceBooking.create({
+            data: {
+              invoiceId: invoice.id,
+              bookingId: item.booking.id,
+              bookingReference: item.booking.reference,
+              bookingDate: item.booking.collectionDate,
+              poReference: item.booking.purchaseOrderNumber,
+              routeDescription: `${item.booking.collectionAddress} → ${item.booking.deliveryAddress}`,
+              serviceDescription:
+                item.booking.vehicleType ||
+                item.booking.journeyType ||
+                "Courier service",
+              netAmount: item.net,
+              vatAmount: item.vat,
+              grossAmount: item.gross,
+            },
+          });
+        }
+
+        await transaction.invoiceAuditEvent.create({
+          data: {
+            invoiceId: invoice.id,
+            eventType: "DRAFT_CREATED",
+            description: `Automatic 30-day consolidated draft ${invoiceNumber} created for ${cycleBookings.length} bookings.`,
+          },
+        });
+
+        await transaction.companySettings.update({
+          where: { id: settings.id },
+          data: { nextInvoiceNumber: { increment: 1 } },
+        });
+
+        return transaction.invoice.findUnique({
+          where: { id: invoice.id },
+          include: invoiceInclude(),
+        });
+      }
+
+      const total = roundMoney(new Prisma.Decimal(booking.totalPrice));
+      const subtotal = vatRate.greaterThan(0)
+        ? roundMoney(
+            total.div(new Prisma.Decimal(1).add(vatRate.div(100))),
+          )
+        : total;
+      const vatAmount = roundMoney(total.sub(subtotal));
 
       const invoice = await transaction.invoice.create({
         data: {
@@ -598,6 +753,7 @@ router.post("/admin/draft", async (req, res) => {
           bookingId: booking.id,
           userId: booking.userId,
           status: "DRAFT",
+          invoiceType: "SINGLE",
           subtotal,
           vatAmount,
           total,
@@ -606,7 +762,6 @@ router.post("/admin/draft", async (req, res) => {
           customerReference: booking.customerReference,
           purchaseOrderNumber: booking.purchaseOrderNumber,
         },
-        include: invoiceInclude(),
       });
 
       await transaction.invoiceLine.create({
@@ -635,7 +790,8 @@ router.post("/admin/draft", async (req, res) => {
           bookingDate: booking.collectionDate,
           poReference: booking.purchaseOrderNumber,
           routeDescription: `${booking.collectionAddress} → ${booking.deliveryAddress}`,
-          serviceDescription: booking.vehicleType || booking.journeyType || "Courier service",
+          serviceDescription:
+            booking.vehicleType || booking.journeyType || "Courier service",
           netAmount: subtotal,
           vatAmount,
           grossAmount: total,
@@ -652,19 +808,24 @@ router.post("/admin/draft", async (req, res) => {
 
       await transaction.companySettings.update({
         where: { id: settings.id },
-        data: {
-          nextInvoiceNumber: {
-            increment: 1,
-          },
-        },
+        data: { nextInvoiceNumber: { increment: 1 } },
       });
 
-      return invoice;
+      return transaction.invoice.findUnique({
+        where: { id: invoice.id },
+        include: invoiceInclude(),
+      });
     });
+
+    if (!result) {
+      throw new Error("Unable to load the created invoice.");
+    }
 
     res.status(201).json({
       success: true,
-      message: `Draft invoice ${result.invoiceNumber} created.`,
+      message: shouldConsolidate
+        ? `Consolidated draft ${result.invoiceNumber} created automatically for ${cycleBookings.length} bookings in the customer's 30-day cycle.`
+        : `Draft invoice ${result.invoiceNumber} created.`,
       invoice: result,
     });
   } catch (error) {
