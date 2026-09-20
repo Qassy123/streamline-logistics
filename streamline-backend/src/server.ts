@@ -103,6 +103,8 @@ app.get("/", (_request, response) => {
 const PORT = process.env.PORT || 5000;
 const INVOICE_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 const INVOICE_REMINDER_INITIAL_DELAY_MS = 60 * 1000;
+const BILLING_CYCLE_INTERVAL_MS = 60 * 60 * 1000;
+const BILLING_CYCLE_INITIAL_DELAY_MS = 90 * 1000;
 
 async function processInvoiceReminders() {
   const adminKey = process.env.ADMIN_API_KEY?.trim();
@@ -153,6 +155,59 @@ async function processInvoiceReminders() {
   }
 }
 
+async function processAutomaticBillingCycles() {
+  const adminKey = process.env.ADMIN_API_KEY?.trim();
+
+  if (!adminKey) {
+    console.warn(
+      "Automatic billing-cycle processing skipped because ADMIN_API_KEY is not configured.",
+    );
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${PORT}/api/invoices/admin/process-billing-cycles`,
+      {
+        method: "POST",
+        headers: {
+          "x-admin-key": adminKey,
+        },
+      },
+    );
+
+    const payload = (await response.json()) as {
+      success?: boolean;
+      created?: Array<{
+        invoiceNumber: string;
+        bookingCount: number;
+        invoiceType: string;
+      }>;
+      skipped?: Array<{ userId: string; reason: string }>;
+      failures?: Array<{ userId: string; error: string }>;
+      error?: string;
+    };
+
+    if (!response.ok) {
+      console.error(
+        "Automatic billing-cycle processing failed:",
+        payload.error || `HTTP ${response.status}`,
+      );
+      return;
+    }
+
+    console.log(
+      `Automatic billing cycles processed. Created: ${payload.created?.length ?? 0}, skipped: ${payload.skipped?.length ?? 0}, failures: ${payload.failures?.length ?? 0}.`,
+    );
+
+    if (payload.failures?.length) {
+      console.error("Automatic billing-cycle failures:", payload.failures);
+    }
+  } catch (error) {
+    console.error("Automatic billing-cycle scheduler error:", error);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Streamline Backend running on port ${PORT}`);
 
@@ -163,4 +218,12 @@ app.listen(PORT, () => {
       void processInvoiceReminders();
     }, INVOICE_REMINDER_INTERVAL_MS);
   }, INVOICE_REMINDER_INITIAL_DELAY_MS);
+
+  setTimeout(() => {
+    void processAutomaticBillingCycles();
+
+    setInterval(() => {
+      void processAutomaticBillingCycles();
+    }, BILLING_CYCLE_INTERVAL_MS);
+  }, BILLING_CYCLE_INITIAL_DELAY_MS);
 });
