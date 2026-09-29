@@ -301,6 +301,10 @@ function AdminInvoicesContent() {
     new Date().toISOString().slice(0, 10),
   );
   const [paymentWorking, setPaymentWorking] = useState(false);
+  const [showCreditNote, setShowCreditNote] = useState(false);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [creditWorking, setCreditWorking] = useState(false);
 
   const [showCreateDraft, setShowCreateDraft] = useState(false);
   const [draftCandidates, setDraftCandidates] = useState<DraftCandidate[]>([]);
@@ -954,6 +958,101 @@ function AdminInvoicesContent() {
     }
   }
 
+  function openCreditNote() {
+    if (!selectedInvoice) return;
+
+    const remainingCredit = Math.max(
+      0,
+      Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice),
+    );
+
+    setCreditAmount(remainingCredit.toFixed(2));
+    setCreditReason("");
+    setInvoiceMessage("");
+    setError("");
+    setShowCreditNote(true);
+  }
+
+  async function createCreditNote() {
+    if (!selectedInvoice || !adminKey) return;
+
+    const amount = Number(creditAmount);
+    const reason = creditReason.trim();
+    const remainingCredit = Math.max(
+      0,
+      Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice),
+    );
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid credit amount.");
+      return;
+    }
+
+    if (amount > remainingCredit + 0.001) {
+      setError(
+        `Credit cannot exceed the remaining invoice value of ${money(remainingCredit)}.`,
+      );
+      return;
+    }
+
+    if (!reason) {
+      setError("Enter a reason for the credit note.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Issue a credit note for ${money(amount)} against ${selectedInvoice.invoiceNumber}?`,
+    );
+
+    if (!confirmed) return;
+
+    setCreditWorking(true);
+    setError("");
+    setInvoiceMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/credit-notes`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-key": adminKey,
+          },
+          body: JSON.stringify({ amount, reason }),
+        },
+      );
+
+      const payload = (await response.json()) as Payload;
+
+      if (!response.ok || !payload.invoice) {
+        throw new Error(payload.error || "Unable to create credit note.");
+      }
+
+      const updated = payload.invoice;
+      setSelectedInvoice(updated);
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === updated.id ? updated : invoice,
+        ),
+      );
+      setShowCreditNote(false);
+      setCreditAmount("");
+      setCreditReason("");
+      setInvoiceMessage(
+        `Credit note created for ${money(amount)} against ${updated.invoiceNumber}.`,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to create credit note.",
+      );
+    } finally {
+      setCreditWorking(false);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-[1280px]">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1268,6 +1367,93 @@ function AdminInvoicesContent() {
                   </div>
                 </>
               )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {showCreditNote && selectedInvoice ? (
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+          <section className="w-full max-w-2xl rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:px-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#E55300]">
+                  Credit Note
+                </p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-950">
+                  Issue Credit Note
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  {selectedInvoice.invoiceNumber} · Invoice value remaining to credit {money(Math.max(0, Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice)))}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCreditNote(false)}
+                disabled={creditWorking}
+                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                aria-label="Close credit note"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-700">
+                  Credit Amount
+                </span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={Math.max(0, Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice))}
+                  value={creditAmount}
+                  onChange={(event) => setCreditAmount(event.target.value)}
+                  disabled={creditWorking}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                />
+              </label>
+
+              <label className="mt-4 block">
+                <span className="mb-2 block text-sm font-bold text-slate-700">
+                  Reason
+                </span>
+                <textarea
+                  rows={4}
+                  value={creditReason}
+                  onChange={(event) => setCreditReason(event.target.value)}
+                  placeholder="Reason for issuing this credit note"
+                  disabled={creditWorking}
+                  className="w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
+                />
+              </label>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCreditNote(false)}
+                  disabled={creditWorking}
+                  className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void createCreditNote()}
+                  disabled={creditWorking || !creditAmount || !creditReason.trim()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {creditWorking ? (
+                    <Loader2 size={17} className="animate-spin" />
+                  ) : (
+                    <FileText size={17} />
+                  )}
+                  Issue Credit Note
+                </button>
+              </div>
             </div>
           </section>
         </div>
@@ -1767,6 +1953,27 @@ function AdminInvoicesContent() {
                   >
                     <FileText size={17} />
                     Edit Invoice
+                  </button>
+                </div>
+              ) : null}
+
+              {["FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice) > 0 ? (
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-950">Credit note</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Issue a full or partial credit against this invoice.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openCreditNote}
+                    disabled={invoiceWorking || paymentWorking || creditWorking}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileText size={17} />
+                    Issue Credit Note
                   </button>
                 </div>
               ) : null}
