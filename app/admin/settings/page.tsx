@@ -16,6 +16,7 @@ const API_BASE_URL =
   "https://streamline-logistics-production.up.railway.app";
 
 type CompanySettings = {
+  websiteDowntime: boolean;
   id: string;
   companyName: string;
   companyAddress: string | null;
@@ -47,6 +48,7 @@ type SettingsResponse = {
 };
 
 type FormState = {
+  websiteDowntime: boolean;
   companyName: string;
   companyAddress: string;
   telephone: string;
@@ -67,6 +69,7 @@ type FormState = {
 };
 
 const emptyForm: FormState = {
+  websiteDowntime: false,
   companyName: "",
   companyAddress: "",
   telephone: "",
@@ -88,6 +91,7 @@ const emptyForm: FormState = {
 
 function toForm(settings: CompanySettings): FormState {
   return {
+    websiteDowntime: settings.websiteDowntime ?? false,
     companyName: settings.companyName,
     companyAddress: settings.companyAddress || "",
     telephone: settings.telephone || "",
@@ -219,6 +223,7 @@ export default function AdminSettingsPage() {
           "x-admin-key": getAdminKey(),
         },
         body: JSON.stringify({
+          websiteDowntime: form.websiteDowntime,
           companyName: form.companyName,
           companyAddress: form.companyAddress,
           telephone: form.telephone,
@@ -294,6 +299,20 @@ export default function AdminSettingsPage() {
       ) : null}
 
       <form onSubmit={saveSettings} className="space-y-6">
+        <Section title="Website downtime" icon={Building2}>
+          <label className="flex items-center gap-3 font-medium">
+            <input
+              type="checkbox"
+              checked={form.websiteDowntime}
+              disabled={saving || uploadingLogo}
+              onChange={(event) => setForm((current) => ({ ...current, websiteDowntime: event.target.checked }))}
+            />
+            Enable website maintenance mode
+          </label>
+          <p className="mt-3 text-sm text-slate-600">
+            Customers can browse the website, but cannot create quotes while enabled. Admin quote creation remains available. Click Save Settings to apply.
+          </p>
+        </Section>
         <Section title="Business" icon={Building2}>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Company Name">

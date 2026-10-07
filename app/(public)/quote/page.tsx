@@ -429,6 +429,54 @@ function QuotePageForm() {
 
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [loadedSavedRoute, setLoadedSavedRoute] = useState(false);
+  const [websiteDowntime, setWebsiteDowntime] = useState<boolean | null>(null);
+  const [websiteStatusError, setWebsiteStatusError] = useState("");
+
+  async function readWebsiteDowntime() {
+    const response = await fetch(
+      API_URL.replace(/\/api\/quotes\/?$/, "/api/admin/settings/downtime"),
+      { cache: "no-store" },
+    );
+    const data = await response.json();
+    if (!response.ok || typeof data.websiteDowntime !== "boolean") {
+      throw new Error("Unable to check website status. Please try again shortly.");
+    }
+    setWebsiteDowntime(data.websiteDowntime);
+    setWebsiteStatusError("");
+    return data.websiteDowntime as boolean;
+  }
+
+  useEffect(() => {
+    let active = true;
+    async function refresh() {
+      try {
+        const response = await fetch(
+          API_URL.replace(/\/api\/quotes\/?$/, "/api/admin/settings/downtime"),
+          { cache: "no-store" },
+        );
+        const data = await response.json();
+        if (!response.ok || typeof data.websiteDowntime !== "boolean") throw new Error();
+        if (active) {
+          setWebsiteDowntime(data.websiteDowntime);
+          setWebsiteStatusError("");
+        }
+      } catch {
+        if (active) {
+          setWebsiteDowntime(null);
+          setWebsiteStatusError("Unable to check website status. Please try again shortly.");
+        }
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, 30000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
@@ -1044,6 +1092,10 @@ function QuotePageForm() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (websiteDowntime !== false) {
+      setError(websiteDowntime ? "call to get a quote site under maintance temporarily" : "Unable to check website status. Please try again shortly.");
+      return;
+    }
     setLoading(true);
     setError("");
     setQuote(null);
@@ -1244,6 +1296,9 @@ function QuotePageForm() {
         headers.Authorization = `Bearer ${token}`;
       }
 
+      if (await readWebsiteDowntime()) {
+        throw new Error("call to get a quote site under maintance temporarily");
+      }
       const response = await fetch(API_URL, {
         method: "POST",
         headers,
@@ -1253,6 +1308,7 @@ function QuotePageForm() {
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (data?.websiteDowntime === true) setWebsiteDowntime(true);
         throw new Error(getResponseErrorMessage(data));
       }
 
@@ -1272,6 +1328,14 @@ function QuotePageForm() {
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-8 text-[#071D49] sm:px-6 lg:py-12">
       <div className="mx-auto max-w-5xl">
+        {websiteDowntime === true && (
+          <div role="alert" className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 font-bold text-amber-900">
+            call to get a quote site under maintance temporarily
+          </div>
+        )}
+        {websiteStatusError && (
+          <p role="alert" className="mb-6 text-red-700">{websiteStatusError}</p>
+        )}
         <button
           type="button"
           onClick={() => router.back()}
@@ -2265,7 +2329,7 @@ function QuotePageForm() {
 
             <button
               type="submit"
-              disabled={loading || loadingVehicles}
+              disabled={loading || loadingVehicles || websiteDowntime !== false}
               className="rounded-2xl bg-gradient-to-r from-[#071D49] via-[#0B2A63] to-[#006CFF] px-8 py-5 text-base font-bold text-white shadow-xl shadow-[#071D49]/20 transition hover:from-[#020B1F] hover:to-[#2D8CFF] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading

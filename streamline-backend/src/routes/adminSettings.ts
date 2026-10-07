@@ -64,6 +64,21 @@ function requireAdminKey(
   next();
 }
 
+// Public read-only status: never expose company, bank or environment details.
+router.get("/downtime", async (_request, response) => {
+  response.setHeader("Cache-Control", "no-store");
+  try {
+    const settings = await prisma.companySettings.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { websiteDowntime: true },
+    });
+    response.json({ websiteDowntime: settings?.websiteDowntime ?? false });
+  } catch (error) {
+    console.error("GET /api/admin/settings/downtime failed", error);
+    response.status(503).json({ message: "Unable to load website status." });
+  }
+});
+
 router.use(requireAdminKey);
 
 function normaliseString(value: unknown): string | undefined {
@@ -183,6 +198,7 @@ function uploadLogoBufferToCloudinary(
 }
 
 const settingsSelect = {
+  websiteDowntime: true,
   id: true,
   companyName: true,
   companyAddress: true,
@@ -389,6 +405,11 @@ router.patch("/", async (request, response) => {
       1,
       48,
     );
+    const websiteDowntime = request.body.websiteDowntime;
+    if (websiteDowntime !== undefined && typeof websiteDowntime !== "boolean") {
+      response.status(400).json({ success: false, message: "Website downtime must be true or false." });
+      return;
+    }
     const vatRate = normaliseDecimal(request.body.vatRate, "VAT rate");
 
     const updated = await prisma.companySettings.update({
@@ -411,6 +432,7 @@ router.patch("/", async (request, response) => {
         nextInvoiceNumber,
         paymentTermsDays,
         vehicleBlockHours,
+        websiteDowntime,
         vatRate,
         currency,
         footerMessage: normaliseNullableString(request.body.footerMessage),
@@ -440,6 +462,7 @@ router.patch("/", async (request, response) => {
           nextInvoiceNumber: existing.nextInvoiceNumber,
           paymentTermsDays: existing.paymentTermsDays,
           vehicleBlockHours: existing.vehicleBlockHours,
+          websiteDowntime: existing.websiteDowntime,
           vatRate: existing.vatRate.toString(),
           currency: existing.currency,
           footerMessage: existing.footerMessage,
@@ -461,6 +484,7 @@ router.patch("/", async (request, response) => {
           nextInvoiceNumber: updated.nextInvoiceNumber,
           paymentTermsDays: updated.paymentTermsDays,
           vehicleBlockHours: updated.vehicleBlockHours,
+          websiteDowntime: updated.websiteDowntime,
           vatRate: updated.vatRate.toString(),
           currency: updated.currency,
           footerMessage: updated.footerMessage,

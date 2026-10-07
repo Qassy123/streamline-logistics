@@ -1444,6 +1444,16 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
+    const settings = await prisma.companySettings.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { websiteDowntime: true },
+    });
+    if (settings?.websiteDowntime) {
+      return res.status(503).json({
+        websiteDowntime: true,
+        error: "call to get a quote site under maintance temporarily",
+      });
+    }
     const user = await getAuthenticatedUser(req);
 
     if (user && user.accountStatus !== "ACTIVE") {
