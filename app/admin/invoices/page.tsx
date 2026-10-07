@@ -62,6 +62,7 @@ type Invoice = {
   dueDate?: string | null;
   supplyDate?: string | null;
   issuedAt?: string | null;
+  finalisedAt?: string | null;
   paymentTerms?: string | null;
   customerReference?: string | null;
   purchaseOrderNumber?: string | null;
@@ -1217,7 +1218,7 @@ function AdminInvoicesContent() {
                     setInvoiceMessage("");
                     setError("");
                   }}
-                  className="grid w-full gap-4 px-5 py-5 text-left transition hover:bg-slate-50 sm:px-6 md:grid-cols-[minmax(0,1fr)_150px_140px] md:items-center"
+                  className="grid w-full gap-4 px-5 py-5 text-left transition hover:bg-slate-50 sm:px-6 md:grid-cols-[minmax(0,1fr)_150px_150px_140px] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="text-lg font-bold text-slate-950">
@@ -1228,6 +1229,15 @@ function AdminInvoicesContent() {
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       Booking {bookingLabel(invoice)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
+                      Invoice Date
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-700">
+                      {date(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)}
                     </p>
                   </div>
 
