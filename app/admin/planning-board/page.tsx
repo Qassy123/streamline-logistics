@@ -1236,12 +1236,12 @@ export default function AdminPlanningBoardPage() {
       ) : (
         <>
           {!boardOnly ? (
-          <section className="mt-7 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <section className="mt-7">
             <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_52%,_#006CFF_100%)] p-5 text-white sm:p-6">
+              <div className="bg-[linear-gradient(135deg,_#020617_0%,_#0F172A_52%,_#FF6A00_100%)] p-5 text-white sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#2D8CFF]">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#FF9A52]">
                       New booking ready to plan
                     </p>
                     <h2 className="mt-2 text-2xl font-bold">
@@ -1270,16 +1270,16 @@ export default function AdminPlanningBoardPage() {
 
               <div className="grid gap-5 p-5 xl:grid-cols-[1.2fr_0.8fr]">
                 <div className="grid gap-5">
-                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                  <section className="rounded-3xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
                     <div className="mb-4 flex items-center gap-3">
-                      <Truck className="text-[#006CFF]" size={22} />
-                      <h3 className="text-lg font-bold text-[#071D49]">
+                      <Truck className="text-[#FF6A00]" size={22} />
+                      <h3 className="text-lg font-bold text-[#0F172A]">
                         Service Details
                       </h3>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <QuoteDetail label="Delivery Type" value="Dedicated" />
+                      <QuoteDetail label="Delivery Type" value={String(customerFormPayload?.deliveryType || "Not provided")} />
                       <QuoteDetail
                         label="Vehicle Size"
                         value={String(customerFormPayload?.vehicleSize || "Not selected")}
@@ -1317,10 +1317,10 @@ export default function AdminPlanningBoardPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                  <section className="rounded-3xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
                     <div className="mb-4 flex items-center gap-3">
-                      <MapPin className="text-[#006CFF]" size={22} />
-                      <h3 className="text-lg font-bold text-[#071D49]">
+                      <MapPin className="text-[#FF6A00]" size={22} />
+                      <h3 className="text-lg font-bold text-[#0F172A]">
                         Route Details
                       </h3>
                     </div>
@@ -1343,7 +1343,7 @@ export default function AdminPlanningBoardPage() {
                       ) : null}
 
                       {form.journeyType === "Multi" && buildExtraDrops().length > 0 ? (
-                        <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+                        <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4">
                           <p className="text-sm font-bold text-slate-500">
                             Extra Stops
                           </p>
@@ -1351,9 +1351,9 @@ export default function AdminPlanningBoardPage() {
                             {buildExtraDrops().map((stop, index) => (
                               <div
                                 key={`${stop.order}-${stop.address}`}
-                                className="rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-3"
+                                className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3"
                               >
-                                <p className="text-xs font-bold text-[#071D49]">
+                                <p className="text-xs font-bold text-[#0F172A]">
                                   Stop {index + 1}
                                 </p>
                                 <p className="mt-1 text-sm font-semibold text-slate-600">
@@ -1367,10 +1367,10 @@ export default function AdminPlanningBoardPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                  <section className="rounded-3xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
                     <div className="mb-4 flex items-center gap-3">
-                      <User className="text-[#006CFF]" size={22} />
-                      <h3 className="text-lg font-bold text-[#071D49]">
+                      <User className="text-[#FF6A00]" size={22} />
+                      <h3 className="text-lg font-bold text-[#0F172A]">
                         Customer Details
                       </h3>
                     </div>
@@ -1415,10 +1415,10 @@ export default function AdminPlanningBoardPage() {
                   </section>
                 </div>
 
-                <aside className="h-fit rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 shadow-lg shadow-black/5">
+                <aside className="h-fit rounded-3xl border border-[#E2E8F0] bg-[#F8FAFC] p-4 shadow-lg shadow-black/5">
                   <div className="mb-4 flex items-center gap-3">
-                    <ReceiptText className="text-[#006CFF]" size={22} />
-                    <h3 className="text-lg font-bold text-[#071D49]">
+                    <ReceiptText className="text-[#FF6A00]" size={22} />
+                    <h3 className="text-lg font-bold text-[#0F172A]">
                       Price breakdown
                     </h3>
                   </div>
@@ -1452,7 +1452,7 @@ export default function AdminPlanningBoardPage() {
                       value={money(calculation?.vatAmount)}
                     />
 
-                    <div className="mt-1 rounded-2xl bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-4 text-white">
+                    <div className="mt-1 rounded-2xl bg-[linear-gradient(135deg,_#020617_0%,_#0F172A_55%,_#FF6A00_100%)] p-4 text-white">
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
                           <PoundSterling size={20} />
@@ -1468,6 +1468,11 @@ export default function AdminPlanningBoardPage() {
               </div>
             </div>
 
+          </section>
+          ) : null}
+
+          <div className={`mt-6 grid items-start gap-4 ${boardOnly ? "" : "lg:grid-cols-[240px_minmax(0,1fr)]"}`}>
+            {!boardOnly ? (
             <div
               draggable={!assigning && !createdBookingId}
               onDragStart={() => {
@@ -1478,7 +1483,7 @@ export default function AdminPlanningBoardPage() {
                 setDraggingDraft(false);
                 setDragTarget(null);
               }}
-              className={`flex h-[88px] w-full cursor-grab flex-col justify-center overflow-hidden rounded-2xl border-2 border-dashed px-4 py-3 shadow-sm lg:w-[200px] ${
+              className={`flex min-h-[220px] w-full flex-col justify-center rounded-2xl border-2 border-dashed p-5 shadow-sm lg:sticky lg:top-6 lg:self-start ${assigning || createdBookingId ? "cursor-default" : "cursor-grab active:cursor-grabbing"} ${
                 draggingDraft
                   ? "border-[#FF6A00] bg-orange-50"
                   : createdBookingId
@@ -1513,12 +1518,10 @@ export default function AdminPlanningBoardPage() {
                 </>
               )}
             </div>
-          </section>
-          ) : null}
-
+            ) : null}
           <section
             className={`${
-              boardOnly ? "mt-7" : "mt-6"
+              "min-w-0"
             } rounded-3xl border border-slate-200 bg-white shadow-sm`}
           >
             <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -1788,6 +1791,7 @@ export default function AdminPlanningBoardPage() {
               </div>
             )}
           </section>
+          </div>
 
           {error ? <ErrorBox text={error} /> : null}
 
@@ -2073,11 +2077,11 @@ function QuoteDetail({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+    <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
         {label}
       </p>
-      <p className="mt-2 break-words text-sm font-bold text-[#071D49]">
+      <p className="mt-2 break-words text-sm font-bold text-[#0F172A]">
         {value || "Not provided"}
       </p>
     </div>
@@ -2092,9 +2096,9 @@ function QuoteAddress({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-[#D7E6FF] bg-white p-4">
+    <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4">
       <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-2 whitespace-pre-line break-words text-sm font-semibold leading-6 text-[#071D49]">
+      <p className="mt-2 whitespace-pre-line break-words text-sm font-semibold leading-6 text-[#0F172A]">
         {value || "Not provided"}
       </p>
     </div>
@@ -2111,12 +2115,12 @@ function QuotePriceRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-4">
-      <div className="flex min-w-0 items-center gap-3 text-[#006CFF]">
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#E2E8F0] bg-white p-4">
+      <div className="flex min-w-0 items-center gap-3 text-[#FF6A00]">
         <span className="shrink-0">{icon}</span>
-        <p className="min-w-0 text-sm font-bold text-[#071D49]">{label}</p>
+        <p className="min-w-0 text-sm font-bold text-[#0F172A]">{label}</p>
       </div>
-      <p className="shrink-0 text-sm font-bold text-[#071D49]">{value}</p>
+      <p className="shrink-0 text-sm font-bold text-[#0F172A]">{value}</p>
     </div>
   );
 }
