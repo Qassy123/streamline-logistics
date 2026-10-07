@@ -297,6 +297,7 @@ model Quote {
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
   capacityPercent          Int?
+  returnCapacityPercent    Int?
   journeyType              String?
   accuracyConfirmed        Boolean              @default(false)
   contactPreference        String?

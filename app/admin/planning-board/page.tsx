@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 
+import AdminCustomerQuoteForm, { type AdminQuotePayload } from "@/components/admin/AdminCustomerQuoteForm";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -206,6 +208,7 @@ type PlanningPayload = {
 };
 
 type CustomerPayload = {
+  pagination?: { totalPages: number };
   customers?: Customer[];
   error?: string;
 };
@@ -457,6 +460,8 @@ export default function AdminPlanningBoardPage() {
     localDateInput(new Date()),
   );
 
+  const [customerFormPayload, setCustomerFormPayload] = useState<AdminQuotePayload | null>(null);
+  const [formVersion, setFormVersion] = useState(0);
   const [calculation, setCalculation] = useState<Calculation | null>(null);
   const [planningOpen, setPlanningOpen] = useState(false);
   const [boardOnly, setBoardOnly] = useState(false);
@@ -529,23 +534,18 @@ export default function AdminPlanningBoardPage() {
     setLoadingCustomers(true);
 
     try {
-      const response = await fetch(
-        `${API_BASE}/api/admin/customers?page=1&pageSize=100&accountStatus=ACTIVE`,
-        {
-          headers: {
-            "x-admin-key": adminKey,
-          },
-          cache: "no-store",
-        },
-      );
-
-      const payload = (await response.json()) as CustomerPayload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to load customer accounts.");
-      }
-
-      setCustomers(payload.customers || []);
+      const allCustomers: Customer[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const response = await fetch(API_BASE + "/api/admin/customers?page=" + page + "&pageSize=100&accountStatus=ACTIVE", { headers: { "x-admin-key": adminKey }, cache: "no-store" });
+        const payload = await response.json() as CustomerPayload;
+        if (!response.ok) throw new Error(payload.error || "Unable to load customer accounts.");
+        allCustomers.push(...(payload.customers || []));
+        totalPages = payload.pagination?.totalPages || 1;
+        page += 1;
+      } while (page <= totalPages);
+      setCustomers(allCustomers);
     } catch (requestError) {
       setCustomers([]);
       setError(
@@ -702,72 +702,30 @@ export default function AdminPlanningBoardPage() {
     return "";
   }
 
-  async function calculateJourney() {
-    if (!adminKey) {
-      setError(
-        "Admin key is required. Unlock the admin area from Driver Management.",
-      );
-      return;
-    }
-
-    const validationError = validateManualForm();
-
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setCalculating(true);
-    setError("");
-    setMessage("");
-    setCreatedBookingId(null);
-
+  async function calculateJourney(payload: AdminQuotePayload) {
+    if (!adminKey) throw new Error("Unlock the admin area before calculating a quote.");
+    setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null);
     try {
-      const response = await fetch(`${API_BASE}/api/quotes/admin/calculate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
-        body: JSON.stringify({
-          deliveryType: "Dedicated",
-          journeyType: normaliseJourneyTypeForApi(form.journeyType),
-          vehicleSize: capacityPricingVehicle(form.capacityPercent),
-          collectionAddress: form.collectionAddress.trim(),
-          deliveryAddress: form.deliveryAddress.trim(),
-          returnAddress:
-            form.journeyType === "Return"
-              ? form.returnAddress.trim()
-              : null,
-          extraDrops:
-            form.journeyType === "Multi" ? buildExtraDrops() : [],
-          capacityPercent: form.capacityPercent,
-        }),
+      const response = await fetch(API_BASE + "/api/quotes/admin/calculate", {
+        method: "POST", headers: { "Content-Type": "application/json", "x-admin-key": adminKey }, body: JSON.stringify(payload),
       });
-
-      const payload = (await response.json()) as CalculatePayload;
-
-      if (!response.ok || !payload.calculation) {
-        throw new Error(payload.error || "Unable to calculate the journey.");
-      }
-
-      setCalculation(payload.calculation);
-      setBoardOnly(false);
-      setPlanningOpen(true);
-      setMessage(
-        "Journey calculated. Drag the booking onto an available vehicle and time.",
-      );
-    } catch (requestError) {
+      const result = await response.json() as CalculatePayload;
+      if (!response.ok || !result.calculation) throw new Error(result.error || "Unable to calculate the journey.");
+      setCustomerFormPayload(payload);
+      setPlanningDate(String(payload.collectionDate).slice(0, 10));
+      setForm((current) => ({ ...current,
+        journeyType: payload.journeyType === "Multi Drop" ? "Multi" : payload.journeyType === "Return" ? "Return" : "One Way",
+        collectionAddress: String(payload.collectionAddress || ""), deliveryAddress: String(payload.deliveryAddress || ""), returnAddress: String(payload.returnAddress || ""),
+        capacityPercent: Number(payload.capacityPercent || 0), guestCompanyName: String(payload.legalEntity || payload.customerName || ""),
+        guestEmail: String(payload.customerEmail || ""), guestPhone: String(payload.customerPhone || ""),
+      }));
+      setExtraStops(Array.isArray(payload.extraDrops) ? payload.extraDrops.map((drop: { address?: string }) => drop.address || "") : []);
+      setCalculation(result.calculation); setBoardOnly(false); setPlanningOpen(true);
+      setMessage("Journey calculated. Drag onto a vehicle of the selected size and choose a time on the grid.");
+    } catch (error) {
       setCalculation(null);
-      setPlanningOpen(false);
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to calculate the journey.",
-      );
-    } finally {
-      setCalculating(false);
-    }
+      throw error;
+    } finally { setCalculating(false); }
   }
 
   function shiftPlanningDate(direction: number) {
@@ -781,21 +739,14 @@ export default function AdminPlanningBoardPage() {
     vehicle: Vehicle,
     collectionWindow: string,
   ) {
+    if (!customerFormPayload) throw new Error("Complete and calculate the quote form first.");
     const commonBody = {
-      deliveryType: "Dedicated",
-      journeyType: normaliseJourneyTypeForApi(form.journeyType),
+      ...customerFormPayload,
       vehicleSize: vehicle.vehicleType,
-      collectionDate: `${planningDate}T00:00:00`,
-      collectionWindow,
-      collectionAddress: form.collectionAddress.trim(),
-      deliveryAddress: form.deliveryAddress.trim(),
-      returnAddress:
-        form.journeyType === "Return" ? form.returnAddress.trim() : null,
-      extraDrops:
-        form.journeyType === "Multi" ? buildExtraDrops() : [],
-      capacityPercent: form.journeyType === "Multi" ? null : form.capacityPercent,
-      sendToCustomer: false,
-      accuracyConfirmed: true,
+      collectionDate: new Date(planningDate + "T00:00:00.000Z").toISOString(),
+      collectionWindow, sendToCustomer: false,
+      customerReference: form.customerReference.trim() || null,
+      purchaseOrderNumber: form.purchaseOrderNumber.trim() || null,
     };
 
     if (form.accountId === "GUEST") {
@@ -808,7 +759,7 @@ export default function AdminPlanningBoardPage() {
         body: JSON.stringify({
           ...commonBody,
           companyName: form.guestCompanyName.trim(),
-          customerName: form.guestCompanyName.trim(),
+          customerName: String(customerFormPayload.customerName || form.guestCompanyName).trim(),
           customerEmail: form.guestEmail.trim(),
           customerPhone: form.guestPhone.trim(),
           guestAddress: form.guestAddress.trim(),
@@ -977,7 +928,11 @@ export default function AdminPlanningBoardPage() {
   ) {
     event.preventDefault();
 
-    if (!calculation || assigning) return;
+    if (!calculation || !customerFormPayload || assigning) return;
+    if (vehicle.vehicleType !== customerFormPayload.vehicleSize) {
+      setError("Drop onto a vehicle matching the size selected in the quote form, or go back and select a different size.");
+      return;
+    }
 
     const timelineElement = event.currentTarget;
     const rect = timelineElement.getBoundingClientRect();
@@ -1004,20 +959,7 @@ export default function AdminPlanningBoardPage() {
             "Content-Type": "application/json",
             "x-admin-key": adminKey,
           },
-          body: JSON.stringify({
-            deliveryType: "Dedicated",
-            journeyType: normaliseJourneyTypeForApi(form.journeyType),
-            vehicleSize: vehicle.vehicleType,
-            collectionAddress: form.collectionAddress.trim(),
-            deliveryAddress: form.deliveryAddress.trim(),
-            returnAddress:
-              form.journeyType === "Return"
-                ? form.returnAddress.trim()
-                : null,
-            extraDrops:
-              form.journeyType === "Multi" ? buildExtraDrops() : [],
-            capacityPercent: form.journeyType === "Multi" ? null : form.capacityPercent,
-          }),
+          body: JSON.stringify({ ...customerFormPayload, vehicleSize: vehicle.vehicleType }),
         },
       );
 
@@ -1242,6 +1184,9 @@ export default function AdminPlanningBoardPage() {
   }
 
   function resetForAnotherBooking() {
+    window.localStorage.removeItem("streamline_admin_quote_form_draft_" + form.accountId);
+    setFormVersion((version) => version + 1);
+    setCustomerFormPayload(null);
     setForm(initialForm);
     setExtraStops([]);
     setCalculation(null);
@@ -1264,331 +1209,29 @@ export default function AdminPlanningBoardPage() {
       </div>
 
       {!planningOpen ? (
-        <section className="mt-7 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-            <div>
-              <FieldLabel label="Select Account">
-                <select
-                  value={form.accountId}
-                  disabled={loadingCustomers}
-                  onChange={(event) =>
-                    updateForm("accountId", event.target.value)
-                  }
-                  className="manual-input"
-                >
-                  <option value="GUEST">Guest Customer (No Account)</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.companyName ||
-                        customer.legalEntity ||
-                        customer.tradingName ||
-                        customer.name}
-                    </option>
-                  ))}
-                </select>
-              </FieldLabel>
-
-              {selectedCustomer ? (
-                <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  <span className="font-bold text-slate-900">
-                    {selectedCustomer.companyName ||
-                      selectedCustomer.legalEntity ||
-                      selectedCustomer.name}
-                  </span>
-                  <span className="mx-2 text-slate-300">•</span>
-                  {selectedCustomer.email}
-                  {selectedCustomer.phone ? (
-                    <>
-                      <span className="mx-2 text-slate-300">•</span>
-                      {selectedCustomer.phone}
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {selectedCustomer?.accountType === "TRADE" ? (
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <FieldLabel label="PO / Order Reference">
-                    <input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" />
-                  </FieldLabel>
-                  <FieldLabel label="Customer Reference">
-                    <input value={form.customerReference} onChange={(event) => updateForm("customerReference", event.target.value)} className="manual-input" />
-                  </FieldLabel>
-                  <div className="sm:col-span-2">
-                    <FieldLabel label="Credit Override Reason (only if required)">
-                      <input value={form.creditOverrideReason} onChange={(event) => updateForm("creditOverrideReason", event.target.value)} className="manual-input" />
-                    </FieldLabel>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-7">
-                <p className="text-sm font-bold text-slate-700">Journey</p>
-                <div className="mt-3 flex flex-wrap gap-5">
-                  {(["One Way", "Return", "Multi"] as JourneyType[]).map(
-                    (journeyType) => (
-                      <label
-                        key={journeyType}
-                        className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700"
-                      >
-                        <input
-                          type="radio"
-                          name="journeyType"
-                          value={journeyType}
-                          checked={form.journeyType === journeyType}
-                          onChange={() => {
-                            setForm((current) => ({
-                              ...current,
-                              journeyType,
-                              returnAddress:
-                                journeyType === "Return"
-                                  ? current.collectionAddress
-                                  : current.returnAddress,
-                            }));
-                          }}
-                          className="h-4 w-4 accent-[#FF6A00]"
-                        />
-                        {journeyType}
-                      </label>
-                    ),
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-7 space-y-5">
-                <FieldLabel label="Collection Address">
-                  <textarea
-                    rows={3}
-                    value={form.collectionAddress}
-                    onChange={(event) => {
-                      const nextCollectionAddress = event.target.value;
-
-                      setForm((current) => ({
-                        ...current,
-                        collectionAddress: nextCollectionAddress,
-                        returnAddress:
-                          current.journeyType === "Return"
-                            ? nextCollectionAddress
-                            : current.returnAddress,
-                      }));
-                    }}
-                    className="manual-input resize-none"
-                  />
-                </FieldLabel>
-
-                <FieldLabel label="Delivery Address">
-                  <textarea
-                    rows={3}
-                    value={form.deliveryAddress}
-                    onChange={(event) =>
-                      updateForm("deliveryAddress", event.target.value)
-                    }
-                    className="manual-input resize-none"
-                  />
-                </FieldLabel>
-
-                {form.journeyType === "Return" ? (
-                  <FieldLabel label="Return Address">
-                    <textarea
-                      rows={3}
-                      value={form.returnAddress}
-                      onChange={(event) =>
-                        updateForm("returnAddress", event.target.value)
-                      }
-                      className="manual-input resize-none"
-                    />
-                  </FieldLabel>
-                ) : null}
-
-                {form.journeyType === "Multi" ? (
-                  <div>
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm font-bold text-slate-700">
-                        Add Stops
-                      </p>
-                      <button
-                        type="button"
-                        onClick={addStop}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                      >
-                        <Plus size={16} />
-                        Add Stop
-                      </button>
-                    </div>
-
-                    <div className="mt-3 space-y-3">
-                      {extraStops.map((stop, index) => (
-                        <div key={index} className="flex gap-2">
-                          <textarea
-                            rows={2}
-                            value={stop}
-                            onChange={(event) =>
-                              updateStop(index, event.target.value)
-                            }
-                            placeholder={`Stop ${index + 1}`}
-                            className="manual-input resize-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeStop(index)}
-                            className="rounded-xl border border-slate-300 px-3 text-slate-500 hover:bg-slate-50 hover:text-red-600"
-                            aria-label={`Remove stop ${index + 1}`}
-                          >
-                            <Trash2 size={17} />
-                          </button>
-                        </div>
-                      ))}
-
-                      {extraStops.length === 0 ? (
-                        <button
-                          type="button"
-                          onClick={addStop}
-                          className="w-full rounded-2xl border border-dashed border-slate-300 px-4 py-5 text-sm font-semibold text-slate-500 hover:border-orange-300 hover:bg-orange-50/40"
-                        >
-                          Add first stop
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              {form.journeyType !== "Multi" ? (
-              <div className="mt-7">
-                <p className="text-sm font-bold text-slate-700">Capacity</p>
-                <div className="mt-3 flex flex-wrap gap-3">
-                  {CAPACITY_OPTIONS.map((option) => (
-                    <label
-                      key={option.value}
-                      className={`cursor-pointer rounded-xl border px-4 py-3 text-sm font-bold ${
-                        form.capacityPercent === option.value
-                          ? "border-[#FF6A00] bg-orange-50 text-[#E55300]"
-                          : "border-slate-300 bg-white text-slate-700"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="capacity"
-                        className="sr-only"
-                        checked={form.capacityPercent === option.value}
-                        onChange={() =>
-                          updateForm("capacityPercent", option.value)
-                        }
-                      />
-                      {option.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              ) : null}
+        <section className="mt-7 space-y-6">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
+            <FieldLabel label="Select Account">
+              <select value={form.accountId} disabled={loadingCustomers || calculating} onChange={(event) => { updateForm("accountId", event.target.value); setCustomerFormPayload(null); }} className="manual-input">
+                <option value="GUEST">Guest Customer (No Account)</option>
+                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"} · {customer.companyName || customer.legalEntity || customer.name}</option>)}
+              </select>
+            </FieldLabel>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <FieldLabel label="Purchase Order Number"><input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" /></FieldLabel>
+              <FieldLabel label="Customer Reference"><input value={form.customerReference} onChange={(event) => updateForm("customerReference", event.target.value)} className="manual-input" /></FieldLabel>
+              {form.accountId === "GUEST" && <>
+                <FieldLabel label="Guest billing address"><input value={form.guestAddress} onChange={(event) => updateForm("guestAddress", event.target.value)} className="manual-input" /></FieldLabel>
+                <FieldLabel label="Guest VAT number (if applicable)"><input value={form.guestVatNumber} onChange={(event) => updateForm("guestVatNumber", event.target.value)} className="manual-input" /></FieldLabel>
+              </>}
+              {selectedCustomer?.accountType === "TRADE" && <FieldLabel label="Credit override reason (if required)"><input value={form.creditOverrideReason} onChange={(event) => updateForm("creditOverrideReason", event.target.value)} className="manual-input" /></FieldLabel>}
             </div>
-
-            <aside>
-              {form.accountId === "GUEST" ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
-                  <p className="text-sm font-bold text-slate-950">
-                    Guest Customer Details
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    For invoice purpose
-                  </p>
-
-                  <div className="mt-5 space-y-4">
-                    <FieldLabel label="Company Name">
-                      <input
-                        value={form.guestCompanyName}
-                        onChange={(event) =>
-                          updateForm("guestCompanyName", event.target.value)
-                        }
-                        className="manual-input"
-                      />
-                    </FieldLabel>
-
-                    <FieldLabel label="Address">
-                      <textarea
-                        rows={3}
-                        value={form.guestAddress}
-                        onChange={(event) =>
-                          updateForm("guestAddress", event.target.value)
-                        }
-                        className="manual-input resize-none"
-                      />
-                    </FieldLabel>
-
-                    <FieldLabel label="Email">
-                      <input
-                        type="email"
-                        value={form.guestEmail}
-                        onChange={(event) =>
-                          updateForm("guestEmail", event.target.value)
-                        }
-                        className="manual-input"
-                      />
-                    </FieldLabel>
-
-                    <FieldLabel label="Contact No">
-                      <input
-                        value={form.guestPhone}
-                        onChange={(event) =>
-                          updateForm("guestPhone", event.target.value)
-                        }
-                        className="manual-input"
-                      />
-                    </FieldLabel>
-
-                    <FieldLabel label="VAT No if applicable">
-                      <input
-                        value={form.guestVatNumber}
-                        onChange={(event) =>
-                          updateForm("guestVatNumber", event.target.value)
-                        }
-                        className="manual-input"
-                      />
-                    </FieldLabel>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
-                  Select an existing account on the left. Guest invoice details
-                  are only required when Guest Customer is selected.
-                </div>
-              )}
-            </aside>
+            {error && <ErrorBox text={error} />}
           </div>
-
-          {error ? <ErrorBox text={error} /> : null}
-
-          <div className="mt-7 flex flex-wrap justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setCalculation(null);
-                setCreatedBookingId(null);
-                setBoardOnly(true);
-                setPlanningOpen(true);
-                setMessage("");
-                setError("");
-              }}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
-            >
-              <Truck size={18} />
-              Open Planning Board
-            </button>
-
-            <button
-              type="button"
-              disabled={calculating}
-              onClick={() => void calculateJourney()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-6 py-3.5 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-60"
-            >
-              {calculating ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Calculator size={18} />
-              )}
-              Calculate Journey Time + Charges
-            </button>
-          </div>
+          <AdminCustomerQuoteForm key={form.accountId + ":" + formVersion} apiBase={API_BASE} accountId={form.accountId} customer={selectedCustomer}
+            onCalculate={calculateJourney}
+            onOpenBoard={() => { setCalculation(null); setCreatedBookingId(null); setBoardOnly(true); setPlanningOpen(true); setMessage(""); setError(""); }}
+          />
         </section>
       ) : (
         <>
@@ -1639,11 +1282,11 @@ export default function AdminPlanningBoardPage() {
                       <QuoteDetail label="Delivery Type" value="Dedicated" />
                       <QuoteDetail
                         label="Vehicle Size"
-                        value={`${capacityPricingVehicle(form.capacityPercent)} (final vehicle selected on grid)`}
+                        value={String(customerFormPayload?.vehicleSize || "Not selected")}
                       />
                       <QuoteDetail
                         label="Journey Type"
-                        value={form.journeyType === "Multi" ? "Multi Drop" : form.journeyType}
+                        value={String(customerFormPayload?.journeyType || "Included in service")}
                       />
                       {form.journeyType !== "Multi" ? (
                         <QuoteDetail
@@ -1657,7 +1300,7 @@ export default function AdminPlanningBoardPage() {
                       />
                       <QuoteDetail
                         label="Collection Window"
-                        value="Select by dropping onto the planning grid"
+                        value={String(customerFormPayload?.collectionWindow || "Select by dropping onto the planning grid")}
                       />
                       <QuoteDetail
                         label="Journey Time"
@@ -1783,7 +1426,7 @@ export default function AdminPlanningBoardPage() {
                   <div className="grid gap-3">
                     <QuotePriceRow
                       icon={<Truck size={20} />}
-                      label={`Base Fare (${capacityPricingVehicle(form.capacityPercent)})`}
+                      label={`Base Fare (${String(customerFormPayload?.vehicleSize || "Vehicle")})`}
                       value={money(calculation?.basePrice)}
                     />
                     <QuotePriceRow

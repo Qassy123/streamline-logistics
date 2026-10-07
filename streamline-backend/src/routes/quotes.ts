@@ -481,6 +481,7 @@ function adminQuoteSelect() {
     collectionDate: true,
     collectionWindow: true,
     vehicleSize: true,
+    returnCapacityPercent: true,
     collectionAddress: true,
     deliveryAddress: true,
     returnAddress: true,
@@ -642,7 +643,8 @@ function applyAdminDiscount(
   const fuelSurcharge = Number(price.fuelSurcharge ?? 0);
   const adminPrice = Number(price.adminPrice ?? 0);
   const originalVat = Number(price.vatAmount ?? 0);
-  const subtotalBeforeDiscount = basePrice + fuelSurcharge + adminPrice;
+  // Pricing already includes base price and fuel in adminPrice.
+  const subtotalBeforeDiscount = adminPrice;
   const requestedValue = Math.max(0, Number(discountValue ?? 0) || 0);
 
   let discountAmount = 0;
@@ -796,6 +798,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
+        ...drop,
         order: index + 1,
         address: getString(drop.address),
       }),
@@ -808,7 +811,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         status: sendToCustomer ? "Draft" : "Draft",
         userId: customer.id,
         deliveryType: getString(req.body.deliveryType) || "Dedicated",
-        journeyType: getString(req.body.journeyType) || "One-way",
+        journeyType: req.body.journeyType === null ? null : getString(req.body.journeyType) || "One-way",
         collectionDate,
         collectionWindow: getString(req.body.collectionWindow),
         vehicleSize: getString(req.body.vehicleSize),
@@ -830,20 +833,23 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         capacityPercent: req.body.capacityPercent
           ? Number(req.body.capacityPercent)
           : null,
+        returnCapacityPercent: req.body.returnCapacityPercent ? Number(req.body.returnCapacityPercent) : null,
         loadDescription: getOptionalString(req.body.loadDescription),
         specialInstructions: getOptionalString(req.body.specialInstructions),
         fragileGoods: Boolean(req.body.fragileGoods),
         contactPreference: getOptionalString(req.body.contactPreference),
         accuracyConfirmed: Boolean(req.body.accuracyConfirmed),
-        customerName: customer.name,
-        customerEmail: customer.email,
-        customerPhone: customer.phone ?? "",
+        customerName: getString(req.body.customerName) || customer.name,
+        customerEmail: getString(req.body.customerEmail) || customer.email,
+        customerPhone: getString(req.body.customerPhone) || customer.phone || "",
         companyName: customer.companyName || customer.legalEntity,
-        legalEntity: customer.legalEntity || customer.companyName,
-        tradingName: customer.tradingName,
+        legalEntity: getOptionalString(req.body.legalEntity) || customer.legalEntity || customer.companyName,
+        tradingName: getOptionalString(req.body.tradingName) || customer.tradingName,
         customerReference: getOptionalString(req.body.customerReference),
         purchaseOrderNumber: getOptionalString(req.body.purchaseOrderNumber),
-        handoverNotes: getOptionalString(req.body.notes),
+        handoverNotes: getOptionalString(req.body.handoverNotes) || getOptionalString(req.body.notes),
+        handoverContactName: getOptionalString(req.body.handoverContactName),
+        handoverContactPhone: getOptionalString(req.body.handoverContactPhone),
         distanceMiles: calculation.distanceMiles,
         basePrice: calculation.basePrice,
         fuelSurcharge: calculation.fuelSurcharge,
@@ -960,6 +966,7 @@ router.post("/admin/guest", async (req, res) => {
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
+        ...drop,
         order: index + 1,
         address: getString(drop.address),
       }),
@@ -970,7 +977,7 @@ router.post("/admin/guest", async (req, res) => {
         status: "Draft",
         userId: null,
         deliveryType: getString(req.body.deliveryType) || "Dedicated",
-        journeyType: getString(req.body.journeyType) || "One-way",
+        journeyType: req.body.journeyType === null ? null : getString(req.body.journeyType) || "One-way",
         collectionDate,
         collectionWindow: getString(req.body.collectionWindow),
         vehicleSize: getString(req.body.vehicleSize),
@@ -992,6 +999,7 @@ router.post("/admin/guest", async (req, res) => {
         capacityPercent: req.body.capacityPercent
           ? Number(req.body.capacityPercent)
           : null,
+        returnCapacityPercent: req.body.returnCapacityPercent ? Number(req.body.returnCapacityPercent) : null,
         loadDescription: getOptionalString(req.body.loadDescription),
         specialInstructions: getOptionalString(req.body.specialInstructions),
         fragileGoods: Boolean(req.body.fragileGoods),
@@ -1013,7 +1021,9 @@ router.post("/admin/guest", async (req, res) => {
 
         customerReference: getOptionalString(req.body.customerReference),
         purchaseOrderNumber: getOptionalString(req.body.purchaseOrderNumber),
-        handoverNotes: getOptionalString(req.body.notes),
+        handoverNotes: getOptionalString(req.body.handoverNotes) || getOptionalString(req.body.notes),
+        handoverContactName: getOptionalString(req.body.handoverContactName),
+        handoverContactPhone: getOptionalString(req.body.handoverContactPhone),
 
         distanceMiles: calculation.distanceMiles,
         basePrice: calculation.basePrice,
@@ -1551,6 +1561,7 @@ router.post("/", async (req, res) => {
         returnAddress: req.body.returnAddress || null,
         extraDrops: req.body.extraDrops || null,
         whatAreWeCollecting: req.body.whatAreWeCollecting || null,
+        returnCapacityPercent: req.body.returnCapacityPercent ? Number(req.body.returnCapacityPercent) : null,
         loadDescription: req.body.loadDescription || null,
         specialInstructions: req.body.specialInstructions || null,
         handoverContactName: req.body.handoverContactName || null,
