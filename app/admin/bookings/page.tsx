@@ -25,6 +25,7 @@ const END_HOUR = 24;
 const HOUR_WIDTH = 100;
 const VEHICLE_COLUMN_WIDTH = 220;
 const ROW_HEIGHT = 88;
+const END_MARKER_WIDTH = 72;
 
 type Vehicle = {
   id: string;
@@ -579,7 +580,7 @@ export default function AdminBookingsPage() {
             <div
               className="min-w-max"
               style={{
-                width: VEHICLE_COLUMN_WIDTH + timelineWidth,
+                width: VEHICLE_COLUMN_WIDTH + timelineWidth + END_MARKER_WIDTH,
               }}
             >
               <div className="flex border-b border-slate-300 bg-slate-50">
@@ -604,7 +605,7 @@ export default function AdminBookingsPage() {
                     height: 58,
                   }}
                 >
-                  {hours.map((hour, index) => {
+                  {hours.slice(0, -1).map((hour, index) => {
                     const left = index * HOUR_WIDTH;
 
                     return (
@@ -615,12 +616,15 @@ export default function AdminBookingsPage() {
                           left,
                         }}
                       >
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-600">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-[13px] font-bold text-slate-700">
                           {String(hour).padStart(2, "0")}:00
                         </span>
                       </div>
                     );
                   })}
+                </div>
+                <div className="flex shrink-0 items-center border-l border-slate-300 bg-slate-50 px-2 text-[13px] font-bold text-slate-700" style={{ width: END_MARKER_WIDTH, height: 58 }} aria-label="End of day, 24:00">
+                  24:00
                 </div>
               </div>
 
@@ -686,7 +690,7 @@ export default function AdminBookingsPage() {
                           key={`${vehicle.id}-${hour}`}
                           className="pointer-events-none absolute top-0 h-full border-l border-slate-200"
                           style={{
-                            left: index * HOUR_WIDTH,
+                            left: hour === END_HOUR ? timelineWidth - 1 : index * HOUR_WIDTH,
                           }}
                         />
                       ))}
@@ -707,6 +711,7 @@ export default function AdminBookingsPage() {
                         </div>
                       ) : null}
                     </div>
+                    <div aria-hidden="true" className="shrink-0 border-l border-slate-200 bg-slate-50" style={{ width: END_MARKER_WIDTH }} />
                   </div>
                 );
               })}
