@@ -397,7 +397,19 @@ export default function CustomerAccountPage() {
     }
 
     return customer.invoices.filter((invoice) =>
-      ["DRAFT", "OVERDUE", "PENDING"].includes(
+      ["DRAFT", "PENDING"].includes(
+        invoice.status.toUpperCase(),
+      ),
+    );
+  }, [customer]);
+
+  const finalisedIssuedInvoices = useMemo(() => {
+    if (!customer?.invoices) {
+      return [];
+    }
+
+    return customer.invoices.filter((invoice) =>
+      ["FINALISED", "SENT", "ISSUED", "OVERDUE", "PARTIALLY_PAID"].includes(
         invoice.status.toUpperCase(),
       ),
     );
@@ -1393,6 +1405,13 @@ export default function CustomerAccountPage() {
               invoices={pendingInvoices}
               customerId={customer.id}
               emptyMessage="No pending invoices."
+            />
+
+            <InvoiceSection
+              title="Finalised & Issued Invoices"
+              invoices={finalisedIssuedInvoices}
+              customerId={customer.id}
+              emptyMessage="No finalised or issued invoices."
             />
 
             <InvoiceSection
