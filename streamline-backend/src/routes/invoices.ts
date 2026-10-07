@@ -512,7 +512,18 @@ router.get("/admin/manual-options", async (req, res) => {
     const [customers, settings] = await Promise.all([
       prisma.user.findMany({
         orderBy: [{ companyName: "asc" }, { name: "asc" }],
-        select: { id: true, name: true, companyName: true, email: true, phone: true, accountNumber: true, registeredAddressLine1: true, registeredAddressLine2: true, registeredTownCity: true, registeredCounty: true, registeredPostcode: true, registeredCountry: true, billingProfile: { select: { paymentTermsDays: true, accountsEmail: true } } },
+        select: {
+          id: true, accountType: true, name: true, companyName: true, email: true, accountsEmail: true,
+          phone: true, alternativeContactNumber: true, accountNumber: true,
+          registeredAddressLine1: true, registeredAddressLine2: true, registeredTownCity: true,
+          registeredCounty: true, registeredPostcode: true, registeredCountry: true,
+          billingProfile: { select: { paymentTermsDays: true, accountsEmail: true } },
+          tradeAccount: { select: {
+            companyName: true, paymentTermsDays: true, accountsEmail: true, invoiceDeliveryEmail: true,
+            accountsPhone: true, primaryMobile: true, registeredAddressLine1: true, registeredAddressLine2: true,
+            registeredTownCity: true, registeredCounty: true, registeredPostcode: true, registeredCountry: true,
+          } },
+        },
       }),
       prisma.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true, paymentTermsDays: true } }),
     ]);

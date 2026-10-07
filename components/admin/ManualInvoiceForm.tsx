@@ -12,10 +12,16 @@ type EditableInvoice = {
   auditEvents?: { eventType: string; metadata?: unknown }[];
 };
 type Customer = {
-  id: string; name: string; companyName?: string | null; email: string; phone?: string | null; accountNumber?: string | null;
+  id: string; accountType: "PRIVATE" | "BUSINESS" | "TRADE"; accountsEmail?: string | null; alternativeContactNumber?: string | null; name: string; companyName?: string | null; email: string; phone?: string | null; accountNumber?: string | null;
   registeredAddressLine1?: string | null; registeredAddressLine2?: string | null; registeredTownCity?: string | null;
   registeredCounty?: string | null; registeredPostcode?: string | null; registeredCountry?: string | null;
   billingProfile?: { paymentTermsDays: number; accountsEmail?: string | null } | null;
+  tradeAccount?: {
+    companyName: string; paymentTermsDays: number; accountsEmail?: string | null; invoiceDeliveryEmail?: string | null;
+    accountsPhone?: string | null; primaryMobile?: string | null;
+    registeredAddressLine1?: string | null; registeredAddressLine2?: string | null; registeredTownCity?: string | null;
+    registeredCounty?: string | null; registeredPostcode?: string | null; registeredCountry?: string | null;
+  } | null;
 };
 
 export function manualInvoiceDetails(invoice: { auditEvents?: { eventType: string; metadata?: unknown }[] }): Details | null {
@@ -60,19 +66,31 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [defaultVat, setDefaultVat] = useState("20");
   const [loading, setLoading] = useState(true);
+  const [optionsReady, setOptionsReady] = useState(false);
+  const [defaultTermsDays, setDefaultTermsDays] = useState(30);
+  const [reload, setReload] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [requestId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     const controller = new AbortController();
+    setLoading(true); setOptionsReady(false); setError("");
     async function load() {
       try {
         const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/manual-options`, { headers: { "x-admin-key": adminKey }, cache: "no-store", signal: controller.signal });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Unable to load invoice options.");
+        if (!response.ok) {
+          if (response.status === 404 && data.error === "Invoice not found.") {
+            throw new Error("The backend has not loaded the Manual Invoice update yet. Build and deploy the updated backend, then click Retry.");
+          }
+          throw new Error(data.error || "Unable to load invoice options.");
+        }
+        if (!Array.isArray(data.customers)) throw new Error("The backend returned an invalid customer list. Click Retry.");
         if (!controller.signal.aborted) {
-          setCustomers(data.customers || []);
+          setCustomers(data.customers);
+          setOptionsReady(true);
+          setDefaultTermsDays(Number(data.paymentTermsDays ?? 30));
           setDefaultVat(String(data.vatRate ?? 20));
           if (!invoice) {
             const days = Number(data.paymentTermsDays ?? 30);
@@ -86,16 +104,22 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
     }
     void load();
     return () => controller.abort();
-  }, [apiBase, adminKey, invoice]);
+  }, [apiBase, adminKey, invoice, reload]);
 
   function update(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })); }
   function selectCustomer(userId: string) {
     const customer = customers.find((item) => item.id === userId);
-    if (!customer) { setForm((current) => ({ ...current, userId: "", recipientName: "", recipientEmail: "", recipientAddress: "", recipientPhone: "" })); return; }
-    const days = customer.billingProfile?.paymentTermsDays ?? 30;
-    setForm((current) => ({ ...current, userId, recipientName: customer.companyName || customer.name,
-      recipientEmail: customer.billingProfile?.accountsEmail || customer.email, recipientPhone: customer.phone || "",
-      recipientAddress: [customer.registeredAddressLine1, customer.registeredAddressLine2, customer.registeredTownCity, customer.registeredCounty, customer.registeredPostcode, customer.registeredCountry].filter(Boolean).join(", "),
+    if (!customer) {
+      setForm((current) => ({ ...current, userId: "", recipientName: "", recipientEmail: "", recipientAddress: "", recipientPhone: "", paymentTerms: String(defaultTermsDays) + " days", dueDate: addDays(current.invoiceDate, defaultTermsDays) }));
+      return;
+    }
+    const trade = customer.accountType === "TRADE" ? customer.tradeAccount : null;
+    const days = customer.billingProfile?.paymentTermsDays ?? trade?.paymentTermsDays ?? defaultTermsDays;
+    const customerAddress = [customer.registeredAddressLine1, customer.registeredAddressLine2, customer.registeredTownCity, customer.registeredCounty, customer.registeredPostcode, customer.registeredCountry].filter(Boolean).join(", ");
+    const tradeAddress = trade ? [trade.registeredAddressLine1, trade.registeredAddressLine2, trade.registeredTownCity, trade.registeredCounty, trade.registeredPostcode, trade.registeredCountry].filter(Boolean).join(", ") : "";
+    setForm((current) => ({ ...current, userId, recipientName: customer.companyName || trade?.companyName || customer.name,
+      recipientEmail: trade?.invoiceDeliveryEmail || customer.billingProfile?.accountsEmail || trade?.accountsEmail || customer.accountsEmail || customer.email, recipientPhone: trade?.accountsPhone || customer.phone || trade?.primaryMobile || customer.alternativeContactNumber || "",
+      recipientAddress: customerAddress || tradeAddress,
       paymentTerms: `${days} days`, dueDate: addDays(current.invoiceDate, days),
     }));
   }
@@ -108,7 +132,7 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving) return;
+    if (saving || !optionsReady) return;
     setSaving(true); setError("");
     try {
       const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/${invoice ? `${invoice.id}/manual` : "manual"}`, {
@@ -130,10 +154,11 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
           <button type="button" onClick={onClose} disabled={saving} aria-label="Close manual invoice" className="rounded-xl border border-slate-200 p-2 text-slate-600 disabled:opacity-50"><X size={20} /></button>
         </div>
         <form onSubmit={(event) => void save(event)} className="space-y-6 p-5 sm:p-6">
-          {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
+          {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700"><p>{error}</p>{!optionsReady && !loading && <button type="button" onClick={() => setReload((value) => value + 1)} className="mt-3 rounded-lg border border-red-300 px-4 py-2">Retry loading accounts</button>}</div>}
           {loading && <p className="flex items-center gap-2 text-sm text-slate-600"><Loader2 size={18} className="animate-spin" />Loading customer accounts…</p>}
-          <fieldset disabled={saving || loading} className="space-y-6 disabled:opacity-70">
-            <label className="block text-sm font-bold text-slate-700">Customer account<select value={form.userId} onChange={(event) => selectCustomer(event.target.value)} className={fieldClass}><option value="">New / guest recipient — no account</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.companyName || customer.name}{customer.accountNumber ? ` · ${customer.accountNumber}` : ""} · {customer.email}</option>)}</select></label>
+          <fieldset disabled={saving || loading || !optionsReady} className="space-y-6 disabled:opacity-70">
+            <label className="block text-sm font-bold text-slate-700">Customer account<select value={form.userId} onChange={(event) => selectCustomer(event.target.value)} className={fieldClass}><option value="">New / guest recipient — no account</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : customer.accountType === "BUSINESS" ? "Business" : "Private"} · {customer.companyName || customer.name}{customer.accountNumber ? ` · ${customer.accountNumber}` : ""} · {customer.email}</option>)}</select></label>
+            <p className="text-sm font-semibold text-slate-700">Account type: {form.userId ? (customers.find((customer) => customer.id === form.userId)?.accountType === "TRADE" ? "Trade" : customers.find((customer) => customer.id === form.userId)?.accountType === "BUSINESS" ? "Business" : "Private") : "Guest — enter recipient details manually"}</p>
             <p className="text-sm text-slate-600">The billing details below belong to this invoice. Editing them does not change a customer account.</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-bold text-slate-700">Recipient / company name<input required maxLength={150} value={form.recipientName} onChange={(e) => update("recipientName", e.target.value)} className={fieldClass} /></label>
@@ -166,7 +191,7 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
           </fieldset>
           <div className="grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-3"><div><p className="text-sm text-slate-600">Subtotal</p><p className="text-lg font-bold">{money(preview.net)}</p></div><div><p className="text-sm text-slate-600">VAT</p><p className="text-lg font-bold">{money(preview.vat)}</p></div><div><p className="text-sm text-slate-600">Total</p><p className="text-lg font-bold">{money(preview.net + preview.vat)}</p></div></div>
           <p className="text-sm text-slate-600">The invoice number is assigned when saved. The invoice starts as a draft so you can review it before sending.</p>
-          <div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={saving} onClick={onClose} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || loading} className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50">{saving && <Loader2 size={17} className="animate-spin" />}{saving ? "Saving…" : invoice ? "Save Changes" : "Create Manual Invoice"}</button></div>
+          <div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={saving} onClick={onClose} className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50">Cancel</button><button type="submit" disabled={saving || loading || !optionsReady} className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50">{saving && <Loader2 size={17} className="animate-spin" />}{saving ? "Saving…" : invoice ? "Save Changes" : "Create Manual Invoice"}</button></div>
         </form>
       </section>
     </div>
