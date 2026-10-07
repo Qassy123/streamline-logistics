@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 
+import ManualInvoiceForm, { manualInvoiceDetails } from "@/components/admin/ManualInvoiceForm";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
@@ -51,13 +53,20 @@ type InvoiceAdjustment = {
 type Invoice = {
   id: string;
   invoiceNumber: string;
-  bookingId: string;
+  bookingId: string | null;
   userId?: string | null;
   status: InvoiceStatus;
   subtotal: string | number;
   vatAmount: string | number;
   total: string | number;
   dueDate?: string | null;
+  supplyDate?: string | null;
+  issuedAt?: string | null;
+  paymentTerms?: string | null;
+  customerReference?: string | null;
+  purchaseOrderNumber?: string | null;
+  notes?: string | null;
+  auditEvents?: { eventType: string; metadata?: unknown }[];
   paidAt?: string | null;
   sentAt?: string | null;
   pdfUrl?: string | null;
@@ -74,7 +83,7 @@ type Invoice = {
     phone?: string | null;
   } | null;
   invoiceType?: "SINGLE" | "CONSOLIDATED" | "ADDITIONAL_CHARGE";
-  lines?: { id: string; description: string; chargeType: string; bookingReference?: string | null; quantity: string | number; unitPrice: string | number; netAmount: string | number; vatAmount: string | number; grossAmount: string | number }[];
+  lines?: { id: string; vatRate?: string | number; sourceType?: string | null; description: string; chargeType: string; bookingReference?: string | null; quantity: string | number; unitPrice: string | number; netAmount: string | number; vatAmount: string | number; grossAmount: string | number }[];
   invoiceBookings?: { id: string; bookingReference: string; poReference?: string | null; routeDescription?: string | null; grossAmount: string | number }[];
   allocations?: {
     id: string;
@@ -224,10 +233,17 @@ function formatStatus(status: string) {
 }
 
 function accountKey(invoice: Invoice) {
-  return invoice.user?.id || "GUESTS";
+  const manual = manualInvoiceDetails(invoice);
+  return invoice.user?.id || (manual ? `MANUAL_GUEST:${manual.recipientEmail.toLowerCase()}` : "GUESTS");
+}
+
+function invoiceEmail(invoice: Invoice) {
+  return manualInvoiceDetails(invoice)?.recipientEmail || invoice.user?.email || "";
 }
 
 function accountLabel(invoice: Invoice) {
+  const manual = manualInvoiceDetails(invoice);
+  if (manual) return manual.recipientName;
   if (!invoice.user) return "Guests";
 
   return (
@@ -256,7 +272,7 @@ function requiresQuantity(calculation: string) {
 function bookingLabel(invoice: Invoice) {
   if (invoice.booking?.reference) return invoice.booking.reference;
   if (invoice.invoiceBookings?.length) return invoice.invoiceBookings.map((item) => item.bookingReference).join(", ");
-  return "Not recorded";
+  return manualInvoiceDetails(invoice) ? "Manual invoice — no booking" : "Not recorded";
 }
 
 function amountPaid(invoice: Invoice) {
@@ -305,6 +321,9 @@ function AdminInvoicesContent() {
   const [creditAmount, setCreditAmount] = useState("");
   const [creditReason, setCreditReason] = useState("");
   const [creditWorking, setCreditWorking] = useState(false);
+
+  const [showManualInvoice, setShowManualInvoice] = useState(false);
+  const [manualInvoiceToEdit, setManualInvoiceToEdit] = useState<Invoice | null>(null);
 
   const [showCreateDraft, setShowCreateDraft] = useState(false);
   const [draftCandidates, setDraftCandidates] = useState<DraftCandidate[]>([]);
@@ -818,7 +837,7 @@ function AdminInvoicesContent() {
   async function sendInvoice() {
     if (!selectedInvoice) return;
 
-    if (!selectedInvoice.user?.email) {
+    if (!invoiceEmail(selectedInvoice)) {
       setError(
         "This invoice is not linked to a customer account with a primary email address.",
       );
@@ -826,7 +845,7 @@ function AdminInvoicesContent() {
     }
 
     const confirmed = window.confirm(
-      `${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "Resend" : "Send"} ${selectedInvoice.invoiceNumber} to ${selectedInvoice.user.email}?`,
+      `${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "Resend" : "Send"} ${selectedInvoice.invoiceNumber} to ${invoiceEmail(selectedInvoice)}?`,
     );
 
     if (!confirmed) return;
@@ -860,7 +879,7 @@ function AdminInvoicesContent() {
         ),
       );
       setInvoiceMessage(
-        payload.message || `Invoice ${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "resent" : "sent"} to ${selectedInvoice.user.email}.`,
+        payload.message || `Invoice ${selectedInvoice.status === "SENT" || selectedInvoice.sentAt ? "resent" : "sent"} to ${invoiceEmail(selectedInvoice)}.`,
       );
     } catch (requestError) {
       setError(
@@ -1066,6 +1085,9 @@ function AdminInvoicesContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => { setManualInvoiceToEdit(null); setShowManualInvoice(true); }} disabled={loading || !adminKey} className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:opacity-50">
+            <Plus size={17} />Manual Invoice
+          </button>
           <button
             type="button"
             onClick={() => void openCreateDraft()}
@@ -1232,6 +1254,19 @@ function AdminInvoicesContent() {
           )}
         </section>
       </div>
+
+      {showManualInvoice && (
+        <ManualInvoiceForm
+          apiBase={API_BASE} adminKey={adminKey} invoice={manualInvoiceToEdit}
+          onClose={() => { setShowManualInvoice(false); setManualInvoiceToEdit(null); }}
+          onSaved={(value, message) => {
+            const saved = value as Invoice;
+            setInvoices((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+            setSelectedInvoice(saved); setInvoiceMessage(message);
+            setShowManualInvoice(false); setManualInvoiceToEdit(null);
+          }}
+        />
+      )}
 
       {showCreateDraft ? (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6">
@@ -1626,6 +1661,16 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
+              {manualInvoiceDetails(selectedInvoice) && (
+                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="font-bold text-slate-950">Manual invoice billing details</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm text-slate-700">{manualInvoiceDetails(selectedInvoice)?.recipientAddress}</p>
+                  <p className="mt-2 text-sm text-slate-700">{invoiceEmail(selectedInvoice)}</p>
+                  {selectedInvoice.status === "DRAFT" && (
+                    <button type="button" onClick={() => { setManualInvoiceToEdit(selectedInvoice); setShowManualInvoice(true); }} disabled={invoiceWorking} className="mt-4 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Edit Manual Invoice</button>
+                  )}
+                </section>
+              )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <InfoCard
                   label="Account"
@@ -2008,8 +2053,8 @@ function AdminInvoicesContent() {
                         : "Send invoice"}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
-                      {selectedInvoice.user?.email
-                        ? `This sends to the account primary email: ${selectedInvoice.user.email}`
+                      {invoiceEmail(selectedInvoice)
+                        ? `This sends to: ${invoiceEmail(selectedInvoice)}`
                         : "This invoice is not linked to an account primary email."}
                     </p>
                   </div>
@@ -2022,7 +2067,7 @@ function AdminInvoicesContent() {
                     type="button"
                     onClick={() => void sendInvoice()}
                     disabled={
-                      invoiceWorking || !selectedInvoice.user?.email
+                      invoiceWorking || !invoiceEmail(selectedInvoice)
                     }
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
                   >

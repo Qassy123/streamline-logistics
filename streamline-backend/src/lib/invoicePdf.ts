@@ -2,6 +2,7 @@ import PDFDocument = require("pdfkit");
 import { v2 as cloudinary } from "cloudinary";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { getManualInvoiceDetails } from "./manualInvoice";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -125,10 +126,11 @@ async function renderInvoicePdf(
     invoice.total.sub(amountPaid).sub(credited),
   );
 
+  const manualDetails = getManualInvoiceDetails(invoice);
   const accountName =
-    invoice.user?.companyName || invoice.user?.name || "Guest customer";
+    manualDetails?.recipientName || invoice.user?.companyName || invoice.user?.name || "Guest customer";
 
-  const billingAddress = [
+  const billingAddress = manualDetails?.recipientAddress || [
     invoice.user?.registeredAddressLine1,
     invoice.user?.registeredAddressLine2,
     invoice.user?.registeredTownCity,
@@ -201,13 +203,17 @@ async function renderInvoicePdf(
   });
 
   let y = 180;
-  doc.roundedRect(46, y, pageWidth, 100, 6).fill(light);
+  doc.font("Helvetica").fontSize(9);
+  const manualCustomerText = manualDetails ? [accountName, billingAddress, manualDetails.recipientEmail, manualDetails.recipientPhone].filter(Boolean).join("\n") : "";
+  const billingBoxHeight = manualDetails ? Math.max(100, doc.heightOfString(manualCustomerText, { width: 250 }) + 56) : 100;
+  doc.roundedRect(46, y, pageWidth, billingBoxHeight, 6).fill(light);
   doc.fillColor(navy).font("Helvetica-Bold").fontSize(10).text("BILL TO", 60, y + 13);
   doc.fillColor(navy).font("Helvetica").fontSize(9);
   const customerDetails = [
     accountName,
     billingAddress || null,
-    invoice.user?.email,
+    manualDetails?.recipientEmail || invoice.user?.email,
+    manualDetails?.recipientPhone ? `Tel: ${manualDetails.recipientPhone}` : null,
     invoice.user?.accountNumber
       ? `Account: ${invoice.user.accountNumber}`
       : null,
@@ -234,7 +240,7 @@ async function renderInvoicePdf(
     align: "right",
   });
 
-  y += 118;
+  y += billingBoxHeight + 18;
 
   if (booking || routeDescription) {
     doc.roundedRect(46, y, pageWidth, 72, 6).strokeColor(border).stroke();
@@ -293,7 +299,10 @@ async function renderInvoicePdf(
     const description = line.bookingReference
       ? `${line.description}\nBooking: ${line.bookingReference}`
       : line.description;
-    const rowHeight = line.bookingReference ? 38 : 30;
+    doc.font("Helvetica").fontSize(8);
+    const rowHeight = manualDetails
+      ? Math.max(line.bookingReference ? 38 : 30, doc.heightOfString(description, { width: 235 }) + 16)
+      : line.bookingReference ? 38 : 30;
     newPageIfNeeded(rowHeight + 2);
     doc.fillColor(navy).font("Helvetica").fontSize(8);
     doc.text(description, 55, y + 7, { width: 235 });
@@ -305,7 +314,7 @@ async function renderInvoicePdf(
       width: 76,
       align: "right",
     });
-    doc.text(`${Number(line.vatRate).toFixed(0)}%`, 436, y + 7, {
+    doc.text(`${manualDetails ? Number(line.vatRate).toString() : Number(line.vatRate).toFixed(0)}%`, 436, y + 7, {
       width: 42,
       align: "right",
     });
@@ -418,6 +427,18 @@ async function renderInvoicePdf(
   if (settings.footerMessage) {
     doc.fillColor(grey).font("Helvetica").fontSize(8);
     doc.text(settings.footerMessage, 46, y + 82, { width: pageWidth });
+  }
+
+  if (manualDetails && invoice.notes) {
+    doc.font("Helvetica").fontSize(8);
+    let notesY = Math.max(y + 110, doc.y + 24);
+    const notesHeight = doc.heightOfString(invoice.notes, { width: pageWidth }) + 24;
+    if (notesY + notesHeight > doc.page.height - 90) {
+      addPage();
+      notesY = 50;
+    }
+    doc.fillColor(navy).font("Helvetica-Bold").fontSize(9).text("INVOICE NOTES", 46, notesY);
+    doc.fillColor(grey).font("Helvetica").fontSize(8).text(invoice.notes, 46, notesY + 18, { width: pageWidth });
   }
 
   drawFooter();

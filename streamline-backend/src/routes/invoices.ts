@@ -3,6 +3,8 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer } from "../lib/invoicePdf";
 
+import { getManualInvoiceDetails, parseManualInvoiceInput } from "../lib/manualInvoice";
+
 const router = Router();
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -502,6 +504,93 @@ router.get("/admin/draft-candidates", async (req, res) => {
   }
 });
 
+// Manual invoices use normal invoice lines and retain a billing snapshot in the audit record.
+router.get("/admin/manual-options", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const [customers, settings] = await Promise.all([
+      prisma.user.findMany({
+        orderBy: [{ companyName: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, companyName: true, email: true, phone: true, accountNumber: true, registeredAddressLine1: true, registeredAddressLine2: true, registeredTownCity: true, registeredCounty: true, registeredPostcode: true, registeredCountry: true, billingProfile: { select: { paymentTermsDays: true, accountsEmail: true } } },
+      }),
+      prisma.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true, paymentTermsDays: true } }),
+    ]);
+    res.json({ customers, vatRate: settings?.vatRate.toString() ?? "20", paymentTermsDays: settings?.paymentTermsDays ?? 30 });
+  } catch (error) {
+    console.error("Manual invoice options error:", error);
+    res.status(500).json({ error: "Unable to load manual invoice options." });
+  }
+});
+
+router.post("/admin/manual", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const input = parseManualInvoiceInput(req.body);
+    const requestId = getString(req.body.requestId);
+    if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) return res.status(400).json({ error: "Manual invoice request ID is missing. Reopen the form and try again." });
+    const existingRequest = await prisma.invoiceAuditEvent.findFirst({ where: { eventType: "MANUAL_INVOICE_CREATED", metadata: { path: ["requestId"], equals: requestId } } });
+    if (existingRequest) {
+      const invoice = await prisma.invoice.findUnique({ where: { id: existingRequest.invoiceId }, include: invoiceInclude() });
+      return res.json({ success: true, invoice, message: "Manual invoice already saved." });
+    }
+    if (input.userId && !(await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true } }))) return res.status(400).json({ error: "Customer account does not exist." });
+    const invoice = await prisma.$transaction(async (tx) => {
+      const previousRequest = await tx.invoiceAuditEvent.findFirst({ where: { eventType: "MANUAL_INVOICE_CREATED", metadata: { path: ["requestId"], equals: requestId } } });
+      if (previousRequest) return tx.invoice.findUniqueOrThrow({ where: { id: previousRequest.invoiceId }, include: invoiceInclude() });
+      const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" } });
+      if (!settings) throw new Error("Configure Company Settings before creating invoices.");
+      const counter = await tx.companySettings.update({ where: { id: settings.id }, data: { nextInvoiceNumber: { increment: 1 } }, select: { invoicePrefix: true, nextInvoiceNumber: true } });
+      const invoiceNumber = `${counter.invoicePrefix}-${String(counter.nextInvoiceNumber - 1).padStart(6, "0")}`;
+      const saved = await tx.invoice.create({
+        data: {
+          invoiceNumber, userId: input.userId, status: "DRAFT", invoiceType: "SINGLE",
+          subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
+          issuedAt: input.invoiceDate, dueDate: input.dueDate, supplyDate: input.supplyDate,
+          paymentTerms: input.paymentTerms, customerReference: input.customerReference, purchaseOrderNumber: input.purchaseOrderNumber, notes: input.notes,
+          lines: { create: input.lines },
+          auditEvents: { create: { eventType: "MANUAL_INVOICE_CREATED", description: `Manual draft ${invoiceNumber} created without a booking.`, metadata: { ...input.recipient, requestId } } },
+        }, include: invoiceInclude(),
+      });
+      return saved;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    res.status(201).json({ success: true, invoice, message: "Manual draft invoice created. Review it, then finalise and send." });
+  } catch (error) {
+    console.error("Manual invoice creation error:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2034", "P2002"].includes(error.code)) return res.status(409).json({ error: "Another invoice was saved at the same time. Try Save again." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Unable to create manual invoice." });
+  }
+});
+
+router.patch("/admin/:id/manual", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const input = parseManualInvoiceInput(req.body);
+    if (input.userId && !(await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true } }))) return res.status(400).json({ error: "Customer account does not exist." });
+    const invoice = await prisma.$transaction(async (tx) => {
+      const existing = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
+      if (!existing || !getManualInvoiceDetails(existing)) throw new Error("Manual invoice not found.");
+      if (existing.status !== "DRAFT") throw new Error("Only draft manual invoices can be edited. Reopen the invoice first.");
+      if (existing.adjustments.length) throw new Error("Remove additional charges and discounts before editing manual lines, then reapply them afterwards.");
+      await tx.invoiceLine.deleteMany({ where: { invoiceId: existing.id, sourceType: "MANUAL" } });
+      return tx.invoice.update({ where: { id: existing.id }, data: {
+        userId: input.userId, subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
+        issuedAt: input.invoiceDate, dueDate: input.dueDate, supplyDate: input.supplyDate,
+        paymentTerms: input.paymentTerms, customerReference: input.customerReference, purchaseOrderNumber: input.purchaseOrderNumber, notes: input.notes,
+        lines: { create: input.lines },
+        auditEvents: { create: { eventType: "MANUAL_INVOICE_UPDATED", description: "Manual invoice recipient, dates and charge lines updated.", metadata: input.recipient } },
+      }, include: invoiceInclude() });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    res.json({ success: true, invoice, message: "Manual draft invoice updated." });
+  } catch (error) {
+    console.error("Manual invoice update error:", error);
+    res.status(400).json({ error: error instanceof Error ? error.message : "Unable to update manual invoice." });
+  }
+});
+
+
 router.post("/admin/draft", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -967,7 +1056,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: req.params.id },
-      include: { adjustments: true },
+      include: { adjustments: true, lines: true },
     });
 
     if (!invoice) {
@@ -1079,7 +1168,9 @@ router.post("/admin/:id/adjustments", async (req, res) => {
     const baseSubtotal = roundMoney(
       invoice.subtotal.sub(existingAdjustmentNetTotal),
     );
-    const baseVat = roundMoney(baseSubtotal.mul(vatRate).div(100));
+    const baseVat = invoice.lines.some((line) => line.sourceType === "MANUAL")
+      ? roundMoney(invoice.vatAmount.sub(existingAdjustmentVatTotal))
+      : roundMoney(baseSubtotal.mul(vatRate).div(100));
 
     const nextSubtotal = roundMoney(invoice.subtotal.add(netAmount));
     const nextVat = roundMoney(
@@ -1169,6 +1260,7 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({
       where: { id: req.params.id },
+      include: { lines: true, adjustments: true },
     });
 
     if (!invoice) {
@@ -1215,7 +1307,9 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
         allAdjustmentNetTotal._sum.netAmount ?? new Prisma.Decimal(0),
       ),
     );
-    const baseVat = roundMoney(baseSubtotal.mul(vatRate).div(100));
+    const baseVat = invoice.lines.some((line) => line.sourceType === "MANUAL")
+      ? roundMoney(invoice.vatAmount.sub(invoice.adjustments.reduce((sum, item) => sum.add(item.vatAmount), new Prisma.Decimal(0))))
+      : roundMoney(baseSubtotal.mul(vatRate).div(100));
     const remainingAdjustmentVatTotal = remainingAdjustments.reduce(
       (sum, item) => sum.add(item.vatAmount),
       new Prisma.Decimal(0),
@@ -1340,16 +1434,17 @@ router.post("/admin/:id/send", async (req, res) => {
       });
     }
 
-    if (!invoice.user?.email) {
+    const manualDetails = getManualInvoiceDetails(invoice);
+    const recipient = manualDetails?.recipientEmail || invoice.user?.email;
+    if (!recipient) {
       return res.status(400).json({
         error:
           "This invoice is not linked to a customer account with a primary email address.",
       });
     }
 
-    const recipient = invoice.user.email;
     const accountName =
-      invoice.user.companyName || invoice.user.name || recipient;
+      manualDetails?.recipientName || invoice.user?.companyName || invoice.user?.name || recipient;
 
     let providerMessageId: string | null = null;
     let pdfBuffer: Buffer | null = null;
@@ -1369,7 +1464,7 @@ router.post("/admin/:id/send", async (req, res) => {
         to: recipient,
         invoiceNumber: invoice.invoiceNumber,
         accountName,
-        bookingReference: invoice.booking?.reference || invoice.invoiceBookings[0]?.bookingReference || "Multiple bookings",
+        bookingReference: invoice.booking?.reference || invoice.invoiceBookings[0]?.bookingReference || (manualDetails ? "Manual invoice" : "Multiple bookings"),
         subtotal: invoice.subtotal,
         vatAmount: invoice.vatAmount,
         total: invoice.total,
