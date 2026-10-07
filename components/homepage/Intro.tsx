@@ -33,7 +33,7 @@ export default function Intro() {
           </div>
 
           <div className="text-center">
-            <h2 className="mb-2 text-2xl font-bold text-white lg:text-3xl">
+            <h2 className="mb-2 text-xl font-bold leading-snug text-white lg:text-2xl">
               Same Day Courier & Logistics Services
             </h2>
 
