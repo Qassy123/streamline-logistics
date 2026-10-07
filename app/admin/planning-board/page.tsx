@@ -1960,7 +1960,8 @@ export default function AdminPlanningBoardPage() {
                         },
                         (_, index) => {
                           const hour = TIMELINE_START_HOUR + index;
-                          const left = index * HOUR_WIDTH;
+                          const isEndOfDay = hour === TIMELINE_END_HOUR;
+                          const left = isEndOfDay ? TIMELINE_WIDTH - 1 : index * HOUR_WIDTH;
 
                           return (
                             <div
@@ -1968,7 +1969,7 @@ export default function AdminPlanningBoardPage() {
                               className="absolute top-0 h-full border-l border-slate-200"
                               style={{ left }}
                             >
-                              <span className="absolute left-2 top-5 text-xs font-bold text-slate-500">
+                              <span className={`absolute top-5 whitespace-nowrap text-[13px] font-bold text-slate-700 ${isEndOfDay ? "right-2" : "left-2"}`}>
                                 {String(hour).padStart(2, "0")}:00
                               </span>
                             </div>
@@ -2083,7 +2084,9 @@ export default function AdminPlanningBoardPage() {
                                   key={index}
                                   className="pointer-events-none absolute top-0 h-full border-l border-slate-100"
                                   style={{
-                                    left: index * HOUR_WIDTH,
+                                    left: index === TIMELINE_END_HOUR - TIMELINE_START_HOUR
+                                      ? TIMELINE_WIDTH - 1
+                                      : index * HOUR_WIDTH,
                                   }}
                                 />
                               ),
