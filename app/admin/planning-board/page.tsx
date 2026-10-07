@@ -46,6 +46,7 @@ const TIMELINE_END_HOUR = 24;
 const HOUR_WIDTH = 100;
 const VEHICLE_COLUMN_WIDTH = 220;
 const ROW_HEIGHT = 88;
+const END_MARKER_WIDTH = 72;
 const TIMELINE_WIDTH = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * HOUR_WIDTH;
 
 const COLLECTION_WINDOWS = [
@@ -1939,16 +1940,16 @@ export default function AdminPlanningBoardPage() {
                 <div
                   className="relative"
                   style={{
-                    minWidth: VEHICLE_COLUMN_WIDTH + TIMELINE_WIDTH,
+                    minWidth: VEHICLE_COLUMN_WIDTH + TIMELINE_WIDTH + END_MARKER_WIDTH,
                   }}
                 >
                   <div
                     className="sticky top-0 z-20 grid border-b border-slate-200 bg-white"
                     style={{
-                      gridTemplateColumns: `${VEHICLE_COLUMN_WIDTH}px ${TIMELINE_WIDTH}px`,
+                      gridTemplateColumns: `${VEHICLE_COLUMN_WIDTH}px ${TIMELINE_WIDTH}px ${END_MARKER_WIDTH}px`,
                     }}
                   >
-                    <div className="flex h-16 items-center border-r border-slate-200 px-5 text-sm font-bold text-slate-700">
+                    <div className="sticky left-0 z-30 flex h-16 items-center border-r border-slate-300 bg-white px-5 text-sm font-bold text-slate-700 shadow-[4px_0_8px_-4px_rgba(15,23,42,0.25)]">
                       Vehicle
                     </div>
 
@@ -1956,12 +1957,11 @@ export default function AdminPlanningBoardPage() {
                       {Array.from(
                         {
                           length:
-                            TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1,
+                            TIMELINE_END_HOUR - TIMELINE_START_HOUR,
                         },
                         (_, index) => {
                           const hour = TIMELINE_START_HOUR + index;
-                          const isEndOfDay = hour === TIMELINE_END_HOUR;
-                          const left = isEndOfDay ? TIMELINE_WIDTH - 1 : index * HOUR_WIDTH;
+                          const left = index * HOUR_WIDTH;
 
                           return (
                             <div
@@ -1969,13 +1969,16 @@ export default function AdminPlanningBoardPage() {
                               className="absolute top-0 h-full border-l border-slate-200"
                               style={{ left }}
                             >
-                              <span className={`absolute top-5 whitespace-nowrap text-[13px] font-bold text-slate-700 ${isEndOfDay ? "right-2" : "left-2"}`}>
+                              <span className="absolute left-2 top-5 whitespace-nowrap text-[13px] font-bold text-slate-700">
                                 {String(hour).padStart(2, "0")}:00
                               </span>
                             </div>
                           );
                         },
                       )}
+                    </div>
+                    <div className="flex h-16 items-center border-l border-slate-300 bg-slate-50 px-2 text-[13px] font-bold text-slate-700" aria-label="End of day, 24:00">
+                      24:00
                     </div>
                   </div>
 
@@ -1994,11 +1997,11 @@ export default function AdminPlanningBoardPage() {
                           key={vehicle.id}
                           className="grid border-b border-slate-200 last:border-b-0"
                           style={{
-                            gridTemplateColumns: `${VEHICLE_COLUMN_WIDTH}px ${TIMELINE_WIDTH}px`,
+                            gridTemplateColumns: `${VEHICLE_COLUMN_WIDTH}px ${TIMELINE_WIDTH}px ${END_MARKER_WIDTH}px`,
                             minHeight: ROW_HEIGHT,
                           }}
                         >
-                          <div className="flex min-h-[88px] flex-col justify-center border-r border-slate-200 bg-slate-50 px-5">
+                          <div className="sticky left-0 z-20 flex min-h-[88px] flex-col justify-center border-r border-slate-300 bg-slate-50 px-5 shadow-[4px_0_8px_-4px_rgba(15,23,42,0.25)]">
                             <p className="font-bold text-slate-950">
                               {vehicle.registration ||
                                 vehicle.name ||
@@ -2133,6 +2136,7 @@ export default function AdminPlanningBoardPage() {
                               );
                             })}
                           </div>
+                          <div aria-hidden="true" className="border-l border-slate-200 bg-slate-50" />
                         </div>
                       );
                     })
