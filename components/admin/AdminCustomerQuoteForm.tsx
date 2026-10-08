@@ -1,5 +1,8 @@
 "use client";
 
+import { vehicleDetails } from "@/lib/vehicleDetails";
+import VehicleDetailsModal from "@/components/VehicleDetailsModal";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HelpCircle } from "lucide-react";
 
@@ -121,64 +124,7 @@ const twoHourWindows = [
   "22:00-00:00",
 ];
 
-const vehicleDetails: Record<
-  string,
-  {
-    label: string;
-    length: string;
-    width: string;
-    height: string;
-    pallets: string;
-    maxWeight: string;
-    image: string;
-  }
-> = {
-  "Small Van": {
-    label: "Small Van",
-    length: "1.5m",
-    width: "1.2m",
-    height: "1.1m",
-    pallets: "1 pallet",
-    maxWeight: "400kg",
-    image: "/Vehicles/smallvan.jpg",
-  },
-  "SWB Van": {
-    label: "SWB Van",
-    length: "2.4m",
-    width: "1.6m",
-    height: "1.4m",
-    pallets: "2 pallets",
-    maxWeight: "900kg",
-    image: "/Vehicles/swb.jpeg",
-  },
-  "LWB High Roof Van": {
-    label: "LWB High Roof Van",
-    length: "3.4m",
-    width: "1.7m",
-    height: "1.7m",
-    pallets: "3 pallets",
-    maxWeight: "1,200kg",
-    image: "/Vehicles/lwb.jpg",
-  },
-  "XLWB High Roof Van": {
-    label: "XLWB High Roof Van",
-    length: "4.2m",
-    width: "1.7m",
-    height: "1.9m",
-    pallets: "4 pallets",
-    maxWeight: "1,400kg",
-    image: "/Vehicles/XLWB High Roof.jpg",
-  },
-  "Luton Tail Lift Van": {
-    label: "Luton Tail Lift Van",
-    length: "4.0m",
-    width: "2.0m",
-    height: "2.0m",
-    pallets: "6 pallets",
-    maxWeight: "1,000kg",
-    image: "/Vehicles/Luton Tail Lift.jpg",
-  },
-};
+
 
 const vehicleOptions = [
   "Small Van",
@@ -2198,59 +2144,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
         </form>
       </div>
 
-      {showVehicleModal &&
-        selectedVehicle &&
-        vehicleDetails[selectedVehicle] && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6 backdrop-blur-sm">
-            <div className="w-full max-w-3xl overflow-hidden rounded-[2rem] bg-white shadow-2xl">
-              <div className="flex items-start justify-between gap-6 bg-[#0F172A] p-6 text-white">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#FF9A52]">
-                    Vehicle Details
-                  </p>
-
-                  <h2 className="mt-2 text-3xl font-bold">
-                    {vehicleDetails[selectedVehicle].label}
-                  </h2>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowVehicleModal(false)}
-                  className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="p-6">
-                <img
-                  src={vehicleDetails[selectedVehicle].image}
-                  alt={vehicleDetails[selectedVehicle].label}
-                  className="h-64 w-full rounded-3xl border border-[#E2E8F0] bg-[#F8FAFC] object-contain"
-                />
-
-                <div className="mt-6 grid gap-4 text-sm text-[#0F172A] md:grid-cols-2">
-                  <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
-                    Length: {vehicleDetails[selectedVehicle].length}
-                  </div>
-                  <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
-                    Width: {vehicleDetails[selectedVehicle].width}
-                  </div>
-                  <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
-                    Height: {vehicleDetails[selectedVehicle].height}
-                  </div>
-                  <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
-                    Pallets: {vehicleDetails[selectedVehicle].pallets}
-                  </div>
-                  <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4 md:col-span-2">
-                    Max Weight: {vehicleDetails[selectedVehicle].maxWeight}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+      {showVehicleModal && selectedVehicle && vehicleDetails[selectedVehicle] && <VehicleDetailsModal vehicleName={selectedVehicle} onClose={() => setShowVehicleModal(false)} admin />}
     </main>
   );
 }

@@ -1,5 +1,8 @@
 "use client";
 
+import { vehicleDetails } from "@/lib/vehicleDetails";
+import VehicleDetailsModal from "@/components/VehicleDetailsModal";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -62,64 +65,7 @@ const collectingOptions = [
   "Large Item",
   "Pallet",
 ];
-const vehicleDetails: Record<
-  string,
-  {
-    label: string;
-    length: string;
-    width: string;
-    height: string;
-    pallets: string;
-    maxWeight: string;
-    image: string;
-  }
-> = {
-  "Small Van": {
-    label: "Small Van",
-    length: "1.5m",
-    width: "1.2m",
-    height: "1.1m",
-    pallets: "1 pallet",
-    maxWeight: "400kg",
-    image: "/Vehicles/smallvan.jpg",
-  },
-  "SWB Van": {
-    label: "SWB Van",
-    length: "2.4m",
-    width: "1.6m",
-    height: "1.4m",
-    pallets: "2 pallets",
-    maxWeight: "900kg",
-    image: "/Vehicles/swb.jpeg",
-  },
-  "LWB High Roof Van": {
-    label: "LWB High Roof Van",
-    length: "3.4m",
-    width: "1.7m",
-    height: "1.7m",
-    pallets: "3 pallets",
-    maxWeight: "1,200kg",
-    image: "/Vehicles/lwb.jpg",
-  },
-  "XLWB High Roof Van": {
-    label: "XLWB High Roof Van",
-    length: "4.2m",
-    width: "1.7m",
-    height: "1.9m",
-    pallets: "4 pallets",
-    maxWeight: "1,400kg",
-    image: "/Vehicles/XLWB High Roof.jpg",
-  },
-  "Luton Tail Lift Van": {
-    label: "Luton Tail Lift Van",
-    length: "4.0m",
-    width: "2.0m",
-    height: "2.0m",
-    pallets: "6 pallets",
-    maxWeight: "1,000kg",
-    image: "/Vehicles/Luton Tail Lift.jpg",
-  },
-};
+
 
 type AddressFields = {
   addressLine1: string;
@@ -1209,47 +1155,7 @@ export default function CustomerQuotesPage() {
           </section>
         </aside>
       </div>
-      {showVehicleModal &&
-      form.vehicleSize &&
-      vehicleDetails[form.vehicleSize] ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-          <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white">
-            <div className="flex justify-between bg-slate-950 p-6 text-white">
-              <div>
-                <p className="text-xs uppercase tracking-widest text-orange-300">
-                  Vehicle details
-                </p>
-                <h2 className="mt-2 text-3xl font-bold">
-                  {vehicleDetails[form.vehicleSize].label}
-                </h2>
-              </div>
-              <button type="button" onClick={() => setShowVehicleModal(false)}>
-                Close
-              </button>
-            </div>
-            <div className="p-6">
-              <img
-                src={vehicleDetails[form.vehicleSize].image}
-                alt={vehicleDetails[form.vehicleSize].label}
-                className="h-64 w-full rounded-2xl border object-contain"
-              />
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                {[
-                  ["Length", vehicleDetails[form.vehicleSize].length],
-                  ["Width", vehicleDetails[form.vehicleSize].width],
-                  ["Height", vehicleDetails[form.vehicleSize].height],
-                  ["Pallets", vehicleDetails[form.vehicleSize].pallets],
-                  ["Max weight", vehicleDetails[form.vehicleSize].maxWeight],
-                ].map(([k, v]) => (
-                  <div key={k} className="rounded-xl border bg-slate-50 p-4">
-                    <b>{k}:</b> {v}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {showVehicleModal && form.vehicleSize && vehicleDetails[form.vehicleSize] && <VehicleDetailsModal vehicleName={form.vehicleSize} onClose={() => setShowVehicleModal(false)} admin />}
     </div>
   );
 }
