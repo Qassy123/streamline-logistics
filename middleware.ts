@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(request: NextRequest) {
+  // Email clients fetch the logo without website login credentials.
+  if (request.nextUrl.pathname === "/email-logo.png") {
+    return NextResponse.next();
+  }
+
   const authHeader = request.headers.get("authorization");
 
   if (authHeader) {
