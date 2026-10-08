@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Router } from "express";
+import { departmentEmail, departmentSender, emailLayout } from "../lib/email";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { calculateQuotePrice } from "../lib/pricing";
@@ -311,14 +312,11 @@ async function sendQuoteEmail(
   }
 
   const resendApiKey = process.env.RESEND_API_KEY?.trim();
-  const fromEmail =
-    process.env.QUOTE_FROM_EMAIL?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    process.env.RESEND_FROM_EMAIL?.trim();
+  const fromEmail = departmentSender("bookings");
 
-  if (!resendApiKey || !fromEmail) {
+  if (!resendApiKey) {
     throw new Error(
-      "Quote email is not configured. Add RESEND_API_KEY and QUOTE_FROM_EMAIL (or EMAIL_FROM).",
+      "Quote email is not configured. Add RESEND_API_KEY.",
     );
   }
 
@@ -333,14 +331,13 @@ async function sendQuoteEmail(
     quote.deliveryAddress,
   )}`;
 
-  const html = `
+  const html = emailLayout("Your delivery quote", `
     <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#0f172a">
-      <h1 style="margin-bottom:8px">Your delivery quote</h1>
       <p>Hello ${htmlEscape(
         quote.customerName || quote.companyName || "Customer",
       )},</p>
-      <p>Streamline Logistics has prepared the following quote for you.</p>
-      <table style="width:100%;border-collapse:collapse;margin:24px 0">
+      <p>Thank you for your enquiry. Streamline Logistics Group has prepared the following delivery quote.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e2e8f0;border-collapse:collapse;margin:24px 0;background:#f8fafc">
         <tr><td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>Quote</strong></td><td style="padding:10px;border-bottom:1px solid #e2e8f0">${htmlEscape(
           quote.id,
         )}</td></tr>
@@ -360,9 +357,9 @@ async function sendQuoteEmail(
           : ""
       }
       <p>Please reply to this email to accept the quote or contact the office if you need any changes.</p>
-      <p>Kind regards,<br />Streamline Logistics</p>
+      <p>Kind regards,<br /><strong>Bookings Team</strong><br />Streamline Logistics Group</p>
     </div>
-  `;
+  `, "bookings");
 
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -372,6 +369,7 @@ async function sendQuoteEmail(
     },
     body: JSON.stringify({
       from: fromEmail,
+      reply_to: departmentEmail("bookings"),
       to: [recipient],
       subject,
       html,

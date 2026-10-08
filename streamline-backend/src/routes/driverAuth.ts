@@ -145,8 +145,8 @@ router.post("/forgot-password", route(async (req, res) => {
     const url = portalUrl(`/driver/login?reset=${token}`);
     const reset = await prisma.driverPortalSession.create({ data: { driverId: driver.id, tokenHash, expiresAt: new Date(Date.now() + RESET_DURATION_MS) } });
     try {
-      const result = await sendEmail({ to: driver.email, subject: "Reset your Streamline driver password",
-        html: emailLayout("Reset driver password", `<p>Hello ${escapeHtml(driver.name)},</p><p>Use the link below to reset your driver password. It expires in 30 minutes and can be used once.</p><p><a href="${escapeHtml(url)}">Reset password</a></p><p>If you did not request this, you can ignore this email.</p>`) });
+      const result = await sendEmail({ to: driver.email, department: "operations", subject: "Reset your Streamline driver password",
+        html: emailLayout("Reset driver password", `<p>Hello ${escapeHtml(driver.name)},</p><p>Use the link below to reset your driver password. It expires in 30 minutes and can be used once.</p><p><a href="${escapeHtml(url)}" style="display:inline-block;background:#006CFF;color:#ffffff;padding:12px 20px;text-decoration:none;font-weight:700;border-radius:6px;">Reset password</a></p><p>If you did not request this, you can ignore this email.</p><p>Kind regards,<br/><strong>Operations Team</strong><br/>Streamline Logistics Group</p>`, "operations") });
       if (("skipped" in result && result.skipped) || ("error" in result && result.error)) throw new Error("Recovery email not delivered");
     } catch {
       await prisma.driverPortalSession.update({ where: { id: reset.id }, data: { revokedAt: new Date() } });
@@ -185,8 +185,8 @@ router.post("/forgot-username", route(async (req, res) => {
   if (!process.env.RESEND_API_KEY) throw new DriverPortalError(503, "Email recovery is unavailable. Contact dispatch for your username.");
   const driver = await prisma.driver.findUnique({ where: { email } });
   if (driver?.active && driver.status === "ACTIVE") {
-    try { await sendEmail({ to: driver.email, subject: "Your Streamline driver username",
-      html: emailLayout("Driver username", `<p>Hello ${escapeHtml(driver.name)},</p><p>Your username is <strong>${escapeHtml(driver.username)}</strong>.</p><p><a href="${escapeHtml(portalUrl("/driver/login"))}">Sign in to the driver portal</a></p>`) }); }
+    try { await sendEmail({ to: driver.email, department: "operations", subject: "Your Streamline driver username",
+      html: emailLayout("Driver username", `<p>Hello ${escapeHtml(driver.name)},</p><p>Your username is <strong>${escapeHtml(driver.username)}</strong>.</p><p><a href="${escapeHtml(portalUrl("/driver/login"))}" style="display:inline-block;background:#006CFF;color:#ffffff;padding:12px 20px;text-decoration:none;font-weight:700;border-radius:6px;">Sign in to the driver portal</a></p><p>Kind regards,<br/><strong>Operations Team</strong><br/>Streamline Logistics Group</p>`, "operations") }); }
     catch { console.warn("Driver username recovery email could not be delivered."); }
   }
   res.json({ message: "If this email matches an active driver account, check your inbox. If nothing arrives, contact dispatch." });

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
+import { departmentEmail, departmentSender, emailLayout } from "../lib/email";
 import { prisma } from "../lib/prisma";
 import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer } from "../lib/invoicePdf";
 
@@ -124,18 +125,12 @@ async function sendInvoiceEmail(input: {
   }>;
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const fromEmail =
-    process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim();
+  const fromEmail = departmentSender("accounts");
 
   if (!apiKey) {
     throw new Error("RESEND_API_KEY is not configured.");
   }
 
-  if (!fromEmail) {
-    throw new Error(
-      "RESEND_FROM_EMAIL or EMAIL_FROM must be configured before invoices can be sent.",
-    );
-  }
 
   const money = (value: Prisma.Decimal) =>
     new Intl.NumberFormat("en-GB", {
@@ -196,6 +191,7 @@ async function sendInvoiceEmail(input: {
     },
     body: JSON.stringify({
       from: fromEmail,
+      reply_to: departmentEmail("accounts"),
       to: [input.to],
       subject: `Invoice ${input.invoiceNumber} - Streamline Logistics Group`,
       attachments: input.pdfBuffer
@@ -206,9 +202,8 @@ async function sendInvoiceEmail(input: {
             },
           ]
         : undefined,
-      html: `
+      html: emailLayout("Your invoice", `
         <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6">
-          <h2 style="margin:0 0 16px">Streamline Logistics Group</h2>
           <p>Dear ${escapeHtml(input.accountName)},</p>
           <p>Please find the details of invoice <strong>${escapeHtml(
             input.invoiceNumber,
@@ -216,7 +211,7 @@ async function sendInvoiceEmail(input: {
             input.bookingReference,
           )}</strong>.</p>
 
-          <table style="border-collapse:collapse;width:100%;max-width:560px;margin:20px 0">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc">
             <tr>
               <td style="padding:8px;border-bottom:1px solid #e2e8f0">
                 <strong>Base service</strong>
@@ -244,9 +239,10 @@ async function sendInvoiceEmail(input: {
             </tr>
           </table>
 
-          <p>If you have any questions about this invoice, please contact Streamline Logistics Group.</p>
+          <p>Please retain this invoice for your records. If you have any questions, reply to this email and quote your invoice number.</p>
+          <p>Kind regards,<br/><strong>Accounts Team</strong><br/>Streamline Logistics Group</p>
         </div>
-      `,
+      `, "accounts"),
     }),
   });
 
@@ -275,10 +271,9 @@ async function sendInvoiceReminderEmail(input: {
   reminderType: "APPROACHING_DUE" | "DUE_TODAY" | "OVERDUE";
 }) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const fromEmail =
-    process.env.RESEND_FROM_EMAIL?.trim() || process.env.EMAIL_FROM?.trim();
+  const fromEmail = departmentSender("accounts");
 
-  if (!apiKey || !fromEmail) {
+  if (!apiKey) {
     throw new Error("Invoice reminder email is not configured.");
   }
 
@@ -306,19 +301,20 @@ async function sendInvoiceReminderEmail(input: {
     },
     body: JSON.stringify({
       from: fromEmail,
+      reply_to: departmentEmail("accounts"),
       to: [input.to],
       subject: `${heading}: ${input.invoiceNumber} - Streamline Logistics Group`,
-      html: `
+      html: emailLayout(heading, `
         <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.6">
-          <h2>${escapeHtml(heading)}</h2>
           <p>Dear ${escapeHtml(input.accountName)},</p>
           <p>This is a reminder for invoice <strong>${escapeHtml(input.invoiceNumber)}</strong>.</p>
           <p><strong>Due date:</strong> ${escapeHtml(dueText)}<br />
           <strong>Outstanding:</strong> ${escapeHtml(outstandingText)}</p>
           <p>If payment has already been arranged, no further action is required.</p>
-          <p>Streamline Logistics Group</p>
+          <p>For payment queries, reply to this email and quote your invoice number.</p>
+          <p>Kind regards,<br/><strong>Accounts Team</strong><br/>Streamline Logistics Group</p>
         </div>
-      `,
+      `, "accounts"),
     }),
   });
 

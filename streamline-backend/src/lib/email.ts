@@ -2,33 +2,52 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+export type EmailDepartment = "info" | "bookings" | "accounts" | "operations" | "support";
+
+export function departmentEmail(department: EmailDepartment): string {
+  return department + "@streamlinelogisticsgroup.co.uk";
+}
+
+export function departmentSender(department: EmailDepartment): string {
+  const names: Record<EmailDepartment, string> = {
+    info: "Streamline Logistics Group",
+    bookings: "Streamline Logistics Group - Bookings",
+    accounts: "Streamline Logistics Group - Accounts",
+    operations: "Streamline Logistics Group - Operations",
+    support: "Streamline Logistics Group - Customer Support",
+  };
+  return names[department] + " <" + departmentEmail(department) + ">";
+}
+
 type SendEmailInput = {
   to: string;
   subject: string;
   html: string;
   replyTo?: string;
+  department?: EmailDepartment;
 };
 
-export async function sendEmail({ to, subject, html, replyTo }: SendEmailInput) {
+export async function sendEmail({ to, subject, html, replyTo, department = "info" }: SendEmailInput) {
   if (!process.env.RESEND_API_KEY) {
     console.warn("RESEND_API_KEY missing. Email skipped:", subject);
     return { skipped: true };
   }
 
-  const from =
-    process.env.EMAIL_FROM ||
-    "Streamline Logistics Group <info@streamlinelogisticsgroup.co.uk>";
+  const from = department === "info"
+    ? process.env.EMAIL_FROM?.trim() || departmentSender("info")
+    : departmentSender(department);
 
   return resend.emails.send({
     from,
     to,
     subject,
     html,
-    replyTo,
+    replyTo: replyTo || departmentEmail(department),
   });
 }
 
-export function emailLayout(title: string, content: string) {
+export function emailLayout(title: string, content: string, department: EmailDepartment = "info") {
+  const contactEmail = departmentEmail(department);
   const frontendUrl =
     process.env.FRONTEND_URL || "https://streamlinelogisticsgroup.co.uk";
 
@@ -64,8 +83,8 @@ export function emailLayout(title: string, content: string) {
                   <div style="background:#f4f8ff;border:1px solid #d7e6ff;border-radius:14px;padding:18px;">
                     <p style="margin:0;font-size:14px;line-height:1.6;color:#24324b;">
                       Need help? Contact us at
-                      <a href="mailto:info@streamlinelogisticsgroup.co.uk" style="color:#006CFF;font-weight:700;text-decoration:none;">
-                        info@streamlinelogisticsgroup.co.uk
+                      <a href="mailto:${contactEmail}" style="color:#006CFF;font-weight:700;text-decoration:none;">
+                        ${contactEmail}
                       </a>
                     </p>
                   </div>
