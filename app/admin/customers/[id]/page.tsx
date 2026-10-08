@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 import { useParams, useRouter } from "next/navigation";
 import {
   FormEvent,
@@ -1631,6 +1632,20 @@ function AddressInputs({
 }) {
   return (
     <div className="grid max-w-3xl gap-3 md:grid-cols-2">
+      <PostcodeAddressLookup
+        className="md:col-span-2"
+        apiBase={(API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE) + "/api"}
+        postcode={postcode}
+        accent="orange"
+        onSelect={address => {
+          onLine1(address.addressLine1);
+          onLine2(address.addressLine2);
+          onTownCity(address.townCity);
+          onCounty(address.county);
+          onPostcode(address.postcode);
+          onCountry("United Kingdom");
+        }}
+      />
       <input
         value={line1}
         onChange={(event) =>

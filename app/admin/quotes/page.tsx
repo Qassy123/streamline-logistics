@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -643,8 +644,28 @@ export default function AdminQuotesPage() {
                 <Field label="Collection date" type="date" value={editCollectionDate} onChange={setEditCollectionDate} />
                 <Field label="Collection window" value={editCollectionWindow} onChange={setEditCollectionWindow} />
                 <Field label="Vehicle size" value={editVehicleSize} onChange={setEditVehicleSize} />
-                <Field label="Collection address" value={editCollectionAddress} onChange={setEditCollectionAddress} />
-                <Field label="Delivery address" value={editDeliveryAddress} onChange={setEditDeliveryAddress} />
+                <div className="space-y-3">
+                  <PostcodeAddressLookup
+                    key={`${selected.id}-collection`}
+                    apiBase={API_BASE + "/api"}
+                    label="Find collection address"
+                    accent="orange"
+                    disabled={saving}
+                    onSelect={address => setEditCollectionAddress(formatPostcodeAddress(address))}
+                  />
+                  <Field label="Collection address" value={editCollectionAddress} onChange={setEditCollectionAddress} />
+                </div>
+                <div className="space-y-3">
+                  <PostcodeAddressLookup
+                    key={`${selected.id}-delivery`}
+                    apiBase={API_BASE + "/api"}
+                    label="Find delivery address"
+                    accent="orange"
+                    disabled={saving}
+                    onSelect={address => setEditDeliveryAddress(formatPostcodeAddress(address))}
+                  />
+                  <Field label="Delivery address" value={editDeliveryAddress} onChange={setEditDeliveryAddress} />
+                </div>
                 <Field label="Customer reference" value={editCustomerReference} onChange={setEditCustomerReference} />
                 <Field label="Purchase order number" value={editPurchaseOrderNumber} onChange={setEditPurchaseOrderNumber} />
                 <Field label="Admin price" type="number" value={editAdminPrice} onChange={setEditAdminPrice} />

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
+import type { SelectedPostcodeAddress } from "@/components/PostcodeAddressLookup";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Banknote,
@@ -122,6 +124,25 @@ function RegisterTradeLoading() {
 }
 
 function RegisterTradeForm() {
+  const addressFormRef = useRef<HTMLFormElement>(null);
+  function fillPostcodeAddress(prefix: "registered" | "trading", address: SelectedPostcodeAddress) {
+    const form = addressFormRef.current;
+    if (!form) return;
+    const values: Record<string, string> = {
+      AddressLine1: address.addressLine1,
+      AddressLine2: address.addressLine2,
+      TownCity: address.townCity,
+      County: address.county,
+      Postcode: address.postcode,
+      Country: "United Kingdom",
+    };
+    // These existing fields are uncontrolled and submitted using FormData.
+    for (const [suffix, value] of Object.entries(values)) {
+      const input = form.elements.namedItem(prefix + suffix);
+      if (input instanceof HTMLInputElement) input.value = value;
+    }
+  }
+
   const router = useRouter();
   const [account, setAccount] = useState<AccountUser | null>(null);
   const [accountLoading, setAccountLoading] = useState(true);
@@ -289,7 +310,7 @@ function RegisterTradeForm() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="grid gap-8 p-5 sm:p-8">
+          <form ref={addressFormRef} onSubmit={handleSubmit} className="grid gap-8 p-5 sm:p-8">
             {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">{error}</div>}
 
             <FormSection icon={Building2} step="Step 1" title="Company information" text="Your existing Business Account details have been pre-filled. Complete the additional information required for the credit application.">
@@ -309,6 +330,13 @@ function RegisterTradeForm() {
 
             <FormSection icon={MapPin} step="Step 2" title="Registered business address" text="Your existing address details have been pre-filled. Check they are correct before submitting.">
               <div className="grid gap-4 md:grid-cols-2">
+                <PostcodeAddressLookup
+                  className="md:col-span-2"
+                  apiBase={(API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE) + "/api"}
+                  label="Find registered business address"
+                  postcode={account.registeredPostcode || ""}
+                  onSelect={address => fillPostcodeAddress("registered", address)}
+                />
                 <TextField name="registeredAddressLine1" label="Address Line 1" defaultValue={account.registeredAddressLine1 || ""} required />
                 <TextField name="registeredAddressLine2" label="Address Line 2" defaultValue={account.registeredAddressLine2 || ""} />
                 <TextField name="registeredTownCity" label="Town / City" defaultValue={account.registeredTownCity || ""} required />
@@ -318,6 +346,13 @@ function RegisterTradeForm() {
               </div>
               <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#D7E6FF] bg-white p-5 text-sm font-bold text-[#071D49]"><input type="checkbox" checked={tradingAddressDifferent} onChange={(event) => setTradingAddressDifferent(event.target.checked)} className="mt-1" />Trading address is different from registered business address</label>
               {tradingAddressDifferent && <div className="mt-5 grid gap-4 rounded-3xl border border-[#D7E6FF] bg-white p-5 md:grid-cols-2">
+                <PostcodeAddressLookup
+                  className="md:col-span-2"
+                  apiBase={(API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE) + "/api"}
+                  label="Find trading address"
+                  postcode={account.tradingPostcode || ""}
+                  onSelect={address => fillPostcodeAddress("trading", address)}
+                />
                 <TextField name="tradingAddressLine1" label="Trading Address Line 1" defaultValue={account.tradingAddressLine1 || ""} required />
                 <TextField name="tradingAddressLine2" label="Trading Address Line 2" defaultValue={account.tradingAddressLine2 || ""} />
                 <TextField name="tradingTownCity" label="Town / City" defaultValue={account.tradingTownCity || ""} required />

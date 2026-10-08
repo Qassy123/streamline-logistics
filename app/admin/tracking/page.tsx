@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import GoogleLocationMap from "@/components/GoogleLocationMap";
 import {
   CircleAlert,
   Clock3,
@@ -565,6 +566,13 @@ export default function AdminTrackingPage() {
 
                   {currentBooking.latestLocation ? (
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                      <div className="mb-5 h-[360px] overflow-hidden rounded-xl">
+                        <GoogleLocationMap
+                          title={`Location map for ${currentBooking.reference}`}
+                          latitude={currentBooking.latestLocation.latitude}
+                          longitude={currentBooking.latestLocation.longitude}
+                        />
+                      </div>
                       <div className="flex items-start gap-3">
                         <MapPin
                           size={20}

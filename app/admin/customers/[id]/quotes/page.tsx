@@ -2,6 +2,7 @@
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
 import VehicleDetailsModal from "@/components/VehicleDetailsModal";
+import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -29,7 +30,6 @@ const API_BASE_URL =
   "https://streamline-logistics-production.up.railway.app";
 const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 const VEHICLE_AVAILABILITY_API_URL = `${API_BASE_URL}/api/vehicles/availability`;
-const ADDRESS_LOOKUP_API_URL = `${API_BASE_URL}/api/distance/address-lookup`;
 
 const twoHourWindows = [
   "00:00-02:00",
@@ -188,7 +188,6 @@ function isAddressComplete(a: AddressFields) {
   return Boolean(
     a.addressLine1.trim() &&
     a.townCity.trim() &&
-    a.county.trim() &&
     a.postcode.trim(),
   );
 }
@@ -265,13 +264,6 @@ export default function CustomerQuotesPage() {
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [vehicleAvailabilityError, setVehicleAvailabilityError] = useState("");
   const [showVehicleModal, setShowVehicleModal] = useState(false);
-  const [addressLookupTarget, setAddressLookupTarget] =
-    useState<AddressLookupTarget | null>(null);
-  const [addressLookupResults, setAddressLookupResults] = useState<
-    AddressLookupResult[]
-  >([]);
-  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
-  const [addressLookupError, setAddressLookupError] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -600,32 +592,6 @@ export default function CustomerQuotesPage() {
     }
   }
 
-  async function findAddress(target: AddressLookupTarget, postcode: string) {
-    setAddressLookupTarget(target);
-    setAddressLookupResults([]);
-    setAddressLookupError("");
-    if (!isValidUkPostcode(postcode)) {
-      setAddressLookupError("Enter a valid UK postcode before searching.");
-      return;
-    }
-    setAddressLookupLoading(true);
-    try {
-      const r = await fetch(
-        `${ADDRESS_LOOKUP_API_URL}?postcode=${encodeURIComponent(postcode.trim())}`,
-        { cache: "no-store" },
-      );
-      const d = await parseResponse(r);
-      if (!Array.isArray(d.addresses) || d.addresses.length === 0)
-        throw new Error("No addresses were found for that postcode.");
-      setAddressLookupResults(d.addresses);
-    } catch (e) {
-      setAddressLookupError(
-        e instanceof Error ? e.message : "Unable to find addresses.",
-      );
-    } finally {
-      setAddressLookupLoading(false);
-    }
-  }
   function applyAddressLookupResult(
     target: AddressLookupTarget,
     result: AddressLookupResult,
@@ -650,32 +616,25 @@ export default function CustomerQuotesPage() {
         extraDrops: c.extraDrops.map((s, x) => (x === i ? { ...s, ...a } : s)),
       }));
     }
-    setAddressLookupTarget(null);
-    setAddressLookupResults([]);
-    setAddressLookupError("");
     setCalculation(null);
   }
   function renderLookup(target: AddressLookupTarget) {
-    if (addressLookupTarget !== target) return null;
+    const stopIndex = target.startsWith("stop-") ? Number(target.slice(5)) : -1;
+    const address = target === "collection" ? form.collectionAddress
+      : target === "delivery" ? form.deliveryAddress
+      : target === "return" ? form.returnAddress : form.extraDrops[stopIndex];
+    if (!address) return null;
     return (
-      <div className="mt-3 md:col-span-2">
-        {addressLookupLoading ? <Notice>Finding addresses...</Notice> : null}
-        {addressLookupError ? <ErrorBox message={addressLookupError} /> : null}
-        {!addressLookupLoading && addressLookupResults.length > 0 ? (
-          <div className="max-h-72 overflow-y-auto rounded-xl border bg-white p-2">
-            {addressLookupResults.map((r, i) => (
-              <button
-                key={`${r.label}-${i}`}
-                type="button"
-                onClick={() => applyAddressLookupResult(target, r)}
-                className="block w-full rounded-lg px-4 py-3 text-left text-sm font-semibold hover:bg-orange-50"
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <PostcodeAddressLookup
+        className="mt-3"
+        apiBase={API_BASE_URL + "/api"}
+        accent="orange"
+        postcode={address.postcode}
+        label={target === "collection" ? "Find collection address"
+          : target === "delivery" ? "Find delivery address"
+          : target === "return" ? "Find return address" : "Find stop address"}
+        onSelect={selected => applyAddressLookupResult(target, selected)}
+      />
     );
   }
 
@@ -855,12 +814,6 @@ export default function CustomerQuotesPage() {
                   title="Collection Address"
                   value={form.collectionAddress}
                   onChange={(f, v) => updateAddress("collection", f, v)}
-                  onLookup={() =>
-                    void findAddress(
-                      "collection",
-                      form.collectionAddress.postcode,
-                    )
-                  }
                   lookup={renderLookup("collection")}
                 />
                 <AddressCard
@@ -871,9 +824,6 @@ export default function CustomerQuotesPage() {
                   }
                   value={form.deliveryAddress}
                   onChange={(f, v) => updateAddress("delivery", f, v)}
-                  onLookup={() =>
-                    void findAddress("delivery", form.deliveryAddress.postcode)
-                  }
                   lookup={renderLookup("delivery")}
                 />
                 {form.journeyType === "Return" ? (
@@ -882,9 +832,6 @@ export default function CustomerQuotesPage() {
                     value={form.returnAddress}
                     onChange={(field, value) =>
                       updateAddress("return", field, value)
-                    }
-                    onLookup={() =>
-                      void findAddress("return", form.returnAddress.postcode)
                     }
                     lookup={renderLookup("return")}
                   />
@@ -925,9 +872,6 @@ export default function CustomerQuotesPage() {
                           <AddressFieldsGrid
                             value={s}
                             onChange={(f, v) => updateStop(i, f, v)}
-                            onLookup={() =>
-                              void findAddress(`stop-${i}`, s.postcode)
-                            }
                           />
                           {renderLookup(`stop-${i}`)}
                         </div>
@@ -1344,11 +1288,9 @@ function CapacityPicker({
 function AddressFieldsGrid({
   value,
   onChange,
-  onLookup,
 }: {
   value: AddressFields;
   onChange: (f: keyof AddressFields, v: string) => void;
-  onLookup: () => void;
 }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -1373,7 +1315,6 @@ function AddressFieldsGrid({
         label="County"
         value={value.county}
         onChange={(v) => onChange("county", v)}
-        required
       />
       <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_auto]">
         <Field
@@ -1382,13 +1323,6 @@ function AddressFieldsGrid({
           onChange={(v) => onChange("postcode", v)}
           required
         />
-        <button
-          type="button"
-          onClick={onLookup}
-          className="self-end rounded-xl border border-orange-400 px-5 py-3 text-sm font-bold text-orange-600"
-        >
-          Find Address
-        </button>
       </div>
     </div>
   );
@@ -1397,13 +1331,11 @@ function AddressCard({
   title,
   value,
   onChange,
-  onLookup,
   lookup,
 }: {
   title: string;
   value: AddressFields;
   onChange: (f: keyof AddressFields, v: string) => void;
-  onLookup: () => void;
   lookup: React.ReactNode;
 }) {
   return (
@@ -1412,7 +1344,6 @@ function AddressCard({
       <AddressFieldsGrid
         value={value}
         onChange={onChange}
-        onLookup={onLookup}
       />
       {lookup}
     </div>

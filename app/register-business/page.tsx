@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
+import type { SelectedPostcodeAddress } from "@/components/PostcodeAddressLookup";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
@@ -232,6 +234,25 @@ function RegisterBusinessLoading() {
 }
 
 function RegisterBusinessForm() {
+  const addressFormRef = useRef<HTMLFormElement>(null);
+  function fillPostcodeAddress(prefix: "registered" | "trading", address: SelectedPostcodeAddress) {
+    const form = addressFormRef.current;
+    if (!form) return;
+    const values: Record<string, string> = {
+      AddressLine1: address.addressLine1,
+      AddressLine2: address.addressLine2,
+      TownCity: address.townCity,
+      County: address.county,
+      Postcode: address.postcode,
+      Country: "United Kingdom",
+    };
+    // These existing fields are uncontrolled and submitted using FormData.
+    for (const [suffix, value] of Object.entries(values)) {
+      const input = form.elements.namedItem(prefix + suffix);
+      if (input instanceof HTMLInputElement) input.value = value;
+    }
+  }
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const quoteId = searchParams.get("quoteId") || "";
@@ -431,6 +452,7 @@ function RegisterBusinessForm() {
           </div>
 
           <form
+            ref={addressFormRef}
             key={prefillLoaded ? "prefill-loaded" : "prefill-loading"}
             onSubmit={handleSubmit}
             className="grid gap-8 p-5 sm:p-8"
@@ -555,6 +577,12 @@ function RegisterBusinessForm() {
               title="Business address"
               text="Enter the registered business address and trading address if different."
             >
+              <PostcodeAddressLookup
+                className="mb-4"
+                label="Find registered business address"
+                postcode={prefill.registeredPostcode || ""}
+                onSelect={address => fillPostcodeAddress("registered", address)}
+              />
               <div className="grid gap-4 md:grid-cols-2">
                 <TextField
                   name="registeredAddressLine1"
@@ -606,6 +634,11 @@ function RegisterBusinessForm() {
 
               {tradingAddressDifferent && (
                 <div className="mt-5 grid gap-4 rounded-3xl border border-[#D7E6FF] bg-white p-5 md:grid-cols-2">
+                  <PostcodeAddressLookup
+                    className="md:col-span-2"
+                    label="Find trading address"
+                    onSelect={address => fillPostcodeAddress("trading", address)}
+                  />
                   <TextField name="tradingAddressLine1" label="Trading Address Line 1" required />
                   <TextField name="tradingAddressLine2" label="Trading Address Line 2" />
                   <TextField name="tradingTownCity" label="Town / City" required />

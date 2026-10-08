@@ -2,6 +2,7 @@
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
 import VehicleDetailsModal from "@/components/VehicleDetailsModal";
+import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -72,20 +73,6 @@ type LiveVehicleAvailability = {
 
 type AddressLookupTarget = "collection" | "delivery" | `stop-${number}`;
 
-type AddressLookupResult = {
-  label: string;
-  addressLine1: string;
-  addressLine2: string;
-  townCity: string;
-  county: string;
-  postcode: string;
-};
-
-type AddressLookupResponse = {
-  addresses?: AddressLookupResult[];
-  error?: string;
-};
-
 type VehicleAvailabilityResponse = {
   vehicles?: {
     id: string;
@@ -104,8 +91,6 @@ const VEHICLE_AVAILABILITY_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/vehicles/availability";
 const ACCOUNT_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/accounts/me";
-const ADDRESS_LOOKUP_API_URL =
-  "https://streamline-logistics-production.up.railway.app/api/distance/address-lookup";
 const QUOTE_FORM_STORAGE_KEY = "streamline_quote_form_draft";
 const SAVED_ROUTE_STORAGE_KEY = "streamline_saved_route_prefill";
 const AUTH_TOKEN_STORAGE_KEY = "streamline_auth_token";
@@ -305,13 +290,12 @@ function isAddressComplete(address: AddressFields) {
   return (
     address.addressLine1.trim() !== "" &&
     address.townCity.trim() !== "" &&
-    address.county.trim() !== "" &&
     address.postcode.trim() !== ""
   );
 }
 
 function isValidUkPostcode(postcode: string) {
-  return /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(postcode.trim());
+  return /^(GIR\s*0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})$/i.test(postcode.trim());
 }
 
 function getResponseErrorMessage(data: unknown) {
@@ -450,13 +434,6 @@ function QuotePageForm() {
 
   const [fragileGoods, setFragileGoods] = useState(false);
   const [accuracyConfirmed, setAccuracyConfirmed] = useState(false);
-  const [addressLookupTarget, setAddressLookupTarget] =
-    useState<AddressLookupTarget | null>(null);
-  const [addressLookupResults, setAddressLookupResults] = useState<
-    AddressLookupResult[]
-  >([]);
-  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
-  const [addressLookupError, setAddressLookupError] = useState("");
 
   useEffect(() => {
     try {
@@ -854,122 +831,31 @@ function QuotePageForm() {
     );
   }
 
-  async function findAddress(
-    target: AddressLookupTarget,
-    postcode: string,
-  ) {
-    setAddressLookupTarget(target);
-    setAddressLookupResults([]);
-    setAddressLookupError("");
-
-    if (!isValidUkPostcode(postcode)) {
-      setAddressLookupError("Enter a valid UK postcode before searching.");
-      return;
-    }
-
-    setAddressLookupLoading(true);
-
-    try {
-      const response = await fetch(
-        `${ADDRESS_LOOKUP_API_URL}?postcode=${encodeURIComponent(postcode.trim())}`,
-        { cache: "no-store" },
-      );
-      const data = (await response.json().catch(() => null)) as
-        | AddressLookupResponse
-        | null;
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to find addresses.");
-      }
-
-      const addresses = Array.isArray(data?.addresses) ? data.addresses : [];
-
-      if (addresses.length === 0) {
-        throw new Error("No addresses were found for that postcode.");
-      }
-
-      setAddressLookupResults(addresses);
-    } catch (lookupError) {
-      setAddressLookupError(
-        lookupError instanceof Error
-          ? lookupError.message
-          : "Unable to find addresses.",
-      );
-    } finally {
-      setAddressLookupLoading(false);
-    }
-  }
-
-  function applyAddressLookupResult(
-    target: AddressLookupTarget,
-    result: AddressLookupResult,
-  ) {
-    const address: AddressFields = {
-      addressLine1: result.addressLine1,
-      addressLine2: result.addressLine2,
-      townCity: result.townCity,
-      county: result.county,
-      postcode: result.postcode,
-    };
-
-    if (target === "collection") {
-      setCollectionAddress(address);
-    } else if (target === "delivery") {
-      setDeliveryAddress(address);
-    } else {
-      const index = Number(target.replace("stop-", ""));
-
-      if (Number.isInteger(index)) {
-        setExtraStops((currentStops) =>
-          currentStops.map((stop, stopIndex) =>
-            stopIndex === index ? { ...stop, ...address } : stop,
-          ),
-        );
-      }
-    }
-
-    setAddressLookupTarget(null);
-    setAddressLookupResults([]);
-    setAddressLookupError("");
-  }
-
   function renderAddressLookupResults(target: AddressLookupTarget) {
-    if (addressLookupTarget !== target) return null;
-
+    const stopIndex = target.startsWith("stop-") ? Number(target.slice(5)) : -1;
+    const address = target === "collection" ? collectionAddress
+      : target === "delivery" ? deliveryAddress : extraStops[stopIndex];
+    if (!address) return null;
     return (
-      <div className="mt-3 md:col-span-2">
-        {addressLookupLoading && (
-          <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm font-bold text-[#071D49]">
-            Finding addresses...
-          </div>
-        )}
-
-        {addressLookupError && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
-            {addressLookupError}
-          </div>
-        )}
-
-        {!addressLookupLoading && addressLookupResults.length > 0 && (
-          <div className="overflow-hidden rounded-2xl border border-[#D7E6FF] bg-white shadow-lg shadow-black/5">
-            <p className="border-b border-[#D7E6FF] bg-[#F4F8FF] px-4 py-3 text-sm font-bold text-[#071D49]">
-              Select an address
-            </p>
-            <div className="max-h-72 overflow-y-auto p-2">
-              {addressLookupResults.map((result, index) => (
-                <button
-                  key={`${result.label}-${index}`}
-                  type="button"
-                  onClick={() => applyAddressLookupResult(target, result)}
-                  className="block w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-[#071D49] transition hover:bg-[#EAF2FF] hover:text-[#006CFF]"
-                >
-                  {result.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <PostcodeAddressLookup
+        className="md:col-span-2"
+        postcode={address.postcode}
+        label={target === "collection" ? "Find collection address"
+          : target === "delivery" ? "Find delivery address" : "Find stop address"}
+        onSelect={selected => {
+          const details: AddressFields = {
+            addressLine1: selected.addressLine1,
+            addressLine2: selected.addressLine2,
+            townCity: selected.townCity,
+            county: selected.county,
+            postcode: selected.postcode,
+          };
+          if (target === "collection") setCollectionAddress(details);
+          else if (target === "delivery") setDeliveryAddress(details);
+          else setExtraStops(current => current.map((stop, index) =>
+            index === stopIndex ? { ...stop, ...details } : stop));
+        }}
+      />
     );
   }
 
@@ -1820,7 +1706,7 @@ function QuotePageForm() {
                       <h3 className="text-base font-bold text-[#071D49]">
                         Collection Address
                       </h3>
-                      <InfoTooltip text="Enter the full collection address. Postcode lookup fields are structured here so the address finder can be connected next." />
+                      <InfoTooltip text="Enter a postcode and choose the full collection address, or enter the details manually." />
                     </div>
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -1885,16 +1771,6 @@ function QuotePageForm() {
                           }
                           className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            findAddress("collection", collectionAddress.postcode)
-                          }
-                          disabled={addressLookupLoading}
-                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Find Address
-                        </button>
                       </div>
                       {renderAddressLookupResults("collection")}
                     </div>
@@ -1969,16 +1845,6 @@ function QuotePageForm() {
                           }
                           className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            findAddress("delivery", deliveryAddress.postcode)
-                          }
-                          disabled={addressLookupLoading}
-                          className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Find Address
-                        </button>
                       </div>
                       {renderAddressLookupResults("delivery")}
                     </div>
@@ -2083,7 +1949,6 @@ function QuotePageForm() {
                               />
 
                               <input
-                                required
                                 value={stop.county}
                                 onChange={(event) =>
                                   updateStopAddress(
@@ -2110,16 +1975,6 @@ function QuotePageForm() {
                                   placeholder="Postcode"
                                   className="rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4 outline-none transition focus:border-[#006CFF] focus:ring-4 focus:ring-[#006CFF]/10"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    findAddress(`stop-${index}`, stop.postcode)
-                                  }
-                                  disabled={addressLookupLoading}
-                                  className="rounded-2xl border border-[#006CFF] bg-white px-5 py-4 text-sm font-bold text-[#006CFF] transition hover:bg-[#006CFF] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  Find Address
-                                </button>
                               </div>
                               {renderAddressLookupResults(`stop-${index}`)}
                             </div>

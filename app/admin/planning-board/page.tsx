@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import {
   Calculator,
   CheckCircle2,
@@ -1221,7 +1222,17 @@ export default function AdminPlanningBoardPage() {
               <FieldLabel label="Purchase Order Number"><input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" /></FieldLabel>
               <FieldLabel label="Customer Reference"><input value={form.customerReference} onChange={(event) => updateForm("customerReference", event.target.value)} className="manual-input" /></FieldLabel>
               {form.accountId === "GUEST" && <>
+                <div className="space-y-3">
+                  <PostcodeAddressLookup
+                    key={"guest-billing:" + formVersion}
+                    apiBase={API_BASE + "/api"}
+                    label="Find guest billing address"
+                    accent="orange"
+                    disabled={calculating}
+                    onSelect={address => updateForm("guestAddress", formatPostcodeAddress(address))}
+                  />
                 <FieldLabel label="Guest billing address"><input value={form.guestAddress} onChange={(event) => updateForm("guestAddress", event.target.value)} className="manual-input" /></FieldLabel>
+                </div>
                 <FieldLabel label="Guest VAT number (if applicable)"><input value={form.guestVatNumber} onChange={(event) => updateForm("guestVatNumber", event.target.value)} className="manual-input" /></FieldLabel>
               </>}
               {selectedCustomer?.accountType === "TRADE" && <FieldLabel label="Credit override reason (if required)"><input value={form.creditOverrideReason} onChange={(event) => updateForm("creditOverrideReason", event.target.value)} className="manual-input" /></FieldLabel>}
@@ -1891,16 +1902,43 @@ export default function AdminPlanningBoardPage() {
                       </select>
                     </FieldLabel>
                     <div className="sm:col-span-2">
+                      <PostcodeAddressLookup
+                        key={`${editingBooking.id}-collection`}
+                        apiBase={API_BASE + "/api"}
+                        label="Find collection address"
+                        className="mb-3"
+                        accent="orange"
+                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        onSelect={address => setEditCollectionAddress(formatPostcodeAddress(address))}
+                      />
                       <FieldLabel label="Collection Address">
                         <textarea rows={3} value={editCollectionAddress} onChange={(event) => setEditCollectionAddress(event.target.value)} className="manual-input resize-none" />
                       </FieldLabel>
                     </div>
                     <div className="sm:col-span-2">
+                      <PostcodeAddressLookup
+                        key={`${editingBooking.id}-delivery`}
+                        apiBase={API_BASE + "/api"}
+                        label="Find delivery address"
+                        className="mb-3"
+                        accent="orange"
+                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        onSelect={address => setEditDeliveryAddress(formatPostcodeAddress(address))}
+                      />
                       <FieldLabel label="Delivery Address">
                         <textarea rows={3} value={editDeliveryAddress} onChange={(event) => setEditDeliveryAddress(event.target.value)} className="manual-input resize-none" />
                       </FieldLabel>
                     </div>
                     <div className="sm:col-span-2">
+                      <PostcodeAddressLookup
+                        key={`${editingBooking.id}-return`}
+                        apiBase={API_BASE + "/api"}
+                        label="Find return address"
+                        className="mb-3"
+                        accent="orange"
+                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        onSelect={address => setEditReturnAddress(formatPostcodeAddress(address))}
+                      />
                       <FieldLabel label="Return Address">
                         <textarea rows={2} value={editReturnAddress} onChange={(event) => setEditReturnAddress(event.target.value)} placeholder="Not required for one-way journeys" className="manual-input resize-none" />
                       </FieldLabel>

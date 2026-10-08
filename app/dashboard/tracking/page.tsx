@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import GoogleLocationMap from "@/components/GoogleLocationMap";
 import {
   CheckCircle,
   ChevronDown,
@@ -199,9 +200,6 @@ function googleMapsUrl(location: LatestLocation) {
   return `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
 }
 
-function googleMapsEmbedUrl(location: LatestLocation) {
-  return `https://www.google.com/maps?q=${location.latitude},${location.longitude}&z=15&output=embed`;
-}
 
 function eventMatches(event: TrackingEvent, matches: string[]) {
   const title = normalise(event.title);
@@ -914,12 +912,10 @@ function MapPanel({
       {location && (
         <>
           <div className="relative h-[460px] w-full bg-[#F4F8FF] sm:h-[560px] lg:h-[690px]">
-            <iframe
-              title={`Live map for ${booking.reference}`}
-              src={googleMapsEmbedUrl(location)}
-              className="h-full w-full"
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
+            <GoogleLocationMap
+              title={`Location map for ${booking.reference}`}
+              latitude={location.latitude}
+              longitude={location.longitude}
             />
 
             <div className="absolute left-4 top-4 rounded-2xl border border-[#D7E6FF] bg-white/95 p-4 shadow-xl shadow-black/10 backdrop-blur">

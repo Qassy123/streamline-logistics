@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import {
   CheckCircle2,
   Loader2,
@@ -60,6 +61,7 @@ export default function AdminDriversPage() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
   const [vehicleId, setVehicleId] = useState("");
 
@@ -174,6 +176,7 @@ export default function AdminDriversPage() {
           username: username.trim(),
           email: email.trim(),
           phone: phone.trim(),
+          address: address.trim(),
           password,
           vehicleId: vehicleId || undefined,
           availability: "AVAILABLE",
@@ -199,6 +202,7 @@ export default function AdminDriversPage() {
       setUsername("");
       setEmail("");
       setPhone("");
+      setAddress("");
       setPassword("");
       setVehicleId("");
 
@@ -371,6 +375,19 @@ export default function AdminDriversPage() {
               value={phone}
               onChange={setPhone}
             />
+
+            <PostcodeAddressLookup
+              apiBase={(API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE) + "/api"}
+              accent="orange"
+              label="Find driver address"
+              disabled={saving}
+              onSelect={selected => setAddress(formatPostcodeAddress(selected))}
+            />
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-700">Driver address (optional)</span>
+              <textarea value={address} onChange={event => setAddress(event.target.value)} rows={3}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-950" />
+            </label>
 
             <Input
               label="Password"
@@ -758,5 +775,5 @@ function DriverEditor({ driver, adminKey, onClose, onSaved, onRejected }: { driv
     } catch (e) { if ((e as { status?: number })?.status === 401) onRejected(); setError(e instanceof Error ? e.message : "Unable to save driver."); }
     finally { setSaving(false); }
   }
-  return <dialog ref={dialogRef} onCancel={e => { if (saving) e.preventDefault(); else onClose(); }} className="m-auto max-h-[90dvh] w-[min(680px,94vw)] overflow-y-auto rounded-3xl bg-white p-6 text-slate-950 shadow-xl backdrop:bg-slate-950/60" aria-labelledby="driver-editor-title"><div className="flex items-center justify-between gap-4"><h2 id="driver-editor-title" className="text-xl font-bold">Edit {driver.name}</h2><button className={secondaryButton} disabled={saving} onClick={onClose}>Close</button></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}<form onSubmit={save} className="mt-5 space-y-4"><div className="grid gap-4 sm:grid-cols-2">{([['name','Full name'],['username','Username'],['email','Email'],['phone','Phone'],['licenceNumber','Licence number'],['licenceType','Licence type'],['licenceExpiryDate','Licence expiry'],['emergencyContact','Emergency contact']] as const).map(([key, label]) => <Input key={key} label={label} value={form[key]} type={key === "email" ? "email" : key === "licenceExpiryDate" ? "date" : "text"} required={["name", "username", "email"].includes(key)} onChange={value => setForm(prev => ({ ...prev, [key]: value }))} />)}</div>{([['address','Address'],['notes','Admin notes']] as const).map(([key, label]) => <label key={key} className="block"><span className="mb-1 block text-sm font-bold">{label}</span><textarea className={control} value={form[key]} onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))} rows={3} /></label>)}<Input label="New password (leave empty to keep current password)" type="password" value={form.password} onChange={value => setForm(prev => ({ ...prev, password: value }))} /><p className="text-xs text-slate-500">Resetting the password signs this driver out of every portal session.</p><label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.active} onChange={e => setForm(prev => ({ ...prev, active: e.target.checked }))} />Active account</label><button className={actionButton} disabled={saving}>{saving ? "Saving…" : "Save driver details"}</button></form></dialog>;
+  return <dialog ref={dialogRef} onCancel={e => { if (saving) e.preventDefault(); else onClose(); }} className="m-auto max-h-[90dvh] w-[min(680px,94vw)] overflow-y-auto rounded-3xl bg-white p-6 text-slate-950 shadow-xl backdrop:bg-slate-950/60" aria-labelledby="driver-editor-title"><div className="flex items-center justify-between gap-4"><h2 id="driver-editor-title" className="text-xl font-bold">Edit {driver.name}</h2><button className={secondaryButton} disabled={saving} onClick={onClose}>Close</button></div>{error ? <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}<form onSubmit={save} className="mt-5 space-y-4"><div className="grid gap-4 sm:grid-cols-2">{([['name','Full name'],['username','Username'],['email','Email'],['phone','Phone'],['licenceNumber','Licence number'],['licenceType','Licence type'],['licenceExpiryDate','Licence expiry'],['emergencyContact','Emergency contact']] as const).map(([key, label]) => <Input key={key} label={label} value={form[key]} type={key === "email" ? "email" : key === "licenceExpiryDate" ? "date" : "text"} required={["name", "username", "email"].includes(key)} onChange={value => setForm(prev => ({ ...prev, [key]: value }))} />)}</div><PostcodeAddressLookup apiBase={(API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE) + "/api"} accent="orange" label="Find driver address" disabled={saving} onSelect={selected => setForm(prev => ({ ...prev, address: formatPostcodeAddress(selected) }))} />{([['address','Address'],['notes','Admin notes']] as const).map(([key, label]) => <label key={key} className="block"><span className="mb-1 block text-sm font-bold">{label}</span><textarea className={control} value={form[key]} onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))} rows={3} /></label>)}<Input label="New password (leave empty to keep current password)" type="password" value={form.password} onChange={value => setForm(prev => ({ ...prev, password: value }))} /><p className="text-xs text-slate-500">Resetting the password signs this driver out of every portal session.</p><label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.active} onChange={e => setForm(prev => ({ ...prev, active: e.target.checked }))} />Active account</label><button className={actionButton} disabled={saving}>{saving ? "Saving…" : "Save driver details"}</button></form></dialog>;
 }

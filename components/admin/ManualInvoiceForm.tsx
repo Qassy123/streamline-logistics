@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import { Loader2, Plus, Trash2, X } from "lucide-react";
 
 type Line = { description: string; quantity: string; unitPrice: string; vatRate: string };
@@ -163,6 +164,15 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-bold text-slate-700">Recipient / company name<input required maxLength={150} value={form.recipientName} onChange={(e) => update("recipientName", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Email to send invoice<input required type="email" maxLength={254} value={form.recipientEmail} onChange={(e) => update("recipientEmail", e.target.value)} className={fieldClass} /></label>
+              <PostcodeAddressLookup
+                key={form.userId || "guest"}
+                className="sm:col-span-2"
+                apiBase={(apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase) + "/api"}
+                label="Find billing address"
+                accent="orange"
+                disabled={saving}
+                onSelect={address => update("recipientAddress", formatPostcodeAddress(address))}
+              />
               <label className="text-sm font-bold text-slate-700 sm:col-span-2">Billing address<textarea required maxLength={500} rows={3} value={form.recipientAddress} onChange={(e) => update("recipientAddress", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Phone<input maxLength={50} value={form.recipientPhone} onChange={(e) => update("recipientPhone", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Invoice date<input required type="date" value={form.invoiceDate} onChange={(e) => update("invoiceDate", e.target.value)} className={fieldClass} /></label>

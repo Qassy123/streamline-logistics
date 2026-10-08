@@ -10,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -327,6 +328,12 @@ export default function AdminSettingsPage() {
             </Field>
 
             <div className="md:col-span-2">
+              <PostcodeAddressLookup
+                apiBase={API_BASE_URL + "/api"}
+                label="Find company address"
+                accent="orange"
+                onSelect={address => updateField("companyAddress", formatPostcodeAddress(address))}
+              />
               <Field label="Address">
                 <textarea
                   value={form.companyAddress}
