@@ -1,317 +1,137 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  Calendar,
-  ChevronRight,
-  CornerDownLeft,
-  MapPin,
-  RefreshCw,
-  Route,
-  Search,
-  Truck,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, CornerDownLeft, Loader2, MapPin, RefreshCw, Search, Truck } from "lucide-react";
+import { driverStatusLabel, useDriverPortal, type PortalVehicle } from "@/components/driver/DriverPortalShell";
 
-const API_BASE = "https://streamline-logistics-production.up.railway.app";
-
-type Stop = {
-  sequence: number;
-  type: "COLLECTION" | "DROP" | "DELIVERY" | "RETURN";
-  label: string;
-  address: string;
-  notes?: string | null;
-  navigationUrl: string;
-};
-
+type Scope = "ALL" | "TODAY" | "UPCOMING" | "COMPLETED" | "ACTIVE";
 type Job = {
-  id: string;
-  reference: string;
-  status: string;
-  collectionDate: string;
-  collectionWindow: string;
-  collectionAddress: string;
-  deliveryAddress: string;
-  stops?: Stop[];
-  stopSummary?: {
-    totalStops: number;
-    extraDrops: number;
-    hasReturn: boolean;
-    description: string;
-  };
-  nextStop?: Stop | null;
+  id: string; reference: string; status: string; collectionDate: string; collectionWindow: string;
+  collectionAddress: string; deliveryAddress: string; acknowledgedAt: string | null; vehicle: PortalVehicle | null;
+  nextStop: { label: string; address: string; status: string; evidence?: { reviewStatus: string } | null } | null;
+  stopSummary?: { totalStops: number; completedStops: number; extraDrops: number; hasReturn: boolean };
 };
+type JobList = { jobs: Job[]; pagination: { page: number; pageSize: number; total: number; totalPages: number }; serverTime: string };
+type Filters = { scope: Scope; status: string; query: string; page: number };
+const scopes: { value: Scope; label: string }[] = [{ value: "ALL", label: "All" }, { value: "TODAY", label: "Today" }, { value: "ACTIVE", label: "Open jobs" }, { value: "UPCOMING", label: "Upcoming" }, { value: "COMPLETED", label: "Completed" }];
+const statuses = ["PENDING_PAYMENT", "CONFIRMED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "EXPIRED"];
+const secondary = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+const control = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-base text-slate-950 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50";
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
+function parseFilters(params: { get: (key: string) => string | null }): Filters {
+  const scope = (params.get("scope") || "ALL").toUpperCase();
+  const status = (params.get("status") || "ALL").toUpperCase();
+  const page = Number(params.get("page") || "1");
+  return { scope: scopes.some(item => item.value === scope) ? scope as Scope : "ALL", status: statuses.includes(status) ? status : "ALL", query: (params.get("q") || "").trim().slice(0, 100), page: Number.isInteger(page) && page >= 1 && page <= 10000 ? page : 1 };
+}
+function filterParams(filters: Filters, forApi = false) {
+  const params = new URLSearchParams();
+  params.set("scope", filters.scope);
+  if (filters.status !== "ALL") params.set("status", filters.status);
+  if (filters.query) params.set("q", filters.query);
+  if (filters.page > 1 || forApi) params.set("page", String(filters.page));
+  if (forApi) params.set("pageSize", "25");
+  return params.toString();
+}
+function jobDate(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", day: "numeric", month: "short", year: "numeric" }).format(date) : "Date not recorded";
+}
+function statusChoices(scope: Scope) {
+  if (scope === "COMPLETED") return ["COMPLETED"];
+  if (scope === "UPCOMING") return ["CONFIRMED", "ASSIGNED"];
+  if (scope === "ACTIVE") return ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"];
+  if (scope === "TODAY") return ["CONFIRMED", "ASSIGNED", "IN_PROGRESS", "COMPLETED"];
+  return statuses;
 }
 
-function statusLabel(value: string) {
-  return value.replaceAll("_", " ");
+function JobsContent() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const { online, request } = useDriverPortal();
+  const filters = parseFilters(params || new URLSearchParams());
+  const filterKey = filterParams(filters, true);
+  const [query, setQuery] = useState(filters.query);
+  const [snapshot, setSnapshot] = useState<{ key: string; data: JobList } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const mounted = useRef(false);
+  const generation = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const data = snapshot?.key === filterKey ? snapshot.data : null;
+  useEffect(() => { setQuery(filters.query); }, [filters.query]);
+
+  function navigate(change: Partial<Filters>) {
+    const next = { ...filters, ...change };
+    router.push(`/driver/jobs?${filterParams(next)}`, { scroll: false });
+  }
+  const load = useCallback(async () => {
+    const current = ++generation.current;
+    activeRequest.current?.abort();
+    const abort = new AbortController(); activeRequest.current = abort;
+    if (mounted.current) { setLoading(true); setError(""); }
+    try {
+      const payload = await request<JobList>(`/api/driver/jobs/?${filterKey}`, { signal: abort.signal });
+      if (!mounted.current || current !== generation.current) return;
+      if (!Array.isArray(payload.jobs) || !payload.pagination || !Number.isInteger(payload.pagination.page) || !Number.isInteger(payload.pagination.total) || payload.pagination.total < 0 || !Number.isInteger(payload.pagination.totalPages) || payload.pagination.totalPages < 0) throw new Error("Unable to read your jobs. Refresh or contact dispatch.");
+      const lastPage = Math.max(1, payload.pagination.totalPages);
+      if (payload.pagination.page > lastPage) {
+        const next = new URLSearchParams(filterKey); next.set("page", String(lastPage)); next.delete("pageSize");
+        router.replace(`/driver/jobs?${next}`, { scroll: false }); return;
+      }
+      setSnapshot({ key: filterKey, data: payload });
+    } catch (failure) {
+      if (mounted.current && current === generation.current && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Unable to load jobs.");
+    } finally {
+      if (mounted.current && current === generation.current) setLoading(false);
+      if (activeRequest.current === abort) activeRequest.current = null;
+    }
+  }, [filterKey, request, router]);
+
+  useEffect(() => {
+    mounted.current = true; void load();
+    const visible = () => { if (document.visibilityState === "visible" && navigator.onLine) void load(); };
+    const reconnect = () => { void load(); };
+    const timer = window.setInterval(visible, 30_000);
+    window.addEventListener("online", reconnect); document.addEventListener("visibilitychange", visible);
+    return () => { mounted.current = false; generation.current++; activeRequest.current?.abort(); window.clearInterval(timer); window.removeEventListener("online", reconnect); document.removeEventListener("visibilitychange", visible); };
+  }, [load]);
+
+  const availableStatuses = statusChoices(filters.scope);
+  const first = data && data.pagination.total ? (data.pagination.page - 1) * data.pagination.pageSize + 1 : 0;
+  const last = data ? Math.min(data.pagination.total, (data.pagination.page - 1) * data.pagination.pageSize + data.jobs.length) : 0;
+  return <div className="space-y-5">
+    <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">Jobs</h1><p className="mt-1 text-sm text-slate-500">Work assigned to you by dispatch.</p></div><button className={secondary} disabled={loading || !online} onClick={() => void load()}><RefreshCw size={17} className={loading ? "animate-spin" : ""} />Refresh</button></div>
+    <nav aria-label="Job filters" className="flex flex-wrap gap-2">{scopes.map(scope => <Link key={scope.value} href={`/driver/jobs?${filterParams({ ...filters, scope: scope.value, status: "ALL", page: 1 })}`} scroll={false} prefetch={false} aria-current={filters.scope === scope.value ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${filters.scope === scope.value ? "bg-[#006CFF] text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>{scope.label}</Link>)}</nav>
+    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <form className="flex gap-2" onSubmit={event => { event.preventDefault(); navigate({ query: query.trim(), page: 1 }); }}><div className="relative min-w-0 flex-1"><label className="sr-only" htmlFor="driver-job-search">Search jobs</label><Search size={18} aria-hidden="true" className="pointer-events-none absolute left-3 top-4 text-slate-400" /><input id="driver-job-search" className={`${control} pl-10`} maxLength={100} value={query} onChange={event => setQuery(event.target.value)} placeholder="Reference or address" /></div><button className={secondary} type="submit">Search</button></form>
+      <div className="mt-3 flex flex-wrap items-center gap-3"><label className="min-w-0 flex-1"><span className="sr-only">Job status</span><select className={control} value={filters.status} onChange={event => navigate({ status: event.target.value, page: 1 })}><option value="ALL">All statuses in this view</option>{(availableStatuses.includes(filters.status) || filters.status === "ALL" ? availableStatuses : [filters.status, ...availableStatuses]).map(status => <option key={status} value={status}>{driverStatusLabel(status)}</option>)}</select></label>{filters.query || filters.status !== "ALL" ? <button className={secondary} onClick={() => { setQuery(""); navigate({ query: "", status: "ALL", page: 1 }); }}>Clear filters</button> : null}</div>
+    </section>
+    {error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">{error}{data ? <p className="mt-1 font-semibold">These results may have changed. Refresh before continuing.</p> : null}<button className="mt-2 min-h-11 font-bold underline" disabled={loading || !online} onClick={() => void load()}>Retry loading</button></div> : null}
+    {loading && !data ? <p role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />Loading jobs…</p> : data ? <>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><p>Showing {first}–{last} of {data.pagination.total} {data.pagination.total === 1 ? "job" : "jobs"}</p>{loading ? <span role="status">Refreshing…</span> : null}</div>
+      <div className="space-y-3">{data.jobs.map(job => <JobCard key={job.id} job={job} />)}{!data.jobs.length ? <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-7 text-center"><h2 className="font-bold text-[#071D49]">No jobs in this view</h2><p className="mt-2 text-sm leading-6 text-slate-500">Change the filters or check All. Dispatch assigns your work.</p></div> : null}</div>
+      <div className="flex items-center justify-between gap-2"><button className={secondary} disabled={loading || filters.page <= 1 || !online} onClick={() => navigate({ page: filters.page - 1 })}>Previous</button><span className="text-xs text-slate-500">Page {data.pagination.page} of {Math.max(1, data.pagination.totalPages)}</span><button className={secondary} disabled={loading || filters.page >= data.pagination.totalPages || !online} onClick={() => navigate({ page: filters.page + 1 })}>Next</button></div>
+    </> : !error ? <button className={secondary} disabled={!online} onClick={() => void load()}>Load jobs</button> : null}
+  </div>;
+}
+
+function JobCard({ job }: { job: Job }) {
+  const closed = ["COMPLETED", "CANCELLED", "EXPIRED"].includes(job.status);
+  const pendingReview = job.nextStop?.evidence?.reviewStatus === "PENDING";
+  const rejectedReview = job.nextStop?.evidence?.reviewStatus === "REJECTED";
+  return <Link href={`/driver/jobs/${encodeURIComponent(job.id)}`} prefetch={false} className="block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-100">
+    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words font-bold text-[#071D49]">{job.reference}</h2><p className="mt-1 text-xs text-slate-500">{jobDate(job.collectionDate)} · {job.collectionWindow || "Window not recorded"}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${job.status === "COMPLETED" ? "bg-emerald-50 text-emerald-700" : job.status === "IN_PROGRESS" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>{driverStatusLabel(job.status)}</span></div>
+    <div className="mt-3 space-y-1 text-sm leading-6 text-slate-700"><p className="break-words"><span className="font-semibold">From: </span>{job.collectionAddress}</p><p className="break-words"><span className="font-semibold">To: </span>{job.deliveryAddress}</p></div>
+    {job.stopSummary ? <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500"><span>{job.stopSummary.completedStops} / {job.stopSummary.totalStops} stops complete</span>{job.stopSummary.extraDrops ? <span>· {job.stopSummary.extraDrops} additional drops</span> : null}{job.stopSummary.hasReturn ? <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-1 font-semibold text-purple-700"><CornerDownLeft size={13} />Return</span> : null}</div> : null}
+    {!closed && job.nextStop ? <div className="mt-3 rounded-xl bg-blue-50 p-3"><p className="flex items-start gap-2 text-sm text-[#071D49]"><MapPin size={16} className="mt-0.5 shrink-0" /><span className="break-words"><span className="font-bold">Next · {job.nextStop.label}: </span>{job.nextStop.address}</span></p></div> : null}
+    {pendingReview ? <p className="mt-3 text-xs font-semibold text-amber-800">Delivery exception awaiting dispatch review</p> : rejectedReview ? <p className="mt-3 text-xs font-semibold text-red-700">Delivery evidence needs correction</p> : !closed && !job.acknowledgedAt ? <p className="mt-3 text-xs font-semibold text-blue-700">Awaiting your acknowledgement</p> : null}
+    <div className="mt-3 flex items-center justify-between gap-3"><p className="flex min-w-0 items-center gap-2 text-xs text-slate-500"><Truck size={14} className="shrink-0" /><span className="truncate">{job.vehicle ? `${job.vehicle.registration || job.vehicle.name} · ${job.vehicle.vehicleType}` : "Van not assigned"}</span></p><span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-blue-700">{closed ? "View record" : "Open job"}<ArrowRight size={14} /></span></div>
+  </Link>;
 }
 
 export default function DriverJobsPage() {
-  const router = useRouter();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [error, setError] = useState("");
-
-  async function loadJobs(isRefresh = false) {
-    setError("");
-
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
-    const token = localStorage.getItem("driverToken");
-
-    if (!token) {
-      router.push("/driver/login");
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/api/driver/jobs`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-
-      if (res.status === 401) {
-        localStorage.removeItem("driverToken");
-        localStorage.removeItem("driver");
-        router.push("/driver/login");
-        return;
-      }
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Unable to load jobs");
-      }
-
-      setJobs(data.jobs || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load jobs");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadJobs();
-  }, []);
-
-  const filtered = useMemo(
-    () =>
-      jobs.filter((job) => {
-        const searchTarget = [
-          job.reference,
-          job.collectionAddress,
-          job.deliveryAddress,
-          job.status,
-          job.stopSummary?.description,
-          ...(job.stops || []).map((stop) => `${stop.label} ${stop.address}`),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        const matchesSearch = searchTarget.includes(query.toLowerCase());
-        const matchesStatus =
-          statusFilter === "ALL" ||
-          job.status.toUpperCase() === statusFilter;
-
-        return matchesSearch && matchesStatus;
-      }),
-    [jobs, query, statusFilter],
-  );
-
-  return (
-    <main className="min-h-screen bg-slate-100">
-      <div className="mx-auto max-w-7xl p-5 sm:p-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#006CFF]">
-              Driver Portal
-            </p>
-            <h1 className="mt-2 text-4xl font-bold text-[#071D49]">
-              Driver Jobs
-            </h1>
-            <p className="mt-2 text-slate-600">
-              Your assigned, active and completed jobs, including multi-drop and
-              return routes.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void loadJobs(true)}
-            disabled={refreshing}
-            className="flex w-fit items-center gap-2 rounded-full bg-[#071D49] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#020B1F] disabled:opacity-50"
-          >
-            <RefreshCw
-              size={16}
-              className={refreshing ? "animate-spin" : ""}
-            />
-            Refresh
-          </button>
-        </div>
-
-        <div className="mt-6 grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
-          <div className="relative">
-            <Search className="absolute left-4 top-4 h-5 w-5 text-slate-400" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search jobs, stops, references or addresses..."
-              className="w-full rounded-2xl border bg-white py-4 pl-12 pr-4 outline-none focus:border-[#006CFF] focus:ring-4 focus:ring-blue-100"
-            />
-          </div>
-
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className="rounded-2xl border bg-white px-4 py-4 text-sm font-bold text-slate-700 outline-none focus:border-[#006CFF] focus:ring-4 focus:ring-blue-100"
-          >
-            <option value="ALL">All statuses</option>
-            <option value="PENDING_PAYMENT">Pending payment</option>
-            <option value="CONFIRMED">Confirmed</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="CANCELLED">Cancelled</option>
-            <option value="EXPIRED">Expired</option>
-          </select>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-500">
-          <span>
-            Showing {filtered.length} of {jobs.length} job
-            {jobs.length === 1 ? "" : "s"}
-          </span>
-          {statusFilter !== "ALL" && (
-            <button
-              type="button"
-              onClick={() => setStatusFilter("ALL")}
-              className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-[#006CFF]"
-            >
-              Clear status filter
-            </button>
-          )}
-        </div>
-
-        {error && (
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-8 space-y-4">
-          {loading ? (
-            <div className="rounded-2xl bg-white p-8 text-sm font-semibold text-slate-500">
-              Loading jobs...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="rounded-2xl bg-white p-8">
-              <p className="font-bold text-[#071D49]">No jobs found.</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Try changing the search or status filter.
-              </p>
-            </div>
-          ) : (
-            filtered.map((job) => {
-              const stops = job.stops || [];
-              const nextStop = job.nextStop || stops[0] || null;
-
-              return (
-                <button
-                  key={job.id}
-                  type="button"
-                  onClick={() => router.push(`/driver/jobs/${job.id}`)}
-                  className="w-full rounded-3xl bg-white p-5 text-left shadow-sm ring-1 ring-slate-200 transition hover:ring-2 hover:ring-[#006CFF] sm:p-6"
-                >
-                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h2 className="text-xl font-bold text-[#071D49]">
-                          {job.reference}
-                        </h2>
-
-                        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-[#006CFF]">
-                          {statusLabel(job.status)}
-                        </span>
-
-                        {job.stopSummary && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
-                            <Route size={13} />
-                            {job.stopSummary.description}
-                          </span>
-                        )}
-
-                        {job.stopSummary?.hasReturn && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700">
-                            <CornerDownLeft size={13} />
-                            Return
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-600">
-                        <span className="flex items-center gap-2">
-                          <Calendar size={16} />
-                          {formatDate(job.collectionDate)} ·{" "}
-                          {job.collectionWindow}
-                        </span>
-
-                        <span className="flex items-center gap-2">
-                          <Truck size={16} />
-                          {stops.length || 2} stops
-                        </span>
-                      </div>
-
-                      {nextStop && (
-                        <div className="mt-5 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-4">
-                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#006CFF]">
-                            Next stop
-                          </p>
-                          <p className="mt-2 flex items-start gap-2 text-sm font-bold text-[#071D49]">
-                            <MapPin
-                              size={17}
-                              className="mt-0.5 shrink-0 text-[#006CFF]"
-                            />
-                            <span>
-                              {nextStop.label}: {nextStop.address}
-                            </span>
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="mt-4 grid gap-2 text-sm text-slate-700">
-                        <p>
-                          <strong>Collection:</strong>{" "}
-                          {job.collectionAddress}
-                        </p>
-                        <p>
-                          <strong>Delivery:</strong> {job.deliveryAddress}
-                        </p>
-                      </div>
-                    </div>
-
-                    <ChevronRight className="h-8 w-8 shrink-0 text-slate-400" />
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-    </main>
-  );
+  return <Suspense fallback={<p role="status" className="py-10 text-center text-sm text-slate-500">Loading jobs…</p>}><JobsContent /></Suspense>;
 }

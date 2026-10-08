@@ -512,6 +512,13 @@ router.patch(
         });
       }
 
+      if (req.body.driverId !== undefined && (getString(req.body.driverId) || null) !== booking.driverId) {
+        return res.status(409).json({ error: "Assign or remove drivers through Admin → Drivers." });
+      }
+      if (booking.driverId && req.body.vehicleId !== undefined && (getString(req.body.vehicleId) || null) !== booking.vehicleId) {
+        return res.status(409).json({ error: "Change an assigned job’s van through Admin → Drivers." });
+      }
+
       const complianceOverride = getBoolean(
         req.body.complianceOverride,
       );
@@ -770,7 +777,7 @@ router.patch(
 
                     driverAssignedAt:
                       driverId !==
-                      undefined
+                      undefined && driverId !== booking.driverId
                         ? driverId
                           ? new Date()
                           : null

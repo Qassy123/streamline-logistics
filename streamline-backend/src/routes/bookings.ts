@@ -789,6 +789,13 @@ router.patch("/admin/:id", async (req, res) => {
       });
     }
 
+    if (req.body.driverId !== undefined && (getOptionalString(req.body.driverId) || null) !== current.driverId) {
+      return res.status(409).json({ error: "Assign or remove drivers through Admin → Drivers." });
+    }
+    if (current.driverId && req.body.vehicleId !== undefined && (getOptionalString(req.body.vehicleId) || null) !== current.vehicleId) {
+      return res.status(409).json({ error: "Change an assigned job’s van through Admin → Drivers." });
+    }
+
     const statusValue = getString(req.body.status).toUpperCase();
 
     if (
@@ -864,7 +871,7 @@ router.patch("/admin/:id", async (req, res) => {
               ? new Date()
               : undefined,
           driverAssignedAt:
-            req.body.driverId !== undefined
+            req.body.driverId !== undefined && (getOptionalString(req.body.driverId) || null) !== current.driverId
               ? new Date()
               : undefined,
           trackingEvents:

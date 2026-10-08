@@ -1,210 +1,135 @@
 "use client";
 
-import { useState } from "react";
-import { Eye, EyeOff, Lock, Mail, Truck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2, Phone, Truck } from "lucide-react";
 
-const API_BASE = "https://streamline-logistics-production.up.railway.app";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "https://streamline-logistics-production.up.railway.app";
+type Screen = "LOGIN" | "PASSWORD" | "USERNAME" | "RESET";
+type AuthPayload = { error?: string; message?: string; token?: string; expiresAt?: string; driver?: { id?: string; [key: string]: unknown } };
+const inputStyle = "min-h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-950 outline-none focus:border-[#006CFF] focus:ring-4 focus:ring-blue-50 disabled:opacity-60";
+
+function clearDriverSession() {
+  for (const key of ["driverToken", "driver", "driverSessionExpiresAt"]) window.localStorage.removeItem(key);
+}
 
 export default function DriverLoginPage() {
   const router = useRouter();
-
+  const [screen, setScreen] = useState<Screen>("LOGIN");
   const [login, setLogin] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const inFlight = useRef(false);
+  const controller = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("reset");
+    if (token !== null) {
+      setScreen("RESET");
+      if (/^[a-f0-9]{64}$/i.test(token)) setResetToken(token);
+      else setError("This reset link is invalid. Request a new password reset below.");
+      // Keep the recovery credential out of copied URLs and subsequent navigation.
+      url.searchParams.delete("reset");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    setReady(true);
+    return () => { mounted.current = false; controller.current?.abort(); };
+  }, []);
+
+  function changeScreen(next: Screen) {
+    if (inFlight.current) return;
+    setScreen(next); setError(""); setMessage(""); setPassword(""); setConfirmPassword(""); setShowPassword(false);
+    if (next !== "RESET") setResetToken("");
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setLoading(true);
-
+    if (!ready || inFlight.current) return;
+    setError(""); setMessage("");
+    if (screen === "LOGIN" && (!login.trim() || !password)) { setError("Enter your username or email and password."); return; }
+    if ((screen === "PASSWORD" || screen === "USERNAME") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError("Enter the email address registered to your driver account."); return; }
+    if (screen === "RESET") {
+      if (!resetToken) { setError("Request a new password reset link."); return; }
+      if (password.length < 8 || new TextEncoder().encode(password).length > 72) { setError("Use at least 8 characters and no more than 72 bytes for your new password."); return; }
+      if (password !== confirmPassword) { setError("The passwords do not match."); return; }
+    }
+    const path = screen === "LOGIN" ? "login" : screen === "RESET" ? "reset-password" : screen === "PASSWORD" ? "forgot-password" : "forgot-username";
+    const body = screen === "LOGIN" ? { login: login.trim(), password } : screen === "RESET" ? { token: resetToken, password } : { email: email.trim().toLowerCase() };
+    inFlight.current = true; setLoading(true);
+    const abort = new AbortController(); controller.current = abort;
+    const timeout = window.setTimeout(() => abort.abort(), 25_000);
     try {
-      const response = await fetch(`${API_BASE}/api/driver/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          login: login.trim(),
-          password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Driver login failed");
+      const response = await fetch(`${API_BASE}/api/driver/auth/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal: abort.signal, body: JSON.stringify(body) });
+      const payload: AuthPayload = await response.json().catch(() => ({}));
+      if (!mounted.current) return;
+      if (!response.ok) throw new Error(payload.error || "Unable to complete this request. Please try again.");
+      if (screen === "LOGIN") {
+        const expiry = payload.expiresAt ? Date.parse(payload.expiresAt) : NaN;
+        if (!payload.token || !/^[a-f0-9]{64}$/i.test(payload.token) || !payload.driver?.id || !Number.isFinite(expiry) || expiry <= Date.now()) {
+          throw new Error("Unable to confirm your driver session. Please try signing in again.");
+        }
+        try {
+          clearDriverSession();
+          window.localStorage.setItem("driver", JSON.stringify(payload.driver));
+          window.localStorage.setItem("driverSessionExpiresAt", payload.expiresAt!);
+          // Write the credential last so a partial storage failure cannot look like a signed-in session.
+          window.localStorage.setItem("driverToken", payload.token);
+        } catch {
+          try { clearDriverSession(); } catch { /* Browser storage may be completely unavailable. */ }
+          // Revoke the newly issued session when this browser cannot retain it.
+          void fetch(`${API_BASE}/api/driver/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${payload.token}` }, cache: "no-store" }).catch(() => undefined);
+          throw new Error("Your browser could not save this login. Allow site storage and try again.");
+        }
+        setPassword(""); router.replace("/driver/dashboard");
+      } else if (screen === "RESET") {
+        try { clearDriverSession(); } catch { /* Server has already revoked the old sessions. */ }
+        setResetToken(""); setPassword(""); setConfirmPassword(""); setShowPassword(false); setScreen("LOGIN");
+        setMessage(payload.message || "Password updated. Sign in with your new password.");
+      } else {
+        setMessage(payload.message || "If this email matches an active driver account, check your inbox. If nothing arrives, contact dispatch.");
       }
-
-      localStorage.setItem("driverToken", data.token);
-      localStorage.setItem("driver", JSON.stringify(data.driver));
-
-      router.push("/driver/dashboard");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Driver login failed");
+    } catch (requestError) {
+      if (mounted.current) setError(requestError instanceof Error && requestError.name === "AbortError" ? "The request timed out. Check your connection and try again. If you were resetting your password, try signing in first in case it was saved." : requestError instanceof Error ? requestError.message : "Unable to connect. Please try again.");
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeout); if (controller.current === abort) controller.current = null;
+      inFlight.current = false; if (mounted.current) setLoading(false);
     }
   }
 
+  const heading = screen === "LOGIN" ? "Driver sign in" : screen === "PASSWORD" ? "Reset your password" : screen === "USERNAME" ? "Recover your username" : "Set a new password";
+  const description = screen === "LOGIN" ? "Use your driver username or email address." : screen === "RESET" ? "Choose a new password for your driver account." : "Enter your registered driver email. We’ll email you if it matches an active account.";
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="grid min-h-screen lg:grid-cols-2">
-        <section className="hidden bg-gradient-to-br from-slate-900 via-slate-950 to-black p-12 lg:flex lg:flex-col lg:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-slate-950">
-              <Truck className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-lg font-bold tracking-tight">Streamline</p>
-              <p className="text-sm text-slate-400">Driver Portal</p>
-            </div>
-          </div>
-
-          <div className="max-w-xl">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
-              Operations
-            </p>
-            <h1 className="text-5xl font-bold leading-tight tracking-tight">
-              Manage assigned jobs, tracking and proof of delivery from one place.
-            </h1>
-            <p className="mt-6 text-lg leading-8 text-slate-300">
-              Access today&apos;s jobs, update collection and delivery statuses,
-              start live tracking and complete proof of delivery.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 text-sm text-slate-300">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              Live jobs
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              GPS tracking
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              POD capture
-            </div>
-          </div>
-        </section>
-
-        <section className="flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-md">
-            <div className="mb-10 lg:hidden">
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-950">
-                <Truck className="h-6 w-6" />
-              </div>
-              <p className="text-2xl font-bold">Streamline Driver Portal</p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl shadow-black/30 sm:p-8">
-              <div className="mb-8">
-                <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
-                  Driver login
-                </p>
-                <h2 className="mt-3 text-3xl font-bold tracking-tight">
-                  Sign in to your route
-                </h2>
-                <p className="mt-3 text-sm leading-6 text-slate-400">
-                  Use your driver username or email address.
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div>
-                  <label
-                    htmlFor="login"
-                    className="mb-2 block text-sm font-medium text-slate-200"
-                  >
-                    Username or email
-                  </label>
-                  <div className="relative">
-                    <Mail className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
-                    <input
-                      id="login"
-                      type="text"
-                      value={login}
-                      onChange={(event) => setLogin(event.target.value)}
-                      autoComplete="username"
-                      required
-                      className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-4 text-white outline-none transition placeholder:text-slate-500 focus:border-white/30 focus:ring-4 focus:ring-white/10"
-                      placeholder="driver@example.com"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="password"
-                    className="mb-2 block text-sm font-medium text-slate-200"
-                  >
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
-                    <input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      autoComplete="current-password"
-                      required
-                      className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-4 pl-12 pr-12 text-white outline-none transition placeholder:text-slate-500 focus:border-white/30 focus:ring-4 focus:ring-white/10"
-                      placeholder="Enter password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((value) => !value)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-white"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
-                      ) : (
-                        <Eye className="h-5 w-5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-sm">
-                  <a
-                    href="/driver/forgot-username"
-                    className="text-slate-300 underline-offset-4 hover:text-white hover:underline"
-                  >
-                    Forgot username
-                  </a>
-                  <a
-                    href="/driver/forgot-password"
-                    className="text-slate-300 underline-offset-4 hover:text-white hover:underline"
-                  >
-                    Forgot password
-                  </a>
-                </div>
-
-                {error && (
-                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-2xl bg-white px-5 py-4 font-semibold text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? "Signing in..." : "Sign in"}
-                </button>
-              </form>
-            </div>
-
-            <p className="mt-6 text-center text-xs text-slate-500">
-              Driver access only. Customer accounts use the customer login area.
-            </p>
-          </div>
-        </section>
-      </div>
+    <main className="flex min-h-[100dvh] flex-col bg-slate-50 text-slate-950">
+      <header className="bg-[#071D49] px-5 py-5 text-white"><div className="mx-auto flex max-w-lg items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#006CFF]"><Truck size={24} aria-hidden="true" /></span><div><p className="text-lg font-bold">Streamline Logistics</p><p className="text-sm text-blue-100">Driver portal</p></div></div></header>
+      <section className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-5 py-8 sm:py-12">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h1 className="text-2xl font-bold tracking-tight">{heading}</h1><p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+          <form onSubmit={handleSubmit} className="mt-6 space-y-5" aria-busy={loading}>
+            {screen === "LOGIN" ? <label className="block"><span className="mb-2 block text-sm font-semibold">Username or email</span><input className={inputStyle} name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={254} disabled={loading || !ready} value={login} onChange={e => setLogin(e.target.value)} /></label> : screen !== "RESET" ? <label className="block"><span className="mb-2 block text-sm font-semibold">Driver account email</span><input className={inputStyle} name="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={254} disabled={loading || !ready} value={email} onChange={e => setEmail(e.target.value)} /></label> : null}
+            {screen === "LOGIN" || screen === "RESET" ? <>
+              <label className="block" htmlFor="driver-password"><span className="mb-2 block text-sm font-semibold">{screen === "RESET" ? "New password" : "Password"}</span></label>
+              <div className="relative !mt-2"><input id="driver-password" name="password" className={`${inputStyle} pr-14`} type={showPassword ? "text" : "password"} autoComplete={screen === "RESET" ? "new-password" : "current-password"} required minLength={screen === "RESET" ? 8 : undefined} maxLength={screen === "RESET" ? 72 : 1024} disabled={loading || !ready || (screen === "RESET" && !resetToken)} value={password} onChange={e => setPassword(e.target.value)} /><button type="button" disabled={loading} aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)} className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-xl text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500">{showPassword ? <EyeOff size={20} /> : <Eye size={20} />}</button></div>
+            </> : null}
+            {screen === "RESET" ? <label className="block"><span className="mb-2 block text-sm font-semibold">Confirm new password</span><input className={inputStyle} name="confirmPassword" type={showPassword ? "text" : "password"} autoComplete="new-password" required minLength={8} maxLength={72} disabled={loading || !ready || !resetToken} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} /><span className="mt-2 block text-xs text-slate-500">At least 8 characters. Resetting your password signs you out on all devices.</span></label> : null}
+            {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">{error}</p> : null}
+            {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">{message}</p> : null}
+            <button type="submit" disabled={loading || !ready || (screen === "RESET" && !resetToken)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#006CFF] px-5 py-3 font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60">{loading ? <><Loader2 size={18} className="animate-spin" />Please wait…</> : screen === "LOGIN" ? "Sign in" : screen === "RESET" ? "Save new password" : screen === "PASSWORD" ? "Email reset link" : "Email my username"}</button>
+          </form>
+          {screen === "LOGIN" ? <div className="mt-5 flex flex-wrap justify-between gap-2"><button type="button" disabled={loading || !ready} onClick={() => changeScreen("USERNAME")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Forgot username?</button><button type="button" disabled={loading || !ready} onClick={() => changeScreen("PASSWORD")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Forgot password?</button></div> : <div className="mt-5 flex flex-wrap justify-between gap-3"><button type="button" disabled={loading} onClick={() => changeScreen("LOGIN")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Back to sign in</button>{screen === "RESET" ? <button type="button" disabled={loading} onClick={() => changeScreen("PASSWORD")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Request a new reset link</button> : null}</div>}
+        </div>
+        <a href="tel:03333440703" className="mt-6 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-[#071D49]"><Phone size={17} />Call dispatch · 0333 344 0703</a>
+        <p className="mt-5 text-center text-xs leading-5 text-slate-500">Driver access only. Your van and jobs are assigned by dispatch.</p>
+      </section>
     </main>
   );
 }

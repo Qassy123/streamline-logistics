@@ -207,9 +207,9 @@ model TradeAccount {
   termsAccepted           Boolean @default(false)
   privacyAccepted         Boolean @default(false)
 
-  creditLimit      Decimal @default(2500)
-  currentBalance   Decimal @default(0)
-  paymentTermsDays Int     @default(30)
+  creditLimit          Decimal @default(2500)
+  currentBalance       Decimal @default(0)
+  paymentTermsDays     Int     @default(30)
   creditFacilityOnHold Boolean @default(false)
   creditHoldReason     String?
 
@@ -266,6 +266,8 @@ model Vehicle {
   reservations VehicleReservation[]
   drivers      Driver[]
   documents    Document[]
+
+  driverChecks DriverVehicleCheck[]
 
   @@index([vehicleType])
   @@index([status])
@@ -390,6 +392,12 @@ model Booking {
   invoiceBookings InvoiceBooking[]
   creditOverrides CreditOverride[]
 
+  driverAcknowledgedAt   DateTime?
+  driverJourneyStartedAt DateTime?
+  driverStops            DriverStop[]
+  driverActions          DriverJobAction[]
+  driverIncidents        DriverIncident[]
+
   @@index([userId])
   @@index([vehicleId])
   @@index([driverId])
@@ -462,6 +470,13 @@ model Driver {
   locations DriverLocation[]
   documents Document[]
 
+  portalOnDuty        Boolean                    @default(false)
+  portalSessions      DriverPortalSession[]
+  portalNotifications DriverPortalNotification[]
+  jobActions          DriverJobAction[]
+  incidents           DriverIncident[]
+  vehicleChecks       DriverVehicleCheck[]
+
   @@index([vehicleId])
   @@index([sessionToken])
   @@index([status])
@@ -505,10 +520,10 @@ model Payment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  booking Booking? @relation(fields: [bookingId], references: [id])
-  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  booking     Booking?            @relation(fields: [bookingId], references: [id])
+  invoice     Invoice?            @relation(fields: [invoiceId], references: [id])
   allocations PaymentAllocation[]
-  user    User?    @relation(fields: [userId], references: [id])
+  user        User?               @relation(fields: [userId], references: [id])
 
   @@index([bookingId])
   @@index([invoiceId])
@@ -517,94 +532,93 @@ model Payment {
 }
 
 model Invoice {
-  id                  String        @id @default(cuid())
-  invoiceNumber       String        @unique
-  bookingId           String?
-  userId              String?
-  status              InvoiceStatus @default(DRAFT)
-  invoiceType         InvoiceType   @default(SINGLE)
-  subtotal            Decimal
-  vatAmount           Decimal
-  total               Decimal
-  dueDate             DateTime?
-  issuedAt            DateTime?
-  finalisedAt         DateTime?
-  paidAt              DateTime?
-  pdfUrl              String?
-  pdfStorageKey       String?
-  supplyDate          DateTime?
-  sentAt              DateTime?
-  lastReminderSentAt  DateTime?
-  accountingProvider  String?
-  externalAccountingId String?
+  id                      String        @id @default(cuid())
+  invoiceNumber           String        @unique
+  bookingId               String?
+  userId                  String?
+  status                  InvoiceStatus @default(DRAFT)
+  invoiceType             InvoiceType   @default(SINGLE)
+  subtotal                Decimal
+  vatAmount               Decimal
+  total                   Decimal
+  dueDate                 DateTime?
+  issuedAt                DateTime?
+  finalisedAt             DateTime?
+  paidAt                  DateTime?
+  pdfUrl                  String?
+  pdfStorageKey           String?
+  supplyDate              DateTime?
+  sentAt                  DateTime?
+  lastReminderSentAt      DateTime?
+  accountingProvider      String?
+  externalAccountingId    String?
   accountingPostingStatus String?
-  accountingPostedAt  DateTime?
-  paymentTerms        String?
-  customerReference   String?
-  purchaseOrderNumber String?
-  notes               String?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  accountingPostedAt      DateTime?
+  paymentTerms            String?
+  customerReference       String?
+  purchaseOrderNumber     String?
+  notes                   String?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
 
-  booking     Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-  user        User?        @relation(fields: [userId], references: [id])
-  payments    Payment[]
-  documents   Document[]
-  emailLogs   EmailLog[]
-  creditNotes CreditNote[]
-  adjustments InvoiceAdjustment[]
-  lines       InvoiceLine[]
+  booking         Booking?            @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  user            User?               @relation(fields: [userId], references: [id])
+  payments        Payment[]
+  documents       Document[]
+  emailLogs       EmailLog[]
+  creditNotes     CreditNote[]
+  adjustments     InvoiceAdjustment[]
+  lines           InvoiceLine[]
   invoiceBookings InvoiceBooking[]
-  allocations PaymentAllocation[]
-  auditEvents InvoiceAuditEvent[]
+  allocations     PaymentAllocation[]
+  auditEvents     InvoiceAuditEvent[]
 
   @@index([userId])
   @@index([status])
   @@index([dueDate])
 }
 
-
 model BillingProfile {
-  id                    String   @id @default(cuid())
-  userId                String   @unique
-  paymentMode           BillingPaymentMode @default(PAY_NOW)
-  invoiceMode           BillingInvoiceMode @default(PER_BOOKING)
-  billingFrequency      BillingFrequency @default(PER_BOOKING)
-  invoiceDayOfWeek      Int?
-  invoiceDayOfMonth     Int?
-  paymentTermsDays      Int      @default(30)
-  accountsEmail         String?
-  poRequired            Boolean  @default(false)
-  creditLimit           Decimal?
-  creditFacilityOnHold  Boolean  @default(false)
-  holdReason            String?
-  reminderApproachingDue Boolean @default(true)
-  reminderDueToday      Boolean  @default(true)
-  reminderOverdue       Boolean  @default(true)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                     String             @id @default(cuid())
+  userId                 String             @unique
+  paymentMode            BillingPaymentMode @default(PAY_NOW)
+  invoiceMode            BillingInvoiceMode @default(PER_BOOKING)
+  billingFrequency       BillingFrequency   @default(PER_BOOKING)
+  invoiceDayOfWeek       Int?
+  invoiceDayOfMonth      Int?
+  paymentTermsDays       Int                @default(30)
+  accountsEmail          String?
+  poRequired             Boolean            @default(false)
+  creditLimit            Decimal?
+  creditFacilityOnHold   Boolean            @default(false)
+  holdReason             String?
+  reminderApproachingDue Boolean            @default(true)
+  reminderDueToday       Boolean            @default(true)
+  reminderOverdue        Boolean            @default(true)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model InvoiceLine {
-  id          String   @id @default(cuid())
-  invoiceId   String
-  bookingId   String?
-  chargeType  InvoiceChargeType
-  description String
-  quantity    Decimal  @default(1)
-  unitPrice   Decimal
-  netAmount   Decimal
-  vatRate     Decimal
-  vatAmount   Decimal
-  grossAmount Decimal
+  id               String            @id @default(cuid())
+  invoiceId        String
+  bookingId        String?
+  chargeType       InvoiceChargeType
+  description      String
+  quantity         Decimal           @default(1)
+  unitPrice        Decimal
+  netAmount        Decimal
+  vatRate          Decimal
+  vatAmount        Decimal
+  grossAmount      Decimal
   bookingReference String?
-  sourceType  String?
-  sourceId    String?
-  createdAt   DateTime @default(now())
+  sourceType       String?
+  sourceId         String?
+  createdAt        DateTime          @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
@@ -613,18 +627,18 @@ model InvoiceLine {
 }
 
 model InvoiceBooking {
-  id          String   @id @default(cuid())
-  invoiceId   String
-  bookingId   String
-  bookingReference String
-  bookingDate DateTime
-  poReference String?
-  routeDescription String?
+  id                 String   @id @default(cuid())
+  invoiceId          String
+  bookingId          String
+  bookingReference   String
+  bookingDate        DateTime
+  poReference        String?
+  routeDescription   String?
   serviceDescription String?
-  netAmount   Decimal
-  vatAmount   Decimal
-  grossAmount Decimal
-  createdAt   DateTime @default(now())
+  netAmount          Decimal
+  vatAmount          Decimal
+  grossAmount        Decimal
+  createdAt          DateTime @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -634,13 +648,13 @@ model InvoiceBooking {
 }
 
 model PaymentAllocation {
-  id        String   @id @default(cuid())
-  paymentId String
-  invoiceId String
-  amount    Decimal
-  allocatedAt DateTime @default(now())
+  id                 String   @id @default(cuid())
+  paymentId          String
+  invoiceId          String
+  amount             Decimal
+  allocatedAt        DateTime @default(now())
   allocatedByAdminId String?
-  notes     String?
+  notes              String?
 
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
@@ -650,13 +664,13 @@ model PaymentAllocation {
 }
 
 model InvoiceAuditEvent {
-  id        String   @id @default(cuid())
-  invoiceId String
-  eventType String
+  id          String   @id @default(cuid())
+  invoiceId   String
+  eventType   String
   description String
-  adminId   String?
-  metadata  Json?
-  createdAt DateTime @default(now())
+  adminId     String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -665,15 +679,15 @@ model InvoiceAuditEvent {
 }
 
 model CreditOverride {
-  id        String   @id @default(cuid())
-  userId    String
-  bookingId String?
-  requestedAmount Decimal
-  reason    String
+  id                String   @id @default(cuid())
+  userId            String
+  bookingId         String?
+  requestedAmount   Decimal
+  reason            String
   approvedByAdminId String
-  createdAt DateTime @default(now())
+  createdAt         DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([userId])
@@ -1160,3 +1174,190 @@ enum AdminRole {
   READ_ONLY
 }
 
+// Driver portal: new operational records; existing booking/POD history is retained.
+model DriverStop {
+  id           String              @id @default(cuid())
+  bookingId    String
+  stopKey      String
+  sequence     Int
+  type         DriverStopType
+  label        String
+  address      String
+  contactName  String?
+  contactPhone String?
+  instructions String?
+  status       DriverStopStatus    @default(PENDING)
+  enRouteAt    DateTime?
+  arrivedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  booking      Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  evidence     DriverStopEvidence?
+  incidents    DriverIncident[]
+  actions      DriverJobAction[]
+
+  @@unique([bookingId, stopKey])
+  @@unique([bookingId, sequence])
+  @@index([bookingId, status])
+}
+
+model DriverStopEvidence {
+  id              String                @id @default(cuid())
+  stopId          String                @unique
+  recipientName   String?
+  signatureUrl    String?
+  photoUrls       String[]              @default([])
+  notes           String?
+  outcome         DriverDeliveryOutcome @default(DELIVERED)
+  exceptionReason String?
+  reviewStatus    DriverReviewStatus    @default(NOT_REQUIRED)
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  reviewNotes     String?
+  capturedAt      DateTime?
+  receivedAt      DateTime              @default(now())
+  latitude        Decimal?
+  longitude       Decimal?
+  accuracy        Decimal?
+  stop            DriverStop            @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  @@index([reviewStatus, receivedAt])
+}
+
+model DriverJobAction {
+  id         String      @id @default(cuid())
+  bookingId  String
+  driverId   String
+  stopId     String?
+  requestId  String
+  action     String
+  capturedAt DateTime?
+  receivedAt DateTime    @default(now())
+  booking    Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  driver     Driver      @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  stop       DriverStop? @relation(fields: [stopId], references: [id], onDelete: SetNull)
+
+  @@unique([driverId, requestId])
+  @@index([bookingId, receivedAt])
+}
+
+model DriverIncident {
+  id               String               @id @default(cuid())
+  bookingId        String
+  driverId         String
+  stopId           String?
+  requestId        String
+  reason           DriverIncidentReason
+  notes            String
+  photoUrls        String[]             @default([])
+  revisedArrivalAt DateTime?
+  capturedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedBy   String?
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  dispatchResponse String?
+  booking          Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  driver           Driver               @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  stop             DriverStop?          @relation(fields: [stopId], references: [id], onDelete: SetNull)
+
+  @@unique([driverId, requestId])
+  @@index([bookingId, createdAt])
+  @@index([resolvedAt, createdAt])
+}
+
+model DriverVehicleCheck {
+  id               String    @id @default(cuid())
+  driverId         String
+  vehicleId        String
+  requestId        String
+  checkDate        String
+  odometer         Int?
+  items            Json
+  notes            String?
+  photoUrls        String[]  @default([])
+  hasDefect        Boolean   @default(false)
+  unsafeToDrive    Boolean   @default(false)
+  capturedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedBy   String?
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  dispatchResponse String?
+  driver           Driver    @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  vehicle          Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  @@unique([driverId, requestId])
+  @@index([vehicleId, checkDate])
+  @@index([hasDefect, resolvedAt])
+}
+
+model DriverPortalSession {
+  id         String    @id @default(cuid())
+  driverId   String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+  driver     Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId, expiresAt])
+}
+
+model DriverPortalNotification {
+  id        String    @id @default(cuid())
+  driverId  String
+  dedupeKey String
+  bookingId String?
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, dedupeKey])
+  @@index([driverId, readAt, createdAt])
+}
+
+enum DriverStopType {
+  COLLECTION
+  DROP
+  DELIVERY
+  RETURN
+}
+
+enum DriverStopStatus {
+  PENDING
+  EN_ROUTE
+  ARRIVED
+  COMPLETED
+}
+
+enum DriverDeliveryOutcome {
+  DELIVERED
+  REFUSED_SIGNATURE
+  AUTHORISED_UNATTENDED
+  PARTIAL_DELIVERY
+  FAILED_DELIVERY
+}
+
+enum DriverReviewStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DriverIncidentReason {
+  DELAY
+  ACCESS_BLOCKED
+  NO_RECIPIENT
+  GOODS_NOT_READY
+  DAMAGED_GOODS
+  BREAKDOWN
+  OTHER
+}

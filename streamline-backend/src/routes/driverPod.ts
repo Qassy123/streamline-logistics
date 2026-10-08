@@ -1,385 +1,169 @@
 import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import { PrismaClient, BookingStatus, PODStatus } from "@prisma/client";
+import { BookingStatus, DriverStopStatus, DriverStopType, PODStatus, Prisma } from "@prisma/client";
+import { prisma } from "../lib/prisma";
+import {
+  authenticateDriver, DriverPortalError, readDriverJob, requestId, requireAssignmentVersion,
+  requireOpenJob, submitStopEvidence, text, validateEvidenceUrl, withBookingLock,
+} from "../lib/driverPortal";
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+cloudinary.config({ cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY, api_secret: process.env.CLOUDINARY_API_SECRET });
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 8 * 1024 * 1024,
-  },
-});
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-function getBearerToken(authHeader: string | undefined) {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  return authHeader.replace("Bearer ", "").trim();
+type Handler = (req: express.Request, res: express.Response, driverId: string) => Promise<unknown>;
+function driverRoute(handler: Handler): express.RequestHandler {
+  return async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const driver = await authenticateDriver(req.headers.authorization);
+      if (!driver) return void res.status(401).json({ error: "Please sign in to the driver portal." });
+      await handler(req, res, driver.id);
+    } catch (error) {
+      if (error instanceof DriverPortalError) return void res.status(error.status).json({ error: error.message });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2002", "P2034"].includes(error.code)) {
+        return void res.status(409).json({ error: "This job changed. Refresh and retry using the same request identifier." });
+      }
+      console.error("Driver proof of delivery error:", error);
+      res.status(500).json({ error: "Unable to confirm delivery evidence. Keep your draft and retry." });
+    }
+  };
 }
 
-function cleanString(value: unknown) {
-  if (Array.isArray(value)) {
-    return typeof value[0] === "string" ? value[0].trim() : "";
+function bookingId(req: express.Request) {
+  const id = text(req.params.bookingId, 100);
+  if (!id) throw new DriverPortalError(400, "Booking identifier is required.");
+  return id;
+}
+
+async function currentBooking(id: string, driverId: string) {
+  const booking = await prisma.booking.findFirst({ where: { id, driverId }, include: { pod: true } });
+  if (!booking) throw new DriverPortalError(404, "This job is no longer assigned to you.");
+  return booking;
+}
+
+function requireWritableEvidence(booking: Awaited<ReturnType<typeof currentBooking>>) {
+  requireOpenJob(booking);
+  if (booking.pod?.status === PODStatus.COMPLETED || booking.pod?.deliveredAt) {
+    throw new DriverPortalError(409, "The existing completed proof of delivery is locked. Contact dispatch if this job needs correction.");
   }
-
-  return typeof value === "string" ? value.trim() : "";
 }
 
-function cloudinaryReady() {
-  return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET,
-  );
-}
+router.get("/:bookingId", driverRoute(async (req, res, driverId) => {
+  const job = await readDriverJob(bookingId(req), driverId);
+  res.json({ pod: job.pod, stops: job.stops, nextStop: job.nextStop, job });
+}));
 
-async function getAuthenticatedDriver(authHeader: string | undefined) {
-  const token = getBearerToken(authHeader);
+router.get("/:bookingId/stops/:stopId", driverRoute(async (req, res, driverId) => {
+  const job = await readDriverJob(bookingId(req), driverId);
+  const stop = job.stops.find(value => value.id === text(req.params.stopId, 100));
+  if (!stop) throw new DriverPortalError(404, "Delivery stop not found on this job.");
+  res.json({ stop, evidence: stop.evidence });
+}));
 
-  if (!token) return null;
-
-  return prisma.driver.findFirst({
-    where: {
-      sessionToken: token,
-      active: true,
-    },
-    include: {
-      vehicle: true,
-    },
+// Uploads return media references only. Completing a stop is a separate validated transaction.
+router.post("/:bookingId/upload", driverRoute(async (req, res, driverId) => {
+  const id = bookingId(req);
+  requireWritableEvidence(await currentBooking(id, driverId));
+  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    throw new DriverPortalError(503, "Delivery photo storage is not configured. Contact dispatch.");
+  }
+  await new Promise<void>((resolve, reject) => upload.single("file")(req, res, error => {
+    if (error) reject(new DriverPortalError(400, "Upload one image smaller than 8 MB.")); else resolve();
+  }));
+  requireAssignmentVersion(await currentBooking(id, driverId), req.body?.expectedAssignedAt, req.body?.expectedVehicleId);
+  const type = text(req.body?.type, 20);
+  if (type !== "signature" && type !== "photo") throw new DriverPortalError(400, "Choose signature or photo upload.");
+  const uploadId = requestId(req.body?.requestId);
+  const purpose = text(req.body?.purpose, 20) || "DELIVERY";
+  if (!["DELIVERY", "INCIDENT"].includes(purpose)) throw new DriverPortalError(400, "Invalid photo purpose.");
+  if (purpose === "INCIDENT" && type !== "photo") throw new DriverPortalError(400, "Problem reports accept photos only.");
+  const job = await readDriverJob(id, driverId);
+  const stopId = text(req.body?.stopId, 100);
+  let folder = `streamline-logistics/pod/${id}/incidents`;
+  if (purpose === "DELIVERY") {
+    const stop = job.nextStop;
+    if (!stopId || stop?.id !== stopId || stop.status !== DriverStopStatus.ARRIVED || stop.type === DriverStopType.COLLECTION) {
+      throw new DriverPortalError(409, "Arrive at the current delivery stop before uploading its evidence.");
+    }
+    if (stop.evidence && stop.evidence.reviewStatus !== "REJECTED") {
+      throw new DriverPortalError(409, "Evidence for this stop has already been submitted.");
+    }
+    folder = `streamline-logistics/pod/${id}/stops/${stop.id}`;
+  } else if (stopId && !job.stops.some(stop => stop.id === stopId)) {
+    throw new DriverPortalError(400, "Stop does not belong to this job.");
+  }
+  if (!req.file || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(req.file.mimetype)) {
+    throw new DriverPortalError(400, "Choose a JPEG, PNG, WebP or HEIC image.");
+  }
+  const result = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`, {
+    folder, resource_type: "image", public_id: `${type}-${uploadId}`, overwrite: false,
   });
-}
+  // An assignment or completion could change while the media upload is in flight.
+  const current = await currentBooking(id, driverId);
+  requireWritableEvidence(current);
+  requireAssignmentVersion(current, req.body?.expectedAssignedAt, req.body?.expectedVehicleId);
+  res.json({ message: "Evidence uploaded. Submit the delivery form to confirm this stop.",
+    type, purpose, stopId: stopId || null, requestId: uploadId, url: result.secure_url });
+}));
 
-async function getAssignedBooking(bookingId: string, driverId: string) {
-  return prisma.booking.findFirst({
-    where: {
-      id: bookingId,
-      driverId,
-    },
-    include: {
-      pod: true,
-    },
+// Preserve the legacy draft URL without using a draft to complete a stop or booking.
+// The new portal keeps unfinished per-stop forms on the device and submits once.
+router.post("/:bookingId", driverRoute(async (req, res, driverId) => {
+  const id = bookingId(req);
+  const signatureUrl = validateEvidenceUrl(req.body?.signatureUrl, id);
+  const photoUrl = validateEvidenceUrl(req.body?.photoUrl, id);
+  const recipientName = text(req.body?.recipientName, 200);
+  const notes = text(req.body?.notes);
+  const pod = await withBookingLock(id, async tx => {
+    const booking = await tx.booking.findFirst({ where: { id, driverId }, include: { pod: true } });
+    if (!booking) throw new DriverPortalError(404, "This job is no longer assigned to you.");
+    requireWritableEvidence(booking);
+    const data = { recipientName: recipientName || undefined, signatureUrl: signatureUrl || undefined,
+      photoUrl: photoUrl || undefined, notes: notes || undefined };
+    return tx.pOD.upsert({ where: { bookingId: id },
+      create: { bookingId: id, status: PODStatus.PENDING, ...data }, update: data });
   });
-}
+  res.json({ pod, message: "Draft saved. This does not mark any delivery stop completed." });
+}));
 
-function deliveryAlreadyCompleted(
-  booking: NonNullable<Awaited<ReturnType<typeof getAssignedBooking>>>,
-) {
-  return Boolean(
-    booking.status === BookingStatus.COMPLETED ||
-      booking.pod?.status === PODStatus.COMPLETED ||
-      booking.pod?.deliveredAt,
-  );
-}
-
-async function uploadBufferToCloudinary(params: {
-  buffer: Buffer;
-  bookingId: string;
-  type: "signature" | "photo";
-  mimetype: string;
-}) {
-  if (!cloudinaryReady()) {
-    throw new Error("Cloudinary is not configured");
+async function completeStop(req: express.Request, res: express.Response, driverId: string) {
+  const id = bookingId(req);
+  // An explicit stop identifier is essential: a retry must never apply evidence to the next recipient.
+  const stopId = text(req.params.stopId, 100) || text(req.body?.stopId, 100);
+  if (!stopId) throw new DriverPortalError(400, "Select the delivery stop before submitting evidence.");
+  const assigned = await currentBooking(id, driverId);
+  if (assigned.status !== BookingStatus.COMPLETED) requireWritableEvidence(assigned);
+  function stopMedia(value: unknown) {
+    const url = validateEvidenceUrl(value, id);
+    if (url && !new URL(url).pathname.includes(`/streamline-logistics/pod/${id}/stops/${stopId}/`)) {
+      throw new DriverPortalError(400, "Use evidence uploaded for this delivery stop.");
+    }
+    return url;
   }
-
-  const folder = `streamline-logistics/pod/${params.bookingId}`;
-  const dataUri = `data:${params.mimetype};base64,${params.buffer.toString(
-    "base64",
-  )}`;
-
-  const result = await cloudinary.uploader.upload(dataUri, {
-    folder,
-    resource_type: "image",
-    public_id: `${params.type}-${Date.now()}`,
-    overwrite: false,
+  const signatureUrl = stopMedia(req.body?.signatureUrl);
+  const photoInput = req.body?.photoUrls ?? (text(req.body?.photoUrl) ? [req.body.photoUrl] : []);
+  if (!Array.isArray(photoInput) || photoInput.length > 8) throw new DriverPortalError(400, "Provide up to eight delivery photos.");
+  const photoUrls = photoInput.map(stopMedia);
+  const job = await submitStopEvidence({
+    bookingId: id, driverId, stopId, expectedAssignedAt: req.body?.expectedAssignedAt, expectedVehicleId: req.body?.expectedVehicleId, requestId: req.body?.requestId,
+    recipientName: req.body?.recipientName, signatureUrl, photoUrls,
+    notes: req.body?.notes, outcome: req.body?.outcome, exceptionReason: req.body?.exceptionReason,
+    capturedAt: req.body?.capturedAt, latitude: req.body?.latitude,
+    longitude: req.body?.longitude, accuracy: req.body?.accuracy,
   });
-
-  return result.secure_url;
+  const stop = job.stops.find(value => value.id === stopId);
+  const pendingReview = stop?.evidence?.reviewStatus === "PENDING";
+  res.json({ job, booking: job, pod: job.pod, stop,
+    message: pendingReview ? "Exception recorded for dispatch review. This stop is not completed yet."
+      : job.status === BookingStatus.COMPLETED ? "All stops completed. Delivery evidence saved."
+      : "Delivery stop completed. Continue to the next stop." });
 }
 
-router.get("/:bookingId", async (req, res) => {
-  try {
-    const driver = await getAuthenticatedDriver(req.headers.authorization);
-
-    if (!driver) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const bookingId = String(req.params.bookingId || "");
-    const booking = await getAssignedBooking(bookingId, driver.id);
-
-    if (!booking) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    return res.json({ pod: booking.pod });
-  } catch (error) {
-    console.error("Driver POD fetch error:", error);
-    return res.status(500).json({ error: "Unable to load proof of delivery" });
-  }
-});
-
-router.post("/:bookingId/upload", upload.single("file"), async (req, res) => {
-  try {
-    const driver = await getAuthenticatedDriver(req.headers.authorization);
-
-    if (!driver) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const bookingId = String(req.params.bookingId || "");
-    const rawType = req.body?.type;
-    const uploadType = Array.isArray(rawType)
-      ? cleanString(rawType[0])
-      : cleanString(rawType);
-
-    if (uploadType !== "signature" && uploadType !== "photo") {
-      return res.status(400).json({
-        error: "Upload type must be signature or photo",
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ error: "File is required" });
-    }
-
-    const mimetype = String(req.file.mimetype || "");
-
-    if (!mimetype.startsWith("image/")) {
-      return res.status(400).json({ error: "Only image files are allowed" });
-    }
-
-    const booking = await getAssignedBooking(bookingId, driver.id);
-
-    if (!booking) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    if (deliveryAlreadyCompleted(booking)) {
-      return res.status(409).json({
-        error: "Proof of delivery is already completed and cannot be changed",
-      });
-    }
-
-    const cloudinaryUploadType: "signature" | "photo" =
-      uploadType === "signature" ? "signature" : "photo";
-
-    const url = await uploadBufferToCloudinary({
-      buffer: req.file.buffer,
-      bookingId: booking.id,
-      type: cloudinaryUploadType,
-      mimetype,
-    });
-
-    const pod = await prisma.pOD.upsert({
-      where: {
-        bookingId: booking.id,
-      },
-      update:
-        cloudinaryUploadType === "signature"
-          ? {
-              signatureUrl: url,
-            }
-          : {
-              photoUrl: url,
-            },
-      create: {
-        bookingId: booking.id,
-        status: PODStatus.PENDING,
-        ...(cloudinaryUploadType === "signature"
-          ? {
-              signatureUrl: url,
-            }
-          : {
-              photoUrl: url,
-            }),
-      },
-    });
-
-    return res.json({
-      message: "POD file uploaded",
-      type: cloudinaryUploadType,
-      url,
-      pod,
-    });
-  } catch (error) {
-    console.error("Driver POD upload error:", error);
-
-    return res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to upload proof of delivery file",
-    });
-  }
-});
-
-router.post("/:bookingId", async (req, res) => {
-  try {
-    const driver = await getAuthenticatedDriver(req.headers.authorization);
-
-    if (!driver) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const bookingId = String(req.params.bookingId || "");
-    const recipientName = cleanString(req.body.recipientName);
-    const signatureUrl = cleanString(req.body.signatureUrl);
-    const photoUrl = cleanString(req.body.photoUrl);
-    const notes = cleanString(req.body.notes);
-
-    const booking = await getAssignedBooking(bookingId, driver.id);
-
-    if (!booking) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    if (deliveryAlreadyCompleted(booking)) {
-      return res.status(409).json({
-        error: "Proof of delivery is already completed and cannot be changed",
-      });
-    }
-
-    const pod = await prisma.pOD.upsert({
-      where: {
-        bookingId: booking.id,
-      },
-      update: {
-        recipientName: recipientName || undefined,
-        signatureUrl: signatureUrl || undefined,
-        photoUrl: photoUrl || undefined,
-        notes: notes || undefined,
-      },
-      create: {
-        bookingId: booking.id,
-        status: PODStatus.PENDING,
-        recipientName: recipientName || undefined,
-        signatureUrl: signatureUrl || undefined,
-        photoUrl: photoUrl || undefined,
-        notes: notes || undefined,
-      },
-    });
-
-    return res.json({
-      message: "Proof of delivery saved",
-      pod,
-    });
-  } catch (error) {
-    console.error("Driver POD save error:", error);
-    return res.status(500).json({ error: "Unable to save proof of delivery" });
-  }
-});
-
-router.post("/:bookingId/complete", async (req, res) => {
-  try {
-    const driver = await getAuthenticatedDriver(req.headers.authorization);
-
-    if (!driver) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const bookingId = String(req.params.bookingId || "");
-    const recipientName = cleanString(req.body.recipientName);
-    const signatureUrl = cleanString(req.body.signatureUrl);
-    const photoUrl = cleanString(req.body.photoUrl);
-    const notes = cleanString(req.body.notes);
-
-    if (!recipientName) {
-      return res.status(400).json({ error: "Recipient name is required" });
-    }
-
-    const booking = await getAssignedBooking(bookingId, driver.id);
-
-    if (!booking) {
-      return res.status(404).json({ error: "Booking not found" });
-    }
-
-    if (deliveryAlreadyCompleted(booking)) {
-      return res.status(409).json({
-        error: "Proof of delivery is already completed and cannot be changed",
-      });
-    }
-
-    const completedAt = new Date();
-
-    const result = await prisma.$transaction(async (tx) => {
-      const pod = await tx.pOD.upsert({
-        where: {
-          bookingId: booking.id,
-        },
-        update: {
-          status: PODStatus.COMPLETED,
-          recipientName,
-          signatureUrl: signatureUrl || undefined,
-          photoUrl: photoUrl || undefined,
-          notes: notes || undefined,
-          deliveredAt: completedAt,
-        },
-        create: {
-          bookingId: booking.id,
-          status: PODStatus.COMPLETED,
-          recipientName,
-          signatureUrl: signatureUrl || undefined,
-          photoUrl: photoUrl || undefined,
-          notes: notes || undefined,
-          deliveredAt: completedAt,
-        },
-      });
-
-      const updatedBooking = await tx.booking.update({
-        where: {
-          id: booking.id,
-        },
-        data: {
-          status: BookingStatus.COMPLETED,
-          trackingEndedAt: booking.trackingEndedAt || completedAt,
-          trackingEvents: {
-            create: {
-              status: BookingStatus.COMPLETED,
-              title: "Delivered",
-              description: "Proof of delivery has been completed.",
-              userVisible: true,
-            },
-          },
-        },
-        include: {
-          vehicle: true,
-          pod: true,
-          trackingEvents: {
-            orderBy: {
-              createdAt: "asc",
-            },
-          },
-          driverLocations: {
-            orderBy: {
-              createdAt: "desc",
-            },
-            take: 1,
-          },
-        },
-      });
-
-      return {
-        pod,
-        booking: updatedBooking,
-      };
-    });
-
-    return res.json({
-      message: "Delivery completed",
-      pod: result.pod,
-      booking: result.booking,
-    });
-  } catch (error) {
-    console.error("Driver POD complete error:", error);
-    return res.status(500).json({ error: "Unable to complete delivery" });
-  }
-});
+router.post("/:bookingId/stops/:stopId/complete", driverRoute(completeStop));
+// Existing clients cannot use this URL to bypass the new stop/evidence requirements.
+router.post("/:bookingId/complete", driverRoute(completeStop));
 
 export default router;
