@@ -56,12 +56,21 @@ export async function geocodeGoogleAddress(address: string): Promise<{
   const compactPostcode = (value: string) => value.toUpperCase().replace(/\s+/g, "");
   const expectedPostcode = address.match(/\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[0];
   const result = data.results.find((item: any) => {
-    if (!item || item.partial_match || !Array.isArray(item.address_components)) return false;
+    if (!item || !Array.isArray(item.address_components)) return false;
     const components = item.address_components;
     const country = components.find((part: any) => part?.types?.includes("country"));
     const postcode = components.find((part: any) => part?.types?.includes("postal_code"));
-    return country?.short_name === "GB" && (!expectedPostcode ||
-      (typeof postcode?.long_name === "string" && compactPostcode(postcode.long_name) === compactPostcode(expectedPostcode)));
+    const postcodeMatches = !!expectedPostcode && typeof postcode?.long_name === "string" &&
+      compactPostcode(postcode.long_name) === compactPostcode(expectedPostcode);
+    if (country?.short_name !== "GB" || (expectedPostcode && !postcodeMatches)) return false;
+    // Google may partially match a flat, business name or county while still
+    // locating the building. Accept that only with the exact postcode and a
+    // building-level result; never silently price from a street/postcode centre.
+    if (item.partial_match) {
+      const buildingLevel = ["ROOFTOP", "RANGE_INTERPOLATED"].includes(item.geometry?.location_type);
+      if (!postcodeMatches || !buildingLevel) return false;
+    }
+    return true;
   });
   const point = result?.geometry?.location;
   const coordinates: GoogleCoordinates = [point?.lng, point?.lat];
