@@ -1,3 +1,4 @@
+import { legacyDuty } from "../lib/driverAttendance";
 import express from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -216,17 +217,7 @@ router.patch("/availability", route(async (req, res) => {
   const availability = text(req.body?.availability, 20);
   if (!["AVAILABLE", "BUSY", "OFFLINE"].includes(availability)) throw new DriverPortalError(400, "Invalid availability.");
   const onDuty = availability !== "OFFLINE";
-  const updated = await prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driver.id} FOR UPDATE`;
-    const current = await tx.driver.findUnique({ where: { id: driver.id } });
-    if (!current?.active || current.status !== "ACTIVE") throw new DriverPortalError(401, "Driver account is inactive.");
-    if (!onDuty && await tx.booking.count({ where: { driverId: driver.id, status: BookingStatus.IN_PROGRESS } })) {
-      throw new DriverPortalError(409, "Finish the active job or contact dispatch before going off duty.");
-    }
-    await tx.driver.update({ where: { id: driver.id }, data: { portalOnDuty: onDuty } });
-    await reconcileDriverActivity(tx, driver.id);
-    return tx.driver.findUniqueOrThrow({ where: { id: driver.id }, include: { vehicle: true } });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  const updated = await legacyDuty(driver.id, onDuty);
   res.json({ driver: { ...safeDriver(updated), vehicleId: updated.vehicleId }, message: "Duty status updated." });
 }));
 

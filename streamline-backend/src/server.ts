@@ -1,3 +1,6 @@
+import driverShiftRoutes from "./routes/driverShifts";
+import adminHoursRoutes from "./routes/adminDriverHours";
+import staffAuthRoutes from "./routes/adminAuth";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -65,6 +68,9 @@ app.use("/api/invoices", invoiceRoutes);
    Driver Routes
 ---------------------------------- */
 
+app.use("/api/driver/shifts", driverShiftRoutes);
+app.use("/api/admin/driver-hours", adminHoursRoutes);
+app.use("/api/admin/auth", staffAuthRoutes);
 app.use("/api/driver/auth", driverAuthRoutes);
 app.use("/api/driver/jobs", driverJobsRoutes);
 app.use("/api/driver/tracking", driverTrackingRoutes);

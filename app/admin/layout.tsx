@@ -16,6 +16,7 @@ type NavigationItem = {
 };
 
 const navigationItems: NavigationItem[] = [
+  { label: "Driver hours", href: "/admin/driver-hours" },
   {
     label: "Add New Customer",
     href: "/admin/customers/new",

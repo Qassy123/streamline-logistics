@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import DriverShiftCard from "@/components/driver/DriverShiftCard";
 import { ArrowRight, CheckCircle2, Loader2, MapPin, Navigation, RefreshCw, Truck } from "lucide-react";
 import { driverStatusLabel, useDriverPortal, type PortalDriver, type PortalVehicle } from "@/components/driver/DriverPortalShell";
 
@@ -127,7 +128,7 @@ export default function DriverDashboardPage() {
     <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">Today</h1><p className="mt-1 text-sm text-slate-500">{data ? calendarDate(data.today) : "Your assigned work"}</p></div><button className={secondary} disabled={refreshing || savingDuty || !online} onClick={() => void loadDashboard()}><RefreshCw size={17} className={refreshing ? "animate-spin" : ""} /><span>{refreshing ? "Refreshing" : "Refresh"}</span></button></div>
     {error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">{error}{data ? <p className="mt-1 font-semibold">The work shown below may have changed. Refresh before continuing.</p> : null}</div> : null}
     {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p> : null}
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4"><div><p className="font-bold">{activeDriver.onDuty ? "On duty" : "Off duty"}</p><p className="mt-1 text-xs text-slate-500">{activeDriver.availability === "BUSY" ? "Journey in progress" : "Dispatch assigns your van and work."}</p></div><button className={secondary} disabled={loading || !data || refreshing || savingDuty || !online || sessionStale || stale || cannotGoOffDuty} onClick={() => void changeDuty()}>{savingDuty ? <><Loader2 size={16} className="animate-spin" />Saving</> : activeDriver.onDuty ? "Go off duty" : "Go on duty"}</button>{cannotGoOffDuty ? <p className="w-full text-xs text-slate-500">Finish the active job or call dispatch before going off duty.</p> : null}</section>
+    <DriverShiftCard />
     {unreadNotifications > 0 ? <Link href="/driver/profile" className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">{unreadNotifications} unread dispatch {unreadNotifications === 1 ? "message" : "messages"}<ArrowRight size={17} /></Link> : null}
     {loading && !data ? <p role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500"><Loader2 size={20} className="animate-spin" />Loading today's work…</p> : data ? <>
       <div className="grid grid-cols-4 gap-2">{[{ label: "Today", value: data.stats.todayJobs }, { label: "Assigned", value: data.stats.assignedJobs }, { label: "Active", value: data.stats.activeJobs }, { label: "Completed", value: data.stats.completedJobs }].map(item => <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-2 py-3 text-center"><p className="text-xl font-bold text-[#071D49]">{item.value}</p><p className="mt-1 text-[11px] text-slate-500">{item.label}</p></div>)}</div>

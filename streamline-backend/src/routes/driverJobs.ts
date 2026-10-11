@@ -1,3 +1,4 @@
+import { legacyDuty } from "../lib/driverAttendance";
 import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -128,17 +129,7 @@ router.patch("/notifications/:id/read", driverRoute(async (req, res, driver) => 
 router.patch("/duty", driverRoute(async (req, res, driver) => {
   if (typeof req.body?.onDuty !== "boolean") throw new DriverPortalError(400, "Choose on duty or off duty.");
   const onDuty = req.body.onDuty as boolean;
-  const updated = await prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driver.id} FOR UPDATE`;
-    const current = await tx.driver.findUnique({ where: { id: driver.id } });
-    if (!current?.active) throw new DriverPortalError(401, "Driver account is inactive.");
-    if (!onDuty && await tx.booking.count({ where: { driverId: driver.id, status: BookingStatus.IN_PROGRESS } })) {
-      throw new DriverPortalError(409, "Finish the active job or contact dispatch before going off duty.");
-    }
-    await tx.driver.update({ where: { id: driver.id }, data: { portalOnDuty: onDuty } });
-    await reconcileDriverActivity(tx, driver.id);
-    return tx.driver.findUniqueOrThrow({ where: { id: driver.id }, include: { vehicle: true } });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  const updated = await legacyDuty(driver.id, onDuty);
   res.json({ driver: safeDriver(updated) });
 }));
 

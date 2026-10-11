@@ -51,6 +51,8 @@ async function requireTrackingJourney(tx: Tx, booking: TrackingBooking, driverId
     throw new DriverPortalError(409, "Accept the job and start its journey before enabling phone tracking.");
   }
   const driver = await tx.driver.findUnique({ where: { id: driverId } });
+  const shift = await tx.driverShift.findFirst({ where: { driverId, endedAt: null }, include: { activities: { where: { active: true, endedAt: null } } } });
+  if (!shift || !shift.activities.some(activity => ["WORK", "DRIVING", "OTHER_WORK"].includes(activity.kind))) throw new DriverPortalError(409, "Clock in and end your break/rest before sharing location.");
   if (!driver?.active || !driver.portalOnDuty) throw new DriverPortalError(409, "You must be on duty to send phone location.");
   if (!booking.vehicleId || driver.vehicleId !== booking.vehicleId) {
     throw new DriverPortalError(409, "Dispatch must check your assigned van before tracking can continue.");

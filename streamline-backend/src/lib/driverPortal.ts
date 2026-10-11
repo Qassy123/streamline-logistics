@@ -320,7 +320,9 @@ export async function performDriverAction(input: {
       await tx.booking.update({ where: { id: booking.id }, data: { driverAcknowledgedAt: new Date(), status: BookingStatus.ASSIGNED } });
       title = "Job accepted";
     } else {
-      if (!driver.portalOnDuty) throw new DriverPortalError(409, "Go on duty before starting work.");
+      if (!driver.portalOnDuty) throw new DriverPortalError(409, "Clock in before starting work.");
+      const shift = await tx.driverShift.findFirst({ where: { driverId: input.driverId, endedAt: null }, include: { activities: { where: { active: true, endedAt: null } } } });
+      if (!shift || !shift.activities.some(activity => ["WORK", "DRIVING", "OTHER_WORK"].includes(activity.kind))) throw new DriverPortalError(409, "Clock in and end your break/rest before recording job progress.");
       if (!booking.driverAcknowledgedAt) throw new DriverPortalError(409, "Accept the assigned job first.");
       const next = booking.driverStops.find(stop => stop.status !== DriverStopStatus.COMPLETED);
       if (!next) throw new DriverPortalError(409, "There are no remaining stops.");
