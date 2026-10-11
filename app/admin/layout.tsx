@@ -17,6 +17,7 @@ type NavigationItem = {
 
 const navigationItems: NavigationItem[] = [
   { label: "Driver hours", href: "/admin/driver-hours" },
+  { label: "Staff & Permissions", href: "/admin/permissions" },
   {
     label: "Add New Customer",
     href: "/admin/customers/new",
@@ -167,3 +168,4 @@ export default function AdminLayout({
     </div>
   );
 }
+
