@@ -15,9 +15,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
-  "http://localhost:5000";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://streamline-logistics-production.up.railway.app"
+).replace(/\/$/, "");
 
 const ADMIN_ROLES = [
   "SUPER_ADMIN",
@@ -416,9 +418,9 @@ export default function AdminPermissionsPage() {
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-        Role records are stored in Prisma, but current admin API access still
-        uses the shared ADMIN_API_KEY. These roles become enforceable after the
-        admin login/session middleware replaces the shared key.
+        Administrator accounts are stored in Prisma. Existing admin API access still
+        uses the shared ADMIN_API_KEY. Driver hours and payroll already enforce
+        individual staff sessions and role permissions.
       </div>
 
       {error ? (
