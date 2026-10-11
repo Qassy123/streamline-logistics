@@ -1,3 +1,5 @@
+import { driverVehicleRecords, adminVehicleRecords } from "./routes/vehicleRecords";
+import { evidenceLinks } from "./lib/operationalEvidence";
 import driverShiftRoutes from "./routes/driverShifts";
 import adminHoursRoutes from "./routes/adminDriverHours";
 import staffAuthRoutes from "./routes/adminAuth";
@@ -48,6 +50,13 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+// Private evidence is signed only on authenticated operational route responses.
+// Public customer routes never receive private evidence links.
+app.use(["/api/driver", "/api/admin/drivers", "/api/admin/fleet-operations", "/api/admin/vehicle-records", "/api/admin/customers", "/api/admin/planning", "/api/bookings/admin", "/api/bookings/me", "/api/tracking/customer"], (_req, res, next) => {
+  const json = res.json.bind(res); res.json = body => json(evidenceLinks(body)); next();
+});
+app.use("/api/driver/handovers", driverVehicleRecords);
+app.use("/api/admin/vehicle-records", adminVehicleRecords);
 
 /* ---------------------------------
    Customer Routes

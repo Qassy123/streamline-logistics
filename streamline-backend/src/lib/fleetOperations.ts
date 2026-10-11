@@ -80,6 +80,8 @@ export async function assertVanChange(tx: Tx, driverId: string, vehicleId: strin
   const driver = await tx.driver.findUnique({ where: { id: driverId } }); if (!driver) throw new DriverPortalError(404, "Driver not found.");
   if (vehicleId && (!driver.active || driver.status !== "ACTIVE")) throw new DriverPortalError(409, "Select an active, available driver before allocating a van.");
   if (driver.vehicleId === vehicleId) return;
+  if (await tx.vehicleHandover.findFirst({ where: { driverId, returnedAt: null } })) throw new DriverPortalError(409, "Record the vehicle return before changing this driver’s current van.");
+  if (vehicleId && await tx.vehicleHandover.findFirst({ where: { vehicleId, driverId: { not: driverId }, returnedAt: null } })) throw new DriverPortalError(409, "Another driver still has possession of this van. Record its return first.");
   if (await tx.booking.findFirst({ where: { driverId, status: "IN_PROGRESS" } })) throw new DriverPortalError(409, "Resolve the active delivery before changing this driver's van.");
   const now = new Date();
   if (await tx.driverVehicleAllocation.findFirst({ where: { cancelledAt: null, startsAt: { lte: now }, endsAt: { gt: now }, ...(ignoreAllocationId ? { id: { not: ignoreAllocationId } } : {}), OR: [{ driverId, ...(vehicleId ? { vehicleId: { not: vehicleId } } : {}) }, ...(vehicleId ? [{ vehicleId, driverId: { not: driverId } }] : [])] } })) throw new DriverPortalError(409, "There is a conflicting current allocation. Cancel it with a reason before changing the van.");

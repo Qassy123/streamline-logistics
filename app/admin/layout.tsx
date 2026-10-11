@@ -16,6 +16,7 @@ type NavigationItem = {
 };
 
 const navigationItems: NavigationItem[] = [
+  { label: "Vehicle records & evidence", href: "/admin/vehicle-records" },
   { label: "Driver hours", href: "/admin/driver-hours" },
   { label: "Staff & Permissions", href: "/admin/permissions" },
   {

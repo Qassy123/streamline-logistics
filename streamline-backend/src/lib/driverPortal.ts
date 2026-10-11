@@ -1,3 +1,4 @@
+import { requireUploaded } from "./operationalEvidence";
 import crypto from "crypto";
 import {
   BookingStatus,
@@ -144,7 +145,7 @@ export function safeDriverJob(booking: PortalBooking) {
       photoUrls: stop.evidence.photoUrls, notes: stop.evidence.notes, outcome: stop.evidence.outcome,
       reviewStatus: stop.evidence.reviewStatus, exceptionReason: stop.evidence.exceptionReason,
       reviewNotes: stop.evidence.reviewNotes, capturedAt: stop.evidence.capturedAt,
-      receivedAt: stop.evidence.receivedAt,
+      receivedAt: stop.evidence.receivedAt, goodsCondition: stop.evidence.goodsCondition, damageNotes: stop.evidence.damageNotes,
     } : null,
   }));
   return {
@@ -290,7 +291,7 @@ export function requireAssignmentVersion(booking: { driverAssignedAt: Date | nul
 
 export type DriverAction = "ACCEPT" | "START" | "EN_ROUTE" | "ARRIVE" | "COMPLETE_COLLECTION";
 export async function performDriverAction(input: {
-  bookingId: string; driverId: string; expectedAssignedAt?: unknown; expectedVehicleId?: unknown; requestId: unknown; action: DriverAction; stopId?: string; capturedAt?: unknown;
+  bookingId: string; driverId: string; expectedAssignedAt?: unknown; expectedVehicleId?: unknown; requestId: unknown; action: DriverAction; stopId?: string; capturedAt?: unknown; collectionEvidence?: { photoUrls?: unknown; goodsCondition?: unknown; damageNotes?: unknown; notes?: unknown };
 }) {
   if (!["ACCEPT", "START", "EN_ROUTE", "ARRIVE", "COMPLETE_COLLECTION"].includes(input.action)) {
     throw new DriverPortalError(400, "Invalid job action.");
@@ -357,6 +358,17 @@ export async function performDriverAction(input: {
           if (next.type !== DriverStopType.COLLECTION || next.status !== DriverStopStatus.ARRIVED) {
             throw new DriverPortalError(409, "Arrive at collection before confirming the goods are collected.");
           }
+          const evidence = input.collectionEvidence;
+          // The old action contract remains valid. New collection evidence is additive,
+          // so already-queued driver actions can still be safely confirmed.
+          if (evidence) {
+            const goodsCondition = text(evidence.goodsCondition, 30), damageNotes = text(evidence.damageNotes, 4000);
+            if (!["GOOD", "DAMAGED", "NOT_VERIFIABLE"].includes(goodsCondition) || goodsCondition === "DAMAGED" && !damageNotes) throw new DriverPortalError(400, "Record goods condition and describe any damage.");
+            if (!Array.isArray(evidence.photoUrls) || !evidence.photoUrls.length || evidence.photoUrls.length > 8) throw new DriverPortalError(400, "Include between one and eight collection photos.");
+            const photoUrls = evidence.photoUrls.map(url => validateEvidenceUrl(url, booking.id));
+            await requireUploaded(tx, photoUrls, { driverId: input.driverId, bookingId: booking.id, stopId: next.id, purpose: "COLLECTION" });
+            await tx.driverStopEvidence.create({ data: { stopId: next.id, photoUrls, goodsCondition, damageNotes: damageNotes || null, notes: text(evidence.notes, 4000) || null, recordedDriverId: input.driverId, capturedAt } });
+          }
           await tx.driverStop.update({ where: { id: next.id }, data: { status: DriverStopStatus.COMPLETED, completedAt: new Date() } });
           title = "Goods collected";
         } else throw new DriverPortalError(400, "Invalid job action.");
@@ -378,8 +390,9 @@ export function validateEvidenceUrl(value: unknown, bookingId: string) {
   if (!cloud) throw new DriverPortalError(503, "Delivery photo storage is not configured.");
   let url: URL;
   try { url = new URL(raw); } catch { throw new DriverPortalError(400, "Invalid evidence URL."); }
-  const prefix = `/${cloud}/image/upload/`;
-  if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com" || !url.pathname.startsWith(prefix)
+  const prefixes = [`/${cloud}/image/upload/`, `/${cloud}/image/authenticated/`];
+  const prefix = prefixes.find(p => url.pathname.startsWith(p)) || "invalid";
+  if (url.protocol !== "https:" || url.hostname !== "res.cloudinary.com" || url.username || url.password || !url.pathname.startsWith(prefix)
     || !url.pathname.slice(prefix.length).includes(`/streamline-logistics/pod/${bookingId}/`)) {
     throw new DriverPortalError(400, "Use evidence uploaded for this booking.");
   }
@@ -389,7 +402,7 @@ export function validateEvidenceUrl(value: unknown, bookingId: string) {
 export async function submitStopEvidence(input: {
   bookingId: string; driverId: string; expectedAssignedAt?: unknown; expectedVehicleId?: unknown; stopId: string; requestId: unknown; recipientName?: unknown;
   signatureUrl?: unknown; photoUrls?: unknown; notes?: unknown; outcome?: unknown;
-  exceptionReason?: unknown; capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracy?: unknown;
+  exceptionReason?: unknown; damageNotes?: unknown; capturedAt?: unknown; latitude?: unknown; longitude?: unknown; accuracy?: unknown;
 }) {
   const id = requestId(input.requestId);
   const capturedAt = capturedDate(input.capturedAt);
@@ -434,6 +447,8 @@ export async function submitStopEvidence(input: {
     if (next.evidence && next.evidence.reviewStatus !== DriverReviewStatus.REJECTED) {
       throw new DriverPortalError(409, "Evidence has already been submitted for this stop.");
     }
+    await requireUploaded(tx, photoUrls, { driverId: input.driverId, bookingId: booking.id, stopId: next.id, purpose: "DELIVERY" }, "photo", true);
+    if (signatureUrl) await requireUploaded(tx, [signatureUrl], { driverId: input.driverId, bookingId: booking.id, stopId: next.id, purpose: "DELIVERY" }, "signature", true);
     if (next.evidence) {
       // Preserve the rejected submission before the driver's next attempt replaces the active evidence.
       await tx.driverIncident.create({ data: { bookingId: booking.id, driverId: input.driverId, stopId: next.id,
@@ -443,7 +458,7 @@ export async function submitStopEvidence(input: {
         dispatchResponse: "Evidence retained for audit before a new delivery attempt." } });
     }
     const data = { recipientName: recipientName || null, signatureUrl: signatureUrl || null, photoUrls,
-      notes: text(input.notes) || null, outcome: outcome as DriverDeliveryOutcome,
+      notes: text(input.notes, 4000) || null, damageNotes: text(input.damageNotes, 4000) || null, recordedDriverId: input.driverId, outcome: outcome as DriverDeliveryOutcome,
       exceptionReason: exceptionReason || null,
       reviewStatus: outcome === DriverDeliveryOutcome.DELIVERED ? DriverReviewStatus.NOT_REQUIRED : DriverReviewStatus.PENDING,
       capturedAt, receivedAt: new Date(), latitude, longitude, accuracy,
@@ -506,7 +521,8 @@ export async function reportDriverIncident(input: {
   const capturedAt = capturedDate(input.capturedAt);
   const revisedArrivalAt = input.revisedArrivalAt ? new Date(String(input.revisedArrivalAt)) : null;
   if (revisedArrivalAt && !Number.isFinite(revisedArrivalAt.getTime())) throw new DriverPortalError(400, "Invalid revised arrival time.");
-  const photoUrls = Array.isArray(input.photoUrls) ? input.photoUrls.slice(0, 8).map(url => validateEvidenceUrl(url, input.bookingId)).filter(Boolean) : [];
+  if (input.photoUrls != null && (!Array.isArray(input.photoUrls) || input.photoUrls.length > 8)) throw new DriverPortalError(400, "Provide up to eight incident photos.");
+  const photoUrls = Array.isArray(input.photoUrls) ? input.photoUrls.map(url => validateEvidenceUrl(url, input.bookingId)).filter(Boolean) : [];
   return withBookingLock(input.bookingId, async tx => {
     const booking = await assignedJob(tx, input.bookingId, input.driverId);
     const previous = await tx.driverIncident.findUnique({ where: { driverId_requestId: { driverId: input.driverId, requestId: id } } });
@@ -517,6 +533,7 @@ export async function reportDriverIncident(input: {
     requireAssignmentVersion(booking, input.expectedAssignedAt, input.expectedVehicleId);
     requireOpenJob(booking);
     if (input.stopId && !booking.driverStops.some(stop => stop.id === input.stopId)) throw new DriverPortalError(400, "Stop does not belong to this job.");
+    await requireUploaded(tx, photoUrls, { driverId: input.driverId, bookingId: booking.id, stopId: input.stopId || null, purpose: "INCIDENT" }, "photo", true);
     const incident = await tx.driverIncident.create({ data: { bookingId: booking.id, driverId: input.driverId,
       stopId: input.stopId || null, requestId: id, reason, notes, photoUrls, revisedArrivalAt, capturedAt } });
     await tx.bookingTrackingEvent.create({ data: { bookingId: booking.id, status: booking.status,

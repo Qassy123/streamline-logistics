@@ -166,7 +166,7 @@ router.get("/dispatch", route(async (req, res) => {
 router.patch("/incidents/:incidentId", route(async (req, res) => {
   const id = text(req.params.incidentId, 100), response = text(req.body?.response);
   const action = text(req.body?.action, 20);
-  if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || !response) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response.");
+  if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || response.length < 5) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response of at least five characters.");
   const incident = await prisma.$transaction(async tx => {
     await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "DriverIncident" WHERE "id" = ${id} FOR UPDATE`;
@@ -174,8 +174,8 @@ router.patch("/incidents/:incidentId", route(async (req, res) => {
     if (!existing) throw new DriverPortalError(404, "Problem report not found.");
     if (existing.resolvedAt) return existing;
     const updated = await tx.driverIncident.update({ where: { id }, data: { dispatchResponse: response,
-      acknowledgedAt: existing.acknowledgedAt || new Date(), acknowledgedBy: existing.acknowledgedBy || actor,
-      ...(action === "RESOLVE" ? { resolvedAt: new Date(), resolvedBy: actor } : {}) } });
+      acknowledgedAt: existing.acknowledgedAt || new Date(), acknowledgedBy: existing.acknowledgedBy || res.locals.fleetActor?.label || actor,
+      ...(action === "RESOLVE" ? { resolvedAt: new Date(), resolvedBy: res.locals.fleetActor?.label || actor } : {}) } });
     await audit(tx, `DRIVER_INCIDENT_${action}`, "DriverIncident", id, { resolved: false }, { response }, response);
     await tx.driverPortalNotification.create({ data: { driverId: existing.driverId, bookingId: existing.bookingId,
       dedupeKey: `incident-${id}-${Date.now()}`, title: "Dispatch responded to your report", body: response } });
@@ -188,14 +188,14 @@ router.patch("/evidence/:stopId/review", route(async (req, res) => {
   const decision = text(req.body?.decision, 20);
   if (!["APPROVE", "REJECT"].includes(decision)) throw new DriverPortalError(400, "Choose approve or reject.");
   const job = await reviewStopEvidence({ stopId: text(req.params.stopId, 100), decision: decision as "APPROVE" | "REJECT",
-    reviewedBy: actor, notes: req.body?.notes });
+    reviewedBy: res.locals.fleetActor?.label || actor, notes: req.body?.notes });
   res.json({ job, message: "Delivery exception reviewed." });
 }));
 
 router.patch("/defects/:checkId", route(async (req, res) => {
   const id = text(req.params.checkId, 100), response = text(req.body?.response);
   const action = text(req.body?.action, 20);
-  if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || !response) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response.");
+  if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || response.length < 5) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response of at least five characters.");
   const check = await prisma.$transaction(async tx => {
     await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "DriverVehicleCheck" WHERE "id" = ${id} FOR UPDATE`;
@@ -203,8 +203,8 @@ router.patch("/defects/:checkId", route(async (req, res) => {
     if (!existing?.hasDefect) throw new DriverPortalError(404, "Vehicle defect not found.");
     if (existing.resolvedAt) return existing;
     const updated = await tx.driverVehicleCheck.update({ where: { id }, data: { dispatchResponse: response,
-      acknowledgedAt: existing.acknowledgedAt || new Date(), acknowledgedBy: existing.acknowledgedBy || actor,
-      ...(action === "RESOLVE" ? { resolvedAt: new Date(), resolvedBy: actor } : {}) } });
+      acknowledgedAt: existing.acknowledgedAt || new Date(), acknowledgedBy: existing.acknowledgedBy || res.locals.fleetActor?.label || actor,
+      ...(action === "RESOLVE" ? { resolvedAt: new Date(), resolvedBy: res.locals.fleetActor?.label || actor } : {}) } });
     await audit(tx, `VEHICLE_DEFECT_${action}`, "DriverVehicleCheck", id, { resolved: false }, { response }, response);
     await tx.driverPortalNotification.create({ data: { driverId: existing.driverId,
       dedupeKey: `defect-${id}-${Date.now()}`, title: action === "RESOLVE" ? "Vehicle defect resolved" : "Dispatch acknowledged the vehicle defect", body: response } });

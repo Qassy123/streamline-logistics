@@ -1,6 +1,6 @@
 // Browser-only storage. A committed local draft is never a confirmed job update.
 // Call these functions from client effects/event handlers, not during server rendering.
-export type DraftKind = "DELIVERY" | "INCIDENT" | "VEHICLE_CHECK";
+export type DraftKind = "COLLECTION" | "DELIVERY" | "INCIDENT" | "VEHICLE_CHECK" | "HANDOVER" | "RETURN";
 export type DraftPhase = "EDITING" | "PENDING_SUBMISSION" | "NEEDS_REVIEW";
 export type DraftJson = null | boolean | number | string | DraftJson[] | { [key: string]: DraftJson };
 export type DraftMedia = { id: string; name: string; blob: Blob; uploadedUrl?: string };
@@ -127,10 +127,10 @@ function draftSize(draft: Pick<DriverDraft, "photos" | "signature">) {
 }
 function bindingKey(binding: DraftBinding) {
   identifier(binding.driverId, "driver");
-  if (!["DELIVERY", "INCIDENT", "VEHICLE_CHECK"].includes(binding.kind)) throw new DriverDraftError("Invalid draft type.");
-  if (binding.kind === "VEHICLE_CHECK") identifier(binding.vehicleId || "", "assigned van");
+  if (!["COLLECTION", "DELIVERY", "INCIDENT", "VEHICLE_CHECK", "HANDOVER", "RETURN"].includes(binding.kind)) throw new DriverDraftError("Invalid draft type.");
+  if (["VEHICLE_CHECK", "HANDOVER", "RETURN"].includes(binding.kind)) identifier(binding.vehicleId || "", "assigned van");
   else { identifier(binding.bookingId || "", "booking"); validTime(binding.assignedAt || "", "job assignment"); }
-  if (binding.kind === "DELIVERY") identifier(binding.stopId || "", "delivery stop");
+  if (["COLLECTION", "DELIVERY", "RETURN"].includes(binding.kind)) identifier(binding.stopId || "", "delivery stop");
   return JSON.stringify([binding.driverId, binding.kind, binding.bookingId || "", binding.stopId || "", binding.assignedAt ? validTime(binding.assignedAt, "job assignment") : "", binding.vehicleId || ""]);
 }
 function owned<T extends { driverId: string }>(row: T | undefined, driverId: string): T {

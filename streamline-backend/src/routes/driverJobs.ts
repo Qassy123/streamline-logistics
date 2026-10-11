@@ -1,3 +1,5 @@
+import { inspectionItems, inspectionPayload } from "../lib/vehicleHandovers";
+import { requireUploaded, storeEvidence } from "../lib/operationalEvidence";
 import { legacyDuty } from "../lib/driverAttendance";
 import express from "express";
 import multer from "multer";
@@ -133,13 +135,13 @@ router.patch("/duty", driverRoute(async (req, res, driver) => {
   res.json({ driver: safeDriver(updated) });
 }));
 
-const checkItems = ["TYRES", "LIGHTS", "BRAKES", "MIRRORS", "FLUIDS", "LOAD_SECURITY", "BODYWORK"] as const;
+const checkItems = inspectionItems;
 
 function vehiclePhoto(value: unknown, driverId: string, vehicleId: string) {
   const raw = text(value, 2000), cloud = process.env.CLOUDINARY_CLOUD_NAME;
   let url: URL;
   try { url = new URL(raw); } catch { throw new DriverPortalError(400, "Invalid vehicle photo."); }
-  const prefix = `/${cloud}/image/upload/`;
+  const prefix = [`/${cloud}/image/upload/`, `/${cloud}/image/authenticated/`].find(p => url.pathname.startsWith(p)) || "invalid";
   if (!cloud || url.protocol !== "https:" || url.hostname !== "res.cloudinary.com" || !url.pathname.startsWith(prefix)
     || !url.pathname.slice(prefix.length).includes(`/streamline-logistics/vehicle-checks/${driverId}/${vehicleId}/`)) {
     throw new DriverPortalError(400, "Use photos uploaded for your assigned van.");
@@ -163,10 +165,13 @@ router.post("/vehicle/photo", driverRoute(async (req, res, driver) => {
   if (!req.file || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(req.file.mimetype)) {
     throw new DriverPortalError(400, "Choose a JPEG, PNG, WebP or HEIC vehicle photo.");
   }
-  const uploaded = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`, {
-    folder: `streamline-logistics/vehicle-checks/${driver.id}/${vehicleId}`, public_id: `photo-${uploadId}`, resource_type: "image", overwrite: false,
-  });
-  res.json({ url: uploaded.secure_url, vehicleId });
+  const permitted = async (tx: Prisma.TransactionClient) => {
+    const fresh = await tx.driver.findUnique({ where: { id: driver.id }, include: { vehicle: true } });
+    if (!fresh?.active || fresh.vehicleId !== vehicleId || !fresh.vehicle?.active) throw new DriverPortalError(409, "This van is no longer assigned to you.");
+  };
+  const uploaded = await storeEvidence(req.file, { driverId: driver.id, vehicleId, purpose: "CHECK", kind: "photo", requestId: uploadId }, 
+    "streamline-logistics/vehicle-checks/" + driver.id + "/" + vehicleId, permitted);
+  res.json({ url: uploaded.url, vehicleId });
 }));
 
 router.get("/vehicle", driverRoute(async (_req, res, driver) => {
@@ -188,18 +193,8 @@ router.post("/vehicle/checks", driverRoute(async (req, res, driver) => {
   const id = requestId(req.body?.requestId);
   const vehicleId = text(req.body?.vehicleId, 100);
   const capturedAt = capturedDate(req.body?.capturedAt);
-  const items = req.body?.items;
-  if (!items || typeof items !== "object" || Array.isArray(items)) throw new DriverPortalError(400, "Complete each vehicle check.");
-  const validatedItems: Record<string, "PASS" | "DEFECT"> = {};
-  for (const key of checkItems) {
-    if (!["PASS", "DEFECT"].includes(items[key])) throw new DriverPortalError(400, "Complete every vehicle check item.");
-    validatedItems[key] = items[key];
-  }
-  const hasDefect = Object.values(validatedItems).includes("DEFECT");
-  if (typeof req.body?.unsafeToDrive !== "boolean") throw new DriverPortalError(400, "Confirm whether the van is safe to drive.");
-  const unsafeToDrive = req.body.unsafeToDrive as boolean;
-  const notes = text(req.body?.notes);
-  if ((hasDefect || unsafeToDrive) && !notes) throw new DriverPortalError(400, "Describe the vehicle defect.");
+  const payload = inspectionPayload(req.body || {}, driver.vehicle?.vehicleType);
+  const { items: validatedItems, hasDefect, severity, unsafeToDrive, notes } = payload;
   const odometer = req.body?.odometer == null || req.body.odometer === "" ? null : Number(req.body.odometer);
   if (odometer != null && (!Number.isInteger(odometer) || odometer < 0 || odometer > 10_000_000)) throw new DriverPortalError(400, "Enter a valid mileage.");
   if (req.body?.photoUrls != null && (!Array.isArray(req.body.photoUrls) || req.body.photoUrls.length > 8)) {
@@ -207,6 +202,7 @@ router.post("/vehicle/checks", driverRoute(async (req, res, driver) => {
   }
   const photoUrls = (req.body?.photoUrls || []).map((value: unknown) => vehiclePhoto(value, driver.id, vehicleId)) as string[];
   const check = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121002)`;
     await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driver.id} FOR UPDATE`;
     const current = await tx.driver.findUnique({ where: { id: driver.id }, include: { vehicle: true } });
     if (!current?.active || current.vehicleId !== vehicleId || !current.vehicle?.active) {
@@ -217,9 +213,12 @@ router.post("/vehicle/checks", driverRoute(async (req, res, driver) => {
       if (previous.vehicleId !== vehicleId) throw new DriverPortalError(409, "This request identifier belongs to another vehicle check.");
       return previous;
     }
+    await requireUploaded(tx, photoUrls, { driverId: driver.id, vehicleId, purpose: "CHECK" }, "photo", true);
+    if (odometer != null && current.vehicle.mileage != null && odometer < current.vehicle.mileage) throw new DriverPortalError(409, "Mileage is lower than the vehicle record. Ask dispatch to review it.");
+    if (odometer != null) await tx.vehicle.update({ where: { id: vehicleId }, data: { mileage: odometer } });
     return tx.driverVehicleCheck.create({ data: { driverId: driver.id, vehicleId, requestId: id,
       checkDate: ukDateKey(capturedAt || new Date()), capturedAt, items: validatedItems, odometer,
-      notes: notes || null, hasDefect: hasDefect || unsafeToDrive, unsafeToDrive, photoUrls } });
+      notes: notes || null, hasDefect: hasDefect || unsafeToDrive, severity, registrationSnapshot: current.vehicle.registration, unsafeToDrive, photoUrls } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   res.json({ check, message: unsafeToDrive ? "Unsafe defect reported. Do not start a journey in this van; contact dispatch." : "Vehicle check saved." });
 }));
@@ -259,7 +258,7 @@ router.get("/:bookingId", driverRoute(async (req, res, driver) => {
 router.post("/:bookingId/actions", driverRoute(async (req, res, driver) => {
   const action = text(req.body?.action, 30) as DriverAction;
   const job = await performDriverAction({ bookingId: text(req.params.bookingId, 100), driverId: driver.id,
-    expectedAssignedAt: req.body?.expectedAssignedAt, expectedVehicleId: req.body?.expectedVehicleId, requestId: req.body?.requestId, action, stopId: text(req.body?.stopId, 100) || undefined, capturedAt: req.body?.capturedAt });
+    expectedAssignedAt: req.body?.expectedAssignedAt, expectedVehicleId: req.body?.expectedVehicleId, requestId: req.body?.requestId, action, stopId: text(req.body?.stopId, 100) || undefined, capturedAt: req.body?.capturedAt, collectionEvidence: req.body?.collectionEvidence });
   res.json({ job, message: "Job progress saved." });
 }));
 

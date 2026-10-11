@@ -1,3 +1,4 @@
+import { requireUploaded, storeEvidence } from "../lib/operationalEvidence";
 import express from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -78,14 +79,14 @@ router.post("/:bookingId/upload", driverRoute(async (req, res, driverId) => {
   if (type !== "signature" && type !== "photo") throw new DriverPortalError(400, "Choose signature or photo upload.");
   const uploadId = requestId(req.body?.requestId);
   const purpose = text(req.body?.purpose, 20) || "DELIVERY";
-  if (!["DELIVERY", "INCIDENT"].includes(purpose)) throw new DriverPortalError(400, "Invalid photo purpose.");
-  if (purpose === "INCIDENT" && type !== "photo") throw new DriverPortalError(400, "Problem reports accept photos only.");
+  if (!["DELIVERY", "COLLECTION", "INCIDENT"].includes(purpose)) throw new DriverPortalError(400, "Invalid photo purpose.");
+  if (purpose !== "DELIVERY" && type !== "photo") throw new DriverPortalError(400, "Problem reports accept photos only.");
   const job = await readDriverJob(id, driverId);
   const stopId = text(req.body?.stopId, 100);
   let folder = `streamline-logistics/pod/${id}/incidents`;
-  if (purpose === "DELIVERY") {
+  if (purpose === "DELIVERY" || purpose === "COLLECTION") {
     const stop = job.nextStop;
-    if (!stopId || stop?.id !== stopId || stop.status !== DriverStopStatus.ARRIVED || stop.type === DriverStopType.COLLECTION) {
+    if (!stopId || stop?.id !== stopId || stop.status !== DriverStopStatus.ARRIVED || (purpose === "COLLECTION" ? stop.type !== DriverStopType.COLLECTION : stop.type === DriverStopType.COLLECTION)) {
       throw new DriverPortalError(409, "Arrive at the current delivery stop before uploading its evidence.");
     }
     if (stop.evidence && stop.evidence.reviewStatus !== "REJECTED") {
@@ -98,15 +99,20 @@ router.post("/:bookingId/upload", driverRoute(async (req, res, driverId) => {
   if (!req.file || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(req.file.mimetype)) {
     throw new DriverPortalError(400, "Choose a JPEG, PNG, WebP or HEIC image.");
   }
-  const result = await cloudinary.uploader.upload(`data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`, {
-    folder, resource_type: "image", public_id: `${type}-${uploadId}`, overwrite: false,
-  });
-  // An assignment or completion could change while the media upload is in flight.
+  const permitted = async (tx: Prisma.TransactionClient) => {
+    const activeDriver = await tx.driver.findUnique({ where: { id: driverId } });
+    if (!activeDriver?.active || activeDriver.status !== "ACTIVE") throw new DriverPortalError(401, "Driver access changed during upload.");
+    const current = await tx.booking.findFirst({ where: { id, driverId }, include: { pod: true, driverStops: { orderBy: { sequence: "asc" }, include: { evidence: true } } } });
+    if (!current) throw new DriverPortalError(404, "This booking is no longer assigned to you.");
+    requireWritableEvidence(current); requireAssignmentVersion(current, req.body?.expectedAssignedAt, req.body?.expectedVehicleId);
+    if (purpose !== "INCIDENT") {
+      const next = current.driverStops.find(s => s.status !== "COMPLETED");
+      if (!next || next.id !== stopId || next.status !== "ARRIVED" || next.evidence && next.evidence.reviewStatus !== "REJECTED") throw new DriverPortalError(409, "The current stop changed during upload.");
+    }
+  };
   const current = await currentBooking(id, driverId);
-  requireWritableEvidence(current);
-  requireAssignmentVersion(current, req.body?.expectedAssignedAt, req.body?.expectedVehicleId);
-  res.json({ message: "Evidence uploaded. Submit the delivery form to confirm this stop.",
-    type, purpose, stopId: stopId || null, requestId: uploadId, url: result.secure_url });
+  const result = await storeEvidence(req.file, { driverId, bookingId: id, vehicleId: current.vehicleId, stopId: stopId || null, purpose, kind: type, requestId: uploadId }, folder, permitted);
+  res.json({ message: "Evidence uploaded. Submit the stop form to confirm it.", type, purpose, stopId: stopId || null, requestId: uploadId, url: result.url });
 }));
 
 // Preserve the legacy draft URL without using a draft to complete a stop or booking.
@@ -121,6 +127,8 @@ router.post("/:bookingId", driverRoute(async (req, res, driverId) => {
     const booking = await tx.booking.findFirst({ where: { id, driverId }, include: { pod: true } });
     if (!booking) throw new DriverPortalError(404, "This job is no longer assigned to you.");
     requireWritableEvidence(booking);
+    if (signatureUrl) await requireUploaded(tx, [signatureUrl], { driverId, bookingId: id, purpose: "DELIVERY" }, "signature", true);
+    if (photoUrl) await requireUploaded(tx, [photoUrl], { driverId, bookingId: id, purpose: "DELIVERY" }, "photo", true);
     const data = { recipientName: recipientName || undefined, signatureUrl: signatureUrl || undefined,
       photoUrl: photoUrl || undefined, notes: notes || undefined };
     return tx.pOD.upsert({ where: { bookingId: id },
@@ -150,7 +158,7 @@ async function completeStop(req: express.Request, res: express.Response, driverI
   const job = await submitStopEvidence({
     bookingId: id, driverId, stopId, expectedAssignedAt: req.body?.expectedAssignedAt, expectedVehicleId: req.body?.expectedVehicleId, requestId: req.body?.requestId,
     recipientName: req.body?.recipientName, signatureUrl, photoUrls,
-    notes: req.body?.notes, outcome: req.body?.outcome, exceptionReason: req.body?.exceptionReason,
+    notes: req.body?.notes, damageNotes: req.body?.damageNotes, outcome: req.body?.outcome, exceptionReason: req.body?.exceptionReason,
     capturedAt: req.body?.capturedAt, latitude: req.body?.latitude,
     longitude: req.body?.longitude, accuracy: req.body?.accuracy,
   });
