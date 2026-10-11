@@ -53,6 +53,8 @@ const OPERATIONAL_STATES = [
   { value: "OUT_ON_JOB", label: "Out on job" },
   { value: "IN_USE", label: "In use" },
   { value: "RESERVED", label: "Reserved" },
+  { value: "ALLOCATED", label: "Allocated" },
+  { value: "UNSAFE_DEFECT", label: "Unsafe defect" },
   { value: "MAINTENANCE", label: "Maintenance" },
   { value: "SERVICE_DUE", label: "Service due" },
   { value: "COMPLIANCE_EXPIRED", label: "Compliance expired" },
@@ -233,6 +235,7 @@ function stateClass(state: string) {
     case "AVAILABLE":
       return "bg-emerald-50 text-emerald-700 ring-emerald-200";
     case "BOOKED":
+    case "ALLOCATED":
     case "RESERVED":
       return "bg-amber-50 text-amber-700 ring-amber-200";
     case "OUT_ON_JOB":
@@ -631,43 +634,7 @@ export default function AdminFleetPage() {
       ) : null}
 
       <FleetOperationalOverview />
-      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard
-          title="Total vehicles"
-          value={summary.total}
-          icon={<Truck size={20} />}
-        />
-        <SummaryCard
-          title="Available"
-          value={summary.byState.AVAILABLE || 0}
-          icon={<CheckCircle2 size={20} />}
-        />
-        <SummaryCard
-          title="Booked"
-          value={
-            (summary.byState.BOOKED || 0) +
-            (summary.byState.RESERVED || 0)
-          }
-          icon={<CalendarDays size={20} />}
-        />
-        <SummaryCard
-          title="Out on job"
-          value={
-            (summary.byState.OUT_ON_JOB || 0) +
-            (summary.byState.IN_USE || 0)
-          }
-          icon={<Truck size={20} />}
-        />
-        <SummaryCard
-          title="Maintenance / inactive"
-          value={
-            (summary.byState.MAINTENANCE || 0) +
-            (summary.byState.SERVICE_DUE || 0) +
-            summary.inactive
-          }
-          icon={<Wrench size={20} />}
-        />
-      </section>
+
 
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(180px,1fr))_auto]">

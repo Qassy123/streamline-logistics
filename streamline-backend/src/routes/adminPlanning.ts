@@ -1,3 +1,4 @@
+import { readFleetAvailability } from "../lib/fleetAvailability";
 import {
   BookingStatus,
   Prisma,
@@ -154,50 +155,12 @@ function planningBookingInclude() {
   } satisfies Prisma.BookingInclude;
 }
 
-async function hasVehicleConflict(
-  vehicleId: string,
-  bookingId: string,
-  start: Date | null,
-  end: Date | null,
-) {
-  if (!start || !end) {
-    return false;
-  }
-
-  const [bookingConflict, reservationConflict] = await Promise.all([
-    prisma.booking.findFirst({
-      where: {
-        id: { not: bookingId },
-        vehicleId,
-        status: {
-          in: [
-            BookingStatus.PENDING_PAYMENT,
-            BookingStatus.CONFIRMED,
-            BookingStatus.ASSIGNED,
-            BookingStatus.IN_PROGRESS,
-          ],
-        },
-        estimatedStartTime: { lt: end },
-        estimatedEndTime: { gt: start },
-      },
-      select: { id: true },
-    }),
-    prisma.vehicleReservation.findFirst({
-      where: {
-        bookingId: { not: bookingId },
-        vehicleId,
-        status: {
-          in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
-        },
-        AND: [{ OR: [{ status: ReservationStatus.CONFIRMED }, { expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
-        reservedFrom: { lt: end },
-        reservedUntil: { gt: start },
-      },
-      select: { id: true },
-    }),
-  ]);
-
-  return Boolean(bookingConflict || reservationConflict);
+async function hasVehicleConflict(vehicleId: string, bookingId: string, start: Date | null, end: Date | null, selectedDriverId?: string | null) {
+  const own = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!own) return true;
+  const interval = start && end && end > start ? { startsAt: start, endsAt: end } : await bookingWindow(prisma, own);
+  const rows = await readFleetAvailability(prisma, { ...interval, vehicleId, bookingId, quoteId: own.quoteId || undefined, driverId: (selectedDriverId === undefined ? own.driverId : selectedDriverId) || undefined, purpose: "BOOKING" });
+  return !rows[0]?.available;
 }
 
 async function hasDriverConflict(
@@ -650,6 +613,7 @@ router.patch(
               booking.id,
               booking.estimatedStartTime,
               booking.estimatedEndTime,
+              driverId === undefined ? booking.driverId : driverId,
             );
 
           if (conflict) {
@@ -702,6 +666,7 @@ router.patch(
               booking.id,
               booking.estimatedStartTime,
               booking.estimatedEndTime,
+              driverId === undefined ? booking.driverId : driverId,
             );
 
           if (!conflict) {
@@ -746,7 +711,8 @@ router.patch(
           booking.id,
           booking.estimatedStartTime,
           booking.estimatedEndTime,
-        ))
+              driverId === undefined ? booking.driverId : driverId,
+            ))
       ) {
         return res.status(409).json({
           error:

@@ -1,3 +1,4 @@
+import { readFleetAvailability } from "../lib/fleetAvailability";
 import {
   BookingStatus,
   Prisma,
@@ -108,6 +109,7 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 }
 
 function getVehicleOperationalState(vehicle: {
+  id: string;
   driverChecks?: { id: string }[];
   maintenanceRecords?: { id: string }[];
   active: boolean;
@@ -121,7 +123,8 @@ function getVehicleOperationalState(vehicle: {
   reservations: {
     status: ReservationStatus;
   }[];
-}) {
+}, synced?: { operationalState: string }) {
+  if (synced) return synced.operationalState;
   if (!vehicle.active || vehicle.status === VehicleStatus.INACTIVE) {
     return "INACTIVE";
   }
@@ -233,6 +236,8 @@ router.get("/admin/list", async (req, res) => {
   }
 
   try {
+    const currentTime = new Date();
+    const currentAvailability = new Map((await readFleetAvailability(prisma, { startsAt: currentTime, endsAt: new Date(+currentTime + 1), purpose: "QUOTE" }, currentTime)).map(row => [row.vehicle.id, row]));
     const page = getPositiveInteger(req.query.page, 1);
     const pageSize = Math.min(
       getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
@@ -355,7 +360,7 @@ router.get("/admin/list", async (req, res) => {
     const enrichedVehicles = vehicles
       .map((vehicle) => ({
         ...vehicle,
-        operationalState: getVehicleOperationalState(vehicle),
+        operationalState: getVehicleOperationalState(vehicle, currentAvailability.get(vehicle.id)),
         assignedDriver:
           assignedDriversByVehicleId.get(vehicle.id) || null,
       }))
@@ -375,7 +380,7 @@ router.get("/admin/list", async (req, res) => {
 
     const summary = allVehiclesForSummary.reduce(
       (totals, vehicle) => {
-        const operationalState = getVehicleOperationalState(vehicle);
+        const operationalState = getVehicleOperationalState(vehicle, currentAvailability.get(vehicle.id));
 
         totals.total += 1;
 
@@ -486,7 +491,7 @@ router.get("/admin/:id", async (req, res) => {
     res.json({
       vehicle: {
         ...vehicle,
-        operationalState: getVehicleOperationalState(vehicle),
+        operationalState: (await readFleetAvailability(prisma, { vehicleId: vehicle.id, startsAt: new Date(), endsAt: new Date(Date.now() + 1000), purpose: "QUOTE" }))[0]?.operationalState || "INACTIVE",
         assignedDriver,
       },
     });
@@ -952,6 +957,7 @@ router.get("/", async (_, res) => {
 });
 
 router.get("/availability", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const collectionDate = getString(req.query.collectionDate);
     const collectionWindow = getString(req.query.collectionWindow);
@@ -973,155 +979,16 @@ router.get("/availability", async (req, res) => {
       companySettings?.vehicleBlockHours ?? 6,
     );
 
-    const vehicles = await prisma.vehicle.findMany({
-      where: {
-        active: true,
-        vehicleType: {
-          in: [...VEHICLE_TYPES],
-        },
-      },
-      orderBy: [
-        {
-          vehicleType: "asc",
-        },
-        {
-          createdAt: "asc",
-        },
-      ],
+    const rows = await readFleetAvailability(prisma, { startsAt: reservedFrom, endsAt: reservedUntil, purpose: "QUOTE" });
+    const grouped = new Map<string, typeof rows>();
+    for (const row of rows.filter(r => r.vehicle.active)) grouped.set(row.vehicle.vehicleType, [...(grouped.get(row.vehicle.vehicleType) || []), row]);
+    const availability = [...grouped].map(([vehicleType, vans]) => {
+      const free = vans.filter(v => v.available), representative = (free[0] || vans[0]).vehicle;
+      const releaseDates = vans.flatMap(v => v.unavailableUntil ? [v.unavailableUntil] : []);
+      return { id: representative.id, name: representative.name, vehicleType, active: representative.active, available: free.length > 0,
+        unavailableUntil: free.length || !releaseDates.length ? null : new Date(Math.max(...releaseDates.map(Number))).toISOString(),
+        reason: free.length ? null : [...new Set(vans.flatMap(v => v.reasons))].join("; "), totalVehicles: vans.length, availableVehicles: free.length };
     });
-
-    const now = new Date();
-    const blockedVanIds = new Set((await prisma.driverVehicleCheck.findMany({ where: { unsafeToDrive: true, resolvedAt: null }, select: { vehicleId: true } })).map(check => check.vehicleId));
-    const maintenance = await prisma.vehicleMaintenanceRecord.findMany({ where: { cancelledAt: null, completedAt: null, startsAt: { lt: reservedUntil }, endsAt: { gt: reservedFrom } }, select: { vehicleId: true } });
-    maintenance.forEach(record => blockedVanIds.add(record.vehicleId));
-    const usable = (vehicle: typeof vehicles[number]) => ![VehicleStatus.MAINTENANCE, VehicleStatus.INACTIVE].includes(vehicle.status as "MAINTENANCE" | "INACTIVE") && !blockedVanIds.has(vehicle.id);
-    const overlappingReservations = await prisma.vehicleReservation.findMany({
-      where: {
-        status: {
-          in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
-        },
-        OR: [{ status: ReservationStatus.CONFIRMED }, { expiresAt: null }, { expiresAt: { gt: now } }],
-        reservedFrom: {
-          lt: reservedUntil,
-        },
-        reservedUntil: {
-          gt: reservedFrom,
-        },
-      },
-      orderBy: {
-        reservedUntil: "desc",
-      },
-    });
-
-    const overlappingBookings = await prisma.booking.findMany({
-      where: {
-        vehicleId: {
-          not: null,
-        },
-        status: {
-          in: [
-            BookingStatus.PENDING_PAYMENT,
-            BookingStatus.CONFIRMED,
-            BookingStatus.ASSIGNED,
-            BookingStatus.IN_PROGRESS,
-            BookingStatus.COMPLETED,
-          ],
-        },
-        estimatedStartTime: {
-          lt: reservedUntil,
-        },
-        estimatedEndTime: {
-          gt: reservedFrom,
-        },
-      },
-      orderBy: {
-        estimatedEndTime: "desc",
-      },
-    });
-
-    // Legacy bookings without estimates still occupy their existing collection window.
-    const legacyHolds = await prisma.booking.findMany({ where: { vehicleId: { not: null }, status: { in: [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED, BookingStatus.ASSIGNED, BookingStatus.IN_PROGRESS] }, OR: [{ estimatedStartTime: null }, { estimatedEndTime: null }, { status: BookingStatus.IN_PROGRESS, estimatedEndTime: { lte: now } }] } });
-    for (const booking of legacyHolds) {
-      if (!booking.vehicleId) continue;
-      if (booking.status === BookingStatus.IN_PROGRESS && (!booking.estimatedEndTime || booking.estimatedEndTime <= now)) { blockedVanIds.add(booking.vehicleId); continue; }
-      try { const w = await bookingWindow(prisma, booking); if (w.startsAt < reservedUntil && w.endsAt > reservedFrom) blockedVanIds.add(booking.vehicleId); }
-      catch { blockedVanIds.add(booking.vehicleId); }
-    }
-    const blockedUntilByVehicleId = new Map<string, Date>();
-
-    overlappingReservations.forEach((reservation) => {
-      const existing = blockedUntilByVehicleId.get(reservation.vehicleId);
-
-      if (!existing || reservation.reservedUntil > existing) {
-        blockedUntilByVehicleId.set(
-          reservation.vehicleId,
-          reservation.reservedUntil,
-        );
-      }
-    });
-
-    overlappingBookings.forEach((booking) => {
-      if (!booking.vehicleId || !booking.estimatedEndTime) return;
-
-      const existing = blockedUntilByVehicleId.get(booking.vehicleId);
-
-      if (!existing || booking.estimatedEndTime > existing) {
-        blockedUntilByVehicleId.set(
-          booking.vehicleId,
-          booking.estimatedEndTime,
-        );
-      }
-    });
-
-    const vehiclesByType = new Map<string, typeof vehicles>();
-
-    vehicles.forEach((vehicle) => {
-      const current = vehiclesByType.get(vehicle.vehicleType) || [];
-      current.push(vehicle);
-      vehiclesByType.set(vehicle.vehicleType, current);
-    });
-
-    const availability = Array.from(vehiclesByType.entries()).map(
-      ([vehicleType, typeVehicles]) => {
-        const availableVehicle = typeVehicles.find(
-          (vehicle) => usable(vehicle) && !blockedUntilByVehicleId.has(vehicle.id),
-        );
-
-        const latestBlockedUntil = typeVehicles.reduce<Date | null>(
-          (latest, vehicle) => {
-            const blockedUntil = blockedUntilByVehicleId.get(vehicle.id);
-
-            if (!blockedUntil) return latest;
-            if (!latest || blockedUntil > latest) return blockedUntil;
-
-            return latest;
-          },
-          null,
-        );
-
-        const representativeVehicle = availableVehicle || typeVehicles[0];
-
-        return {
-          id: representativeVehicle.id,
-          name: representativeVehicle.name,
-          vehicleType,
-          active: representativeVehicle.active,
-          available: Boolean(availableVehicle),
-          unavailableUntil: availableVehicle
-            ? null
-            : latestBlockedUntil
-              ? latestBlockedUntil.toISOString()
-              : null,
-          reason: availableVehicle
-            ? null
-            : "No operational van is available for this window: reservations, maintenance or unsafe defects may apply.",
-          totalVehicles: typeVehicles.length,
-          availableVehicles: typeVehicles.filter(
-            (vehicle) => usable(vehicle) && !blockedUntilByVehicleId.has(vehicle.id),
-          ).length,
-        };
-      },
-    );
 
     res.json({
       vehicles: availability,

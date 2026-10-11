@@ -1,3 +1,4 @@
+import { readFleetAvailability } from "./fleetAvailability";
 import { BookingStatus, Prisma, type AdminUser } from "@prisma/client";
 import { prisma } from "./prisma";
 import { DriverPortalError, text } from "./driverPortal";
@@ -50,6 +51,11 @@ export async function bookingWindow(tx: Tx, booking: { estimatedStartTime: Date 
 export async function assertPlan(tx: Tx, input: { bookingId: string; quoteId?: string | null; driverId?: string | null; vehicleId?: string | null; startsAt: Date; endsAt: Date }) {
   const { startsAt, endsAt, driverId, vehicleId, bookingId, quoteId } = input;
   if (!Number.isFinite(+startsAt) || !Number.isFinite(+endsAt) || endsAt <= startsAt) throw new DriverPortalError(400, "Set valid planned start and end times.");
+  if (vehicleId) {
+    // Existing dispatch routes perform their own authorised compliance review.
+    const rows = await readFleetAvailability(tx, { ...input, driverId: driverId || undefined, quoteId: quoteId || undefined, vehicleId, purpose: "BOOKING" });
+    if (!rows[0]?.available) throw new DriverPortalError(409, rows[0]?.reasons.join("; ") || "This van is unavailable in the selected time window.");
+  }
   if (vehicleId) await operationalVan(tx, vehicleId, startsAt, endsAt);
   const scope: Prisma.BookingWhereInput[] = [];
   if (driverId) scope.push({ driverId }); if (vehicleId) scope.push({ vehicleId });
@@ -85,6 +91,8 @@ export async function assertVanChange(tx: Tx, driverId: string, vehicleId: strin
 export async function createAllocation(tx: Tx, data: { driverId: string; vehicleId: string; startsAt: Date; endsAt: Date; requestId: string; reason: string; createdBy: string }) {
   const saved = await tx.driverVehicleAllocation.findUnique({ where: { requestId: data.requestId } });
   if (saved) { if (saved.driverId !== data.driverId || saved.vehicleId !== data.vehicleId || +saved.startsAt !== +data.startsAt || +saved.endsAt !== +data.endsAt || saved.createdBy !== data.createdBy || saved.reason !== data.reason) throw new DriverPortalError(409, "Request identifier already belongs to a different allocation."); return saved; }
+  const availability = await readFleetAvailability(tx, { vehicleId: data.vehicleId, startsAt: data.startsAt, endsAt: data.endsAt, purpose: "ALLOCATION" });
+  if (!availability[0]?.available) throw new DriverPortalError(409, availability[0]?.reasons.join("; ") || "This van is unavailable for the selected time.");
   const driver = await tx.driver.findUnique({ where: { id: data.driverId } });
   if (!driver?.active || driver.status !== "ACTIVE") throw new DriverPortalError(409, "Select an active driver.");
   await operationalVan(tx, data.vehicleId, data.startsAt, data.endsAt);
@@ -93,8 +101,9 @@ export async function createAllocation(tx: Tx, data: { driverId: string; vehicle
   if (bookings.length > 1000) throw new DriverPortalError(409, "Resolve older bookings before allocating.");
   for (const booking of bookings) {
     const w = await bookingWindow(tx, booking);
-    if (w.startsAt < data.endsAt && w.endsAt > data.startsAt && (booking.driverId && booking.driverId !== data.driverId || booking.driverId === data.driverId && booking.vehicleId !== data.vehicleId)) throw new DriverPortalError(409, `Allocation conflicts with ${booking.reference}.`);
+    if (booking.status === "IN_PROGRESS" && (!booking.estimatedEndTime || booking.estimatedEndTime <= new Date()) || w.startsAt < data.endsAt && w.endsAt > data.startsAt) throw new DriverPortalError(409, `Allocation conflicts with ${booking.reference}.`);
   }
   if (data.startsAt <= new Date()) await assertVanChange(tx, data.driverId, data.vehicleId);
   return tx.driverVehicleAllocation.create({ data });
 }
+

@@ -1,3 +1,4 @@
+import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import {
   BookingStatus,
   Prisma,
@@ -352,61 +353,7 @@ async function findAvailableVehicleForWindow(params: {
   reservedUntil: Date;
   excludeBookingId?: string;
 }) {
-  const vehicles = await prisma.vehicle.findMany({
-    where: {
-      active: true,
-      vehicleType: params.vehicleType,
-    },
-    orderBy: { createdAt: "asc" },
-    include: {
-      reservations: {
-        where: {
-          status: {
-            in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
-          },
-          reservedFrom: { lt: params.reservedUntil },
-          reservedUntil: { gt: params.reservedFrom },
-          ...(params.excludeBookingId
-            ? { bookingId: { not: params.excludeBookingId } }
-            : {}),
-        },
-      },
-    },
-  });
-
-  const overlappingBookings = await prisma.booking.findMany({
-    where: {
-      vehicleId: { not: null },
-      ...(params.excludeBookingId
-        ? { id: { not: params.excludeBookingId } }
-        : {}),
-      status: {
-        in: [
-          BookingStatus.PENDING_PAYMENT,
-          BookingStatus.CONFIRMED,
-          BookingStatus.ASSIGNED,
-          BookingStatus.IN_PROGRESS,
-        ],
-      },
-      estimatedStartTime: { lt: params.reservedUntil },
-      estimatedEndTime: { gt: params.reservedFrom },
-    },
-    select: { vehicleId: true },
-  });
-
-  const blockedVehicleIds = new Set(
-    overlappingBookings
-      .map((booking) => booking.vehicleId)
-      .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
-  );
-
-  return (
-    vehicles.find(
-      (vehicle) =>
-        vehicle.reservations.length === 0 &&
-        !blockedVehicleIds.has(vehicle.id),
-    ) || null
-  );
+  return findFleetVehicle(prisma, params);
 }
 
 /* ---------------------------------
@@ -1677,68 +1624,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     const vehicleAvailableAt = reservedUntil;
 
-    const vehicles = await prisma.vehicle.findMany({
-      where: {
-        vehicleType: quote.vehicleSize,
-        active: true,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-      include: {
-        reservations: {
-          where: {
-            status: {
-              in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
-            },
-            reservedFrom: {
-              lt: reservedUntil,
-            },
-            reservedUntil: {
-              gt: reservedFrom,
-            },
-          },
-        },
-      },
-    });
-
-    const overlappingBookings = await prisma.booking.findMany({
-      where: {
-        vehicleId: {
-          not: null,
-        },
-        status: {
-          in: [
-            BookingStatus.PENDING_PAYMENT,
-            BookingStatus.CONFIRMED,
-            BookingStatus.ASSIGNED,
-            BookingStatus.IN_PROGRESS,
-            BookingStatus.COMPLETED,
-          ],
-        },
-        estimatedStartTime: {
-          lt: reservedUntil,
-        },
-        estimatedEndTime: {
-          gt: reservedFrom,
-        },
-      },
-      select: {
-        vehicleId: true,
-      },
-    });
-
-    const blockedVehicleIds = new Set(
-      overlappingBookings
-        .map((booking) => booking.vehicleId)
-        .filter((vehicleId): vehicleId is string => Boolean(vehicleId)),
-    );
-
-    const availableVehicle = vehicles.find(
-      (vehicle) =>
-        vehicle.reservations.length === 0 &&
-        !blockedVehicleIds.has(vehicle.id),
-    );
+    const availableVehicle = await findFleetVehicle(prisma, { vehicleType: quote.vehicleSize, reservedFrom, reservedUntil });
 
     if (!availableVehicle) {
       return res.status(409).json({
