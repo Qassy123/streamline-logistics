@@ -37,14 +37,48 @@ export function driverStatusLabel(value: string) {
   return value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, character => character.toUpperCase());
 }
 
+const portalLinks = [
+  { href: "/driver/dashboard", label: "Today" },
+  { href: "/driver/jobs", label: "Jobs" },
+  { href: "/driver/vehicle", label: "Your vehicle" },
+  { href: "/driver/handovers", label: "Handovers & returns" },
+  { href: "/driver/timesheets", label: "Timesheets" },
+  { href: "/driver/profile", label: "Profile & notifications" },
+];
+
+function PortalNavigation({ pathname, unread }: { pathname: string; unread: number }) {
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const active = strip.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    const container = strip.current;
+    if (!active || !container) return;
+    const link = active.getBoundingClientRect(), viewport = container.getBoundingClientRect();
+    if (link.left < viewport.left || link.right > viewport.right) {
+      container.scrollTo({ left: container.scrollLeft + link.left - viewport.left - (container.clientWidth - link.width) / 2 });
+    }
+  }, [pathname]);
+  return <nav aria-label="Driver portal pages" className="border-b border-slate-200 bg-white text-slate-700">
+    <div ref={strip} className="overflow-x-auto overscroll-x-contain">
+      <div className="mx-auto flex w-max min-w-full items-center gap-2 px-4 py-2 sm:px-6 md:justify-center">
+        {portalLinks.map(item => {
+          const active = pathname === item.href || pathname.startsWith(item.href + "/") || item.href === "/driver/dashboard" && pathname === "/driver";
+          return <Link key={item.href} href={item.href} prefetch={false} aria-current={active ? "page" : undefined} className={`inline-flex min-h-12 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${active ? "border-[#FF6A00] bg-[#FF6A00] text-white shadow-sm" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>
+            {item.label}{item.href === "/driver/profile" && unread > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white" aria-label={`${unread} unread notifications`}>{unread > 99 ? "99+" : unread}</span>}
+          </Link>;
+        })}
+      </div>
+    </div>
+  </nav>;
+}
+
 function Navigation({ pathname, unread }: { pathname: string; unread: number }) {
   const items = [
     { href: "/driver/dashboard", label: "Today", icon: CalendarDays, active: pathname === "/driver/dashboard" || pathname === "/driver" },
     { href: "/driver/jobs", label: "Jobs", icon: ClipboardList, active: pathname === "/driver/jobs" || pathname.startsWith("/driver/jobs/") },
-    { href: "/driver/vehicle", label: "Vehicle", icon: Truck, active: pathname === "/driver/vehicle" },
-    { href: "/driver/profile", label: "More", icon: MoreHorizontal, active: pathname === "/driver/profile" },
+    { href: "/driver/vehicle", label: "Vehicle", icon: Truck, active: pathname === "/driver/vehicle" || pathname === "/driver/handovers" },
+    { href: "/driver/profile", label: "More", icon: MoreHorizontal, active: pathname === "/driver/profile" || pathname === "/driver/timesheets" },
   ];
-  return <nav aria-label="Driver portal" className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_12px_rgba(0,0,0,0.04)]"><div className="mx-auto grid max-w-3xl grid-cols-4">{items.map(item => <Link key={item.href} href={item.href} prefetch={false} aria-current={item.active ? "page" : undefined} className={`relative flex min-h-[68px] flex-col items-center justify-center gap-1 px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${item.active ? "bg-blue-50 text-[#006CFF]" : "text-slate-500 hover:bg-slate-50"}`}><item.icon size={23} aria-hidden="true" /><span>{item.label}</span>{item.label === "More" && unread > 0 ? <span className="absolute right-[calc(50%-26px)] top-2 rounded-full bg-red-600 px-1.5 text-[10px] leading-4 text-white" aria-label={`${unread} unread notifications`}>{unread > 99 ? "99+" : unread}</span> : null}</Link>)}</div></nav>;
+  return <nav aria-label="Driver portal" className="fixed inset-x-0 bottom-0 z-40 md:hidden border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_12px_rgba(0,0,0,0.04)]"><div className="mx-auto grid max-w-3xl grid-cols-4">{items.map(item => <Link key={item.href} href={item.href} prefetch={false} aria-current={item.active ? "page" : undefined} className={`relative flex min-h-[68px] flex-col items-center justify-center gap-1 px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${item.active ? "bg-blue-50 text-[#006CFF]" : "text-slate-500 hover:bg-slate-50"}`}><item.icon size={23} aria-hidden="true" /><span>{item.label}</span>{item.label === "More" && unread > 0 ? <span className="absolute right-[calc(50%-26px)] top-2 rounded-full bg-red-600 px-1.5 text-[10px] leading-4 text-white" aria-label={`${unread} unread notifications`}>{unread > 99 ? "99+" : unread}</span> : null}</Link>)}</div></nav>;
 }
 
 function SignedInPortal({ children, pathname }: { children: ReactNode; pathname: string }) {
@@ -184,9 +218,9 @@ function SignedInPortal({ children, pathname }: { children: ReactNode; pathname:
 
   return <DriverContext.Provider value={{ driver, online, sessionStale, unreadNotifications, request, refreshSession, refreshNotifications, signOut }}>
     <div className="min-h-[100dvh] bg-slate-50 text-slate-950">
-      <header className="border-b border-slate-200 bg-[#071D49] text-white"><div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-4"><div className="flex min-w-0 items-center gap-3"><Truck size={26} className="shrink-0 text-blue-300" /><div className="min-w-0"><p className="truncate font-bold">{driver.name}</p><p className="text-xs text-blue-100">{driver.onDuty ? "On duty" : "Off duty"}{driver.vehicle ? ` · ${driver.vehicle.registration || driver.vehicle.name}` : " · No van assigned"}</p></div></div><a href="tel:03333440703" aria-label="Call dispatch on 0333 344 0703" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 px-3 hover:bg-white/10"><Phone size={19} /></a></div></header>
+      <header className="sticky top-0 z-40 bg-[#071D49] text-white shadow-sm"><div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-4"><div className="flex min-w-0 items-center gap-3"><Truck size={26} className="shrink-0 text-blue-300" /><div className="min-w-0"><p className="truncate font-bold">{driver.name}</p><p className="text-xs text-blue-100">{driver.onDuty ? "On duty" : "Off duty"}{driver.vehicle ? ` · ${driver.vehicle.registration || driver.vehicle.name}` : " · No van assigned"}</p></div></div><a href="tel:03333440703" aria-label="Call dispatch on 0333 344 0703" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 px-3 hover:bg-white/10"><Phone size={19} /></a></div><PortalNavigation pathname={pathname} unread={unreadNotifications} /></header>
       {!online || sessionStale ? <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-900">{!online ? "Offline. Saved drafts remain pending until the server confirms them." : "Connection needs checking. Refresh before retrying an update."}{online ? <button className="ml-2 font-bold underline" onClick={() => void refreshSession()}>Retry</button> : null}</div> : null}
-      <main id="driver-content" className="mx-auto max-w-3xl px-4 py-5 pb-[calc(100px+env(safe-area-inset-bottom))] sm:px-6">{children}</main>
+      <main id="driver-content" className="mx-auto max-w-3xl px-4 py-5 pb-[calc(100px+env(safe-area-inset-bottom))] sm:px-6 md:pb-8">{children}</main>
       <Navigation pathname={pathname} unread={unreadNotifications} />
     </div>
   </DriverContext.Provider>;
