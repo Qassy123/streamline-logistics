@@ -190,6 +190,7 @@ export async function withBookingLock<T>(bookingId: string, work: (tx: Tx) => Pr
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await prisma.$transaction(async tx => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121002)`;
         await tx.$queryRaw`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} FOR UPDATE`;
         return work(tx);
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

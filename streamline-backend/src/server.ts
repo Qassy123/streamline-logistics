@@ -3,6 +3,7 @@ import adminHoursRoutes from "./routes/adminDriverHours";
 import staffAuthRoutes from "./routes/adminAuth";
 import express from "express";
 import cors from "cors";
+import fleetOperationsRoutes from "./routes/adminFleetOperations";
 import dotenv from "dotenv";
 import path from "path";
 
@@ -69,6 +70,7 @@ app.use("/api/invoices", invoiceRoutes);
 ---------------------------------- */
 
 app.use("/api/driver/shifts", driverShiftRoutes);
+app.use("/api/admin/fleet-operations", fleetOperationsRoutes);
 app.use("/api/admin/driver-hours", adminHoursRoutes);
 app.use("/api/admin/auth", staffAuthRoutes);
 app.use("/api/driver/auth", driverAuthRoutes);

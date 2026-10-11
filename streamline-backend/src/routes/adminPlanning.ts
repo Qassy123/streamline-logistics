@@ -6,6 +6,8 @@ import {
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
 
+import { assertPlan, assertVanChange, bookingWindow, fleetMutation } from "../lib/fleetOperations";
+import { DriverPortalError } from "../lib/driverPortal";
 const router = Router();
 
 const DEFAULT_DAYS = 7;
@@ -187,6 +189,7 @@ async function hasVehicleConflict(
         status: {
           in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
         },
+        AND: [{ OR: [{ status: ReservationStatus.CONFIRMED }, { expiresAt: null }, { expiresAt: { gt: new Date() } }] }],
         reservedFrom: { lt: end },
         reservedUntil: { gt: start },
       },
@@ -754,6 +757,11 @@ router.patch(
       const updatedBooking =
         await prisma.$transaction(
           async (transaction) => {
+            await fleetMutation(transaction, undefined, "Planning assignment updated");
+            const fresh = await transaction.booking.findUniqueOrThrow({ where: { id: booking.id } });
+            if (+fresh.updatedAt !== +booking.updatedAt) throw new DriverPortalError(409, "Booking changed. Refresh before assigning.");
+            const planned = await bookingWindow(transaction, fresh);
+            await assertPlan(transaction, { bookingId: booking.id, quoteId: booking.quoteId, driverId: driverId === undefined ? fresh.driverId : driverId, vehicleId: vehicleId === undefined ? fresh.vehicleId : vehicleId, ...planned });
             const effectiveDriverId =
               driverId !== undefined
                 ? driverId
@@ -823,29 +831,15 @@ router.patch(
                 },
               );
 
-            if (vehicleId) {
-              const existingReservation =
-                await transaction.vehicleReservation.findUnique({
-                  where: { bookingId: booking.id },
-                });
+            if (vehicleId) await transaction.vehicleReservation.upsert({ where: { bookingId: booking.id },
+              create: { bookingId: booking.id, quoteId: booking.quoteId, vehicleId, status: ReservationStatus.CONFIRMED, reservedFrom: planned.startsAt, reservedUntil: planned.endsAt },
+              update: { vehicleId, status: ReservationStatus.CONFIRMED, reservedFrom: planned.startsAt, reservedUntil: planned.endsAt, expiresAt: null } });
 
-              if (existingReservation) {
-                await transaction.vehicleReservation.update({
-                  where: { bookingId: booking.id },
-                  data: {
-                    vehicleId,
-                    status: ReservationStatus.CONFIRMED,
-                    reservedFrom:
-                      booking.estimatedStartTime || existingReservation.reservedFrom,
-                    reservedUntil:
-                      booking.estimatedEndTime || existingReservation.reservedUntil,
-                    expiresAt: null,
-                  },
-                });
-              }
-            }
-
+            if (vehicleId === null) await transaction.vehicleReservation.updateMany({ where: { bookingId: booking.id }, data: { status: ReservationStatus.CANCELLED } });
             if (driverId) {
+              // Scheduling future work must not replace a driver's current van.
+              const changeCurrentVan = vehicleId !== undefined && planned.startsAt <= new Date() && planned.endsAt > new Date();
+              if (changeCurrentVan) await assertVanChange(transaction, driverId, vehicleId || null);
               await transaction.driver.update(
                 {
                   where: {
@@ -856,18 +850,14 @@ router.patch(
                     availability:
                       "BUSY",
 
-                    vehicleId:
-                      vehicleId !==
-                      undefined
-                        ? vehicleId
-                        : undefined,
+                    vehicleId: changeCurrentVan ? vehicleId : undefined,
                   },
                 },
               );
             }
 
             return updated;
-          },
+          }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
 
       res.json({
@@ -875,6 +865,8 @@ router.patch(
         booking: updatedBooking,
       });
     } catch (error) {
+      if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet allocation conflict. Refresh and choose another driver, van or time." });
       console.error(
         "Planning assignment update error:",
         error,
@@ -945,7 +937,16 @@ router.patch(
       }
 
       const updatedBooking =
-        await prisma.booking.update({
+        await prisma.$transaction(async tx => {
+          await fleetMutation(tx, undefined, "Planning schedule updated");
+          const fresh = await tx.booking.findUniqueOrThrow({ where: { id: booking.id } });
+          if (+fresh.updatedAt !== +booking.updatedAt) throw new DriverPortalError(409, "Booking changed. Refresh before rescheduling.");
+          if (fresh.status === BookingStatus.IN_PROGRESS || fresh.driverJourneyStartedAt) throw new DriverPortalError(409, "Resolve the active journey before rescheduling.");
+          const prospective = { ...fresh, collectionDate: collectionDate ? new Date(collectionDate) : fresh.collectionDate, collectionWindow: req.body.collectionWindow === undefined ? fresh.collectionWindow : getString(req.body.collectionWindow), estimatedStartTime: estimatedStartTime ? new Date(estimatedStartTime) : fresh.estimatedStartTime, estimatedEndTime: estimatedEndTime ? new Date(estimatedEndTime) : fresh.estimatedEndTime };
+          if (!Number.isFinite(+prospective.collectionDate) || !prospective.collectionWindow || (prospective.estimatedStartTime && !Number.isFinite(+prospective.estimatedStartTime)) || (prospective.estimatedEndTime && !Number.isFinite(+prospective.estimatedEndTime))) throw new DriverPortalError(400, "Enter valid booking dates and times.");
+          const planned = await bookingWindow(tx, prospective);
+          if (!status || !["CANCELLED", "EXPIRED", "COMPLETED"].includes(status)) await assertPlan(tx, { bookingId: fresh.id, quoteId: fresh.quoteId, driverId: fresh.driverId, vehicleId: fresh.vehicleId, ...planned });
+          const result = await tx.booking.update({
           where: {
             id: booking.id,
           },
@@ -999,12 +1000,17 @@ router.patch(
           include:
             planningBookingInclude(),
         });
+          if (fresh.vehicleId) await tx.vehicleReservation.upsert({ where: { bookingId: fresh.id }, create: { bookingId: fresh.id, quoteId: fresh.quoteId, vehicleId: fresh.vehicleId, reservedFrom: planned.startsAt, reservedUntil: planned.endsAt, status: ["CANCELLED", "EXPIRED", "COMPLETED"].includes(status) ? ReservationStatus.CANCELLED : ReservationStatus.CONFIRMED }, update: { reservedFrom: planned.startsAt, reservedUntil: planned.endsAt, status: ["CANCELLED", "EXPIRED", "COMPLETED"].includes(status) ? ReservationStatus.CANCELLED : ReservationStatus.CONFIRMED, expiresAt: null } });
+          return result;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
       res.json({
         success: true,
         booking: updatedBooking,
       });
     } catch (error) {
+      if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet allocation conflict. Refresh and choose another driver, van or time." });
       console.error(
         "Planning schedule update error:",
         error,

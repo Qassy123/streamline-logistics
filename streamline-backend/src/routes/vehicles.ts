@@ -8,6 +8,8 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma";
 import { getReservationWindow } from "../lib/reservationWindow";
 
+import { assertVanChange, bookingWindow, fleetMutation } from "../lib/fleetOperations";
+import { DriverPortalError } from "../lib/driverPortal";
 const router = Router();
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -106,6 +108,8 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 }
 
 function getVehicleOperationalState(vehicle: {
+  driverChecks?: { id: string }[];
+  maintenanceRecords?: { id: string }[];
   active: boolean;
   status: VehicleStatus;
   motExpiry: Date | null;
@@ -122,6 +126,8 @@ function getVehicleOperationalState(vehicle: {
     return "INACTIVE";
   }
 
+  if (vehicle.driverChecks?.length) return "UNSAFE_DEFECT";
+  if (vehicle.maintenanceRecords?.length) return "MAINTENANCE";
   if (vehicle.status === VehicleStatus.MAINTENANCE) {
     return "MAINTENANCE";
   }
@@ -171,7 +177,10 @@ function getVehicleOperationalState(vehicle: {
 }
 
 function adminVehicleInclude() {
+  const now = new Date();
   return {
+    driverChecks: { where: { unsafeToDrive: true, resolvedAt: null }, select: { id: true } },
+    maintenanceRecords: { where: { cancelledAt: null, completedAt: null, startsAt: { lte: now }, endsAt: { gt: now } }, select: { id: true } },
     bookings: {
       where: {
         status: {
@@ -194,6 +203,7 @@ function adminVehicleInclude() {
     },
     reservations: {
       where: {
+        OR: [{ status: ReservationStatus.CONFIRMED }, { expiresAt: null }, { expiresAt: { gt: now } }],
         status: {
           in: [
             ReservationStatus.ACTIVE,
@@ -407,6 +417,8 @@ router.get("/admin/list", async (req, res) => {
       summary,
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error("Admin fleet list error:", error);
 
     res.status(500).json({
@@ -479,6 +491,8 @@ router.get("/admin/:id", async (req, res) => {
       },
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error("Admin fleet detail error:", error);
 
     res.status(500).json({
@@ -544,7 +558,9 @@ router.post("/admin", async (req, res) => {
         : VehicleStatus.AVAILABLE
       : VehicleStatus.INACTIVE;
 
-    const vehicle = await prisma.vehicle.create({
+    const vehicle = await prisma.$transaction(async tx => {
+      await fleetMutation(tx, undefined, "Vehicle created through Fleet");
+      const createdVehicle = await tx.vehicle.create({
       data: {
         name,
         vehicleType,
@@ -581,21 +597,26 @@ router.post("/admin", async (req, res) => {
     const driverId = getOptionalString(req.body.driverId);
 
     if (driverId) {
-      await prisma.driver.update({
+      await assertVanChange(tx, driverId, createdVehicle.id);
+      await tx.driver.update({
         where: {
           id: driverId,
         },
         data: {
-          vehicleId: vehicle.id,
+          vehicleId: createdVehicle.id,
         },
       });
     }
 
+      return createdVehicle;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     res.status(201).json({
       success: true,
       vehicle,
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error("Admin vehicle creation error:", error);
 
     if (
@@ -683,6 +704,7 @@ router.patch("/admin/:id", async (req, res) => {
     }
 
     const vehicle = await prisma.$transaction(async (transaction) => {
+      await fleetMutation(transaction, undefined, "Vehicle and driver updated through Fleet");
       const updatedVehicle = await transaction.vehicle.update({
         where: {
           id: req.params.id,
@@ -782,9 +804,12 @@ router.patch("/admin/:id", async (req, res) => {
       });
 
       if (req.body.driverId !== undefined) {
+        const oldDrivers = await transaction.driver.findMany({ where: { vehicleId: req.params.id } });
+        for (const driver of oldDrivers) if (driver.id !== getOptionalString(req.body.driverId)) await assertVanChange(transaction, driver.id, null);
         await transaction.driver.updateMany({
           where: {
             vehicleId: req.params.id,
+            ...(getOptionalString(req.body.driverId) ? { id: { not: getOptionalString(req.body.driverId)! } } : {}),
           },
           data: {
             vehicleId: null,
@@ -794,6 +819,7 @@ router.patch("/admin/:id", async (req, res) => {
         const driverId = getOptionalString(req.body.driverId);
 
         if (driverId) {
+          await assertVanChange(transaction, driverId, req.params.id);
           await transaction.driver.update({
             where: {
               id: driverId,
@@ -806,13 +832,15 @@ router.patch("/admin/:id", async (req, res) => {
       }
 
       return updatedVehicle;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     res.json({
       success: true,
       vehicle,
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error("Admin vehicle update error:", error);
 
     res.status(500).json({
@@ -862,6 +890,7 @@ router.delete("/admin/:id", async (req, res) => {
     }
 
     await prisma.$transaction(async (transaction) => {
+      await fleetMutation(transaction, undefined, "Fleet vehicle deletion");
       await transaction.driver.updateMany({
         where: {
           vehicleId: vehicle.id,
@@ -883,6 +912,8 @@ router.delete("/admin/:id", async (req, res) => {
       message: `${vehicle.name} deleted successfully.`,
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error("Admin vehicle deletion error:", error);
 
     return res.status(500).json({
@@ -910,6 +941,8 @@ router.get("/", async (_, res) => {
 
     res.json(vehicles);
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error(error);
 
     res.status(500).json({
@@ -957,11 +990,17 @@ router.get("/availability", async (req, res) => {
       ],
     });
 
+    const now = new Date();
+    const blockedVanIds = new Set((await prisma.driverVehicleCheck.findMany({ where: { unsafeToDrive: true, resolvedAt: null }, select: { vehicleId: true } })).map(check => check.vehicleId));
+    const maintenance = await prisma.vehicleMaintenanceRecord.findMany({ where: { cancelledAt: null, completedAt: null, startsAt: { lt: reservedUntil }, endsAt: { gt: reservedFrom } }, select: { vehicleId: true } });
+    maintenance.forEach(record => blockedVanIds.add(record.vehicleId));
+    const usable = (vehicle: typeof vehicles[number]) => ![VehicleStatus.MAINTENANCE, VehicleStatus.INACTIVE].includes(vehicle.status as "MAINTENANCE" | "INACTIVE") && !blockedVanIds.has(vehicle.id);
     const overlappingReservations = await prisma.vehicleReservation.findMany({
       where: {
         status: {
           in: [ReservationStatus.ACTIVE, ReservationStatus.CONFIRMED],
         },
+        OR: [{ status: ReservationStatus.CONFIRMED }, { expiresAt: null }, { expiresAt: { gt: now } }],
         reservedFrom: {
           lt: reservedUntil,
         },
@@ -1000,6 +1039,14 @@ router.get("/availability", async (req, res) => {
       },
     });
 
+    // Legacy bookings without estimates still occupy their existing collection window.
+    const legacyHolds = await prisma.booking.findMany({ where: { vehicleId: { not: null }, status: { in: [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED, BookingStatus.ASSIGNED, BookingStatus.IN_PROGRESS] }, OR: [{ estimatedStartTime: null }, { estimatedEndTime: null }, { status: BookingStatus.IN_PROGRESS, estimatedEndTime: { lte: now } }] } });
+    for (const booking of legacyHolds) {
+      if (!booking.vehicleId) continue;
+      if (booking.status === BookingStatus.IN_PROGRESS && (!booking.estimatedEndTime || booking.estimatedEndTime <= now)) { blockedVanIds.add(booking.vehicleId); continue; }
+      try { const w = await bookingWindow(prisma, booking); if (w.startsAt < reservedUntil && w.endsAt > reservedFrom) blockedVanIds.add(booking.vehicleId); }
+      catch { blockedVanIds.add(booking.vehicleId); }
+    }
     const blockedUntilByVehicleId = new Map<string, Date>();
 
     overlappingReservations.forEach((reservation) => {
@@ -1037,7 +1084,7 @@ router.get("/availability", async (req, res) => {
     const availability = Array.from(vehiclesByType.entries()).map(
       ([vehicleType, typeVehicles]) => {
         const availableVehicle = typeVehicles.find(
-          (vehicle) => !blockedUntilByVehicleId.has(vehicle.id),
+          (vehicle) => usable(vehicle) && !blockedUntilByVehicleId.has(vehicle.id),
         );
 
         const latestBlockedUntil = typeVehicles.reduce<Date | null>(
@@ -1067,10 +1114,10 @@ router.get("/availability", async (req, res) => {
               : null,
           reason: availableVehicle
             ? null
-            : "Vehicle is already reserved for this collection window.",
+            : "No operational van is available for this window: reservations, maintenance or unsafe defects may apply.",
           totalVehicles: typeVehicles.length,
           availableVehicles: typeVehicles.filter(
-            (vehicle) => !blockedUntilByVehicleId.has(vehicle.id),
+            (vehicle) => usable(vehicle) && !blockedUntilByVehicleId.has(vehicle.id),
           ).length,
         };
       },
@@ -1080,6 +1127,8 @@ router.get("/availability", async (req, res) => {
       vehicles: availability,
     });
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error(error);
 
     res.status(500).json({
@@ -1108,6 +1157,8 @@ router.get("/:id", async (req, res) => {
 
     res.json(vehicle);
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error(error);
 
     res.status(500).json({
@@ -1117,8 +1168,10 @@ router.get("/:id", async (req, res) => {
 });
 
 router.patch("/:id", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const vehicle = await prisma.vehicle.update({
+    const vehicle = await prisma.$transaction(async tx => { await fleetMutation(tx, undefined, "Legacy vehicle details updated"); return tx.vehicle.update({
       where: {
         id: req.params.id,
       },
@@ -1138,10 +1191,12 @@ router.patch("/:id", async (req, res) => {
           : undefined,
         gpsDeviceId: req.body.gpsDeviceId,
       },
-    });
+    }); }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     res.json(vehicle);
   } catch (error) {
+    if (error instanceof DriverPortalError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2010", "P2003", "P2004", "P2034"].includes(error.code)) return res.status(409).json({ error: "Fleet operation conflicts with assigned work. Refresh and resolve the conflict." });
     console.error(error);
 
     res.status(500).json({

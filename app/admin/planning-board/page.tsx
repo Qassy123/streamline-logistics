@@ -1,4 +1,5 @@
 "use client";
+import FleetAllocationBoard from "@/components/admin/FleetAllocationBoard";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
@@ -1209,6 +1210,7 @@ export default function AdminPlanningBoardPage() {
         </h1>
       </div>
 
+      <details className="mt-6 rounded-2xl border border-slate-200 bg-white p-4"><summary className="min-h-11 cursor-pointer py-3 text-lg font-bold text-[#071D49]">Driver & van allocations</summary><FleetAllocationBoard /></details>
       {!planningOpen ? (
         <section className="mt-7 space-y-6">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">

@@ -7,11 +7,14 @@ import {
   requestId, reviewStopEvidence, text, ukDateKey, withBookingLock,
 } from "../lib/driverPortal";
 
+import { requireStaff } from "../lib/adminAccess";
+import { assertPlan, assertVanChange, fleetMutation, dispatchRoles, staffActor } from "../lib/fleetOperations";
 const router = express.Router();
 const activeStatuses = [BookingStatus.CONFIRMED, BookingStatus.ASSIGNED, BookingStatus.IN_PROGRESS];
 const actor = "Admin (API key)";
 
-router.use((req, res, next) => {
+router.use(async (req, res, next) => {
+  if (req.headers.authorization) { try { const admin = await requireStaff(req, [...dispatchRoles]); res.locals.fleetActor = staffActor(admin); res.setHeader("Cache-Control", "no-store"); return next(); } catch (e) { return void res.status(e instanceof DriverPortalError ? e.status : 500).json({ error: e instanceof Error ? e.message : "Staff access denied." }); } }
   const key = process.env.ADMIN_API_KEY;
   if (!key) return void res.status(500).json({ error: "Admin security is not configured." });
   if (text(req.headers["x-admin-key"]) !== key) return void res.status(401).json({ error: "Admin access denied." });
@@ -28,7 +31,7 @@ function route(handler: Handler): express.RequestHandler {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         return void res.status(409).json({ error: "The username, email or request is already in use. Refresh and check the saved result." });
       }
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2034", "P2010", "P2004"].includes(error.code)) {
         return void res.status(409).json({ error: "The assignment changed. Refresh and retry." });
       }
       console.error("Admin driver operation failed:", error);
@@ -89,6 +92,7 @@ async function availableVan(tx: Tx, vehicleId: string, driverId?: string) {
 }
 
 async function setVan(tx: Tx, driver: Driver, vehicleId: string | null, reason: string) {
+  await assertVanChange(tx, driver.id, vehicleId);
   if (driver.vehicleId === vehicleId) return;
   const currentJob = await tx.booking.findFirst({ where: { driverId: driver.id, status: BookingStatus.IN_PROGRESS } });
   if (currentJob) throw new DriverPortalError(409, "Resolve the driver's active job before changing their van.");
@@ -164,6 +168,7 @@ router.patch("/incidents/:incidentId", route(async (req, res) => {
   const action = text(req.body?.action, 20);
   if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || !response) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response.");
   const incident = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "DriverIncident" WHERE "id" = ${id} FOR UPDATE`;
     const existing = await tx.driverIncident.findUnique({ where: { id } });
     if (!existing) throw new DriverPortalError(404, "Problem report not found.");
@@ -192,6 +197,7 @@ router.patch("/defects/:checkId", route(async (req, res) => {
   const action = text(req.body?.action, 20);
   if (!["ACKNOWLEDGE", "RESOLVE"].includes(action) || !response) throw new DriverPortalError(400, "Choose acknowledge or resolve and enter a dispatch response.");
   const check = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "DriverVehicleCheck" WHERE "id" = ${id} FOR UPDATE`;
     const existing = await tx.driverVehicleCheck.findUnique({ where: { id } });
     if (!existing?.hasDefect) throw new DriverPortalError(404, "Vehicle defect not found.");
@@ -207,11 +213,12 @@ router.patch("/defects/:checkId", route(async (req, res) => {
   res.json({ check });
 }));
 
-router.post("/:id/assign-job", route(async (req, res) => {
+export const assignDriverJob = route(async (req, res) => {
   const driverId = text(req.params.id, 100), bookingId = text(req.body?.bookingId, 100), vehicleId = text(req.body?.vehicleId, 100);
   const retryId = requestId(req.body?.requestId), reason = text(req.body?.reason);
   if (!bookingId || !vehicleId) throw new DriverPortalError(400, "Select the booking and van explicitly.");
   const job = await withBookingLock(bookingId, async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: driverJobInclude });
     if (!booking) throw new DriverPortalError(404, "Booking not found.");
     const earlier = await tx.auditLog.findFirst({ where: { action: "DRIVER_JOB_ASSIGNED", entityType: "Booking", entityId: bookingId,
@@ -229,9 +236,13 @@ router.post("/:id/assign-job", route(async (req, res) => {
     await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driverId} FOR UPDATE`;
     const driver = await tx.driver.findUnique({ where: { id: driverId }, include: { vehicle: true } });
     if (!driver?.active || driver.status !== DriverStatus.ACTIVE) throw new DriverPortalError(409, "Select an active driver.");
-    if (driver.vehicleId !== vehicleId) throw new DriverPortalError(409, "Assign this van to the driver before assigning the job.");
+
     await tx.$queryRaw`SELECT "id" FROM "Vehicle" WHERE "id" = ${vehicleId} FOR UPDATE`;
-    const vehicle = await availableVan(tx, vehicleId, driverId);
+    const plannedStart = req.body?.estimatedStartTime == null ? booking.estimatedStartTime : date(req.body.estimatedStartTime, "start time");
+    const plannedEnd = req.body?.estimatedEndTime == null ? booking.estimatedEndTime : date(req.body.estimatedEndTime, "end time");
+    const scheduled = plannedStart && plannedEnd && await tx.driverVehicleAllocation.findFirst({ where: { driverId, vehicleId, cancelledAt: null, startsAt: { lte: plannedStart }, endsAt: { gte: plannedEnd } } });
+    if (driver.vehicleId !== vehicleId && !scheduled) throw new DriverPortalError(409, "Assign the current van or create a covering future allocation before assigning this job.");
+    const vehicle = scheduled ? await tx.vehicle.findUniqueOrThrow({ where: { id: vehicleId } }) : await availableVan(tx, vehicleId, driverId);
     const requiredType = booking.vehicleType || booking.quote?.vehicleSize || booking.vehicle?.vehicleType;
     if (requiredType && vehicle.vehicleType !== requiredType) throw new DriverPortalError(409, `This booking requires ${requiredType}. Select a matching van.`);
     const start = req.body?.estimatedStartTime == null ? booking.estimatedStartTime : date(req.body.estimatedStartTime, "start time");
@@ -245,6 +256,7 @@ router.post("/:id/assign-job", route(async (req, res) => {
     if (warnings.length && (req.body?.complianceOverride !== true || !text(req.body?.complianceOverrideReason))) {
       throw new DriverPortalError(409, `${warnings.join(", ")} compliance warning. Check the fleet records and record an explicit override reason if authorised.`);
     }
+    await assertPlan(tx, { bookingId: booking.id, quoteId: booking.quoteId, driverId, vehicleId, startsAt: start, endsAt: end });
     const overlaps = conflicts(start, end);
     const [driverConflict, vehicleConflict, reservationConflict] = await Promise.all([
       tx.booking.findFirst({ where: { id: { not: booking.id }, driverId, status: { in: activeStatuses }, OR: overlaps } }),
@@ -289,7 +301,8 @@ router.post("/:id/assign-job", route(async (req, res) => {
     return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: driverJobInclude });
   });
   res.json({ job, message: "Job and van manually assigned. The driver can now acknowledge the job." });
-}));
+});
+router.post("/:id/assign-job", assignDriverJob);
 
 router.patch("/:id/vehicle", route(async (req, res) => {
   const driverId = text(req.params.id, 100);
@@ -298,6 +311,7 @@ router.patch("/:id/vehicle", route(async (req, res) => {
   }
   const vehicleId = req.body.vehicleId === null ? null : text(req.body.vehicleId, 100);
   const driver = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driverId} FOR UPDATE`;
     const current = await tx.driver.findUnique({ where: { id: driverId }, include: { vehicle: true } });
     if (!current) throw new DriverPortalError(404, "Driver not found.");
@@ -313,6 +327,7 @@ router.post("/:id/unassign-job", route(async (req, res) => {
   const retryId = requestId(req.body?.requestId), reason = text(req.body?.reason);
   if (!bookingId || !reason) throw new DriverPortalError(400, "Select the job and record why it is being unassigned.");
   const job = await withBookingLock(bookingId, async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: driverJobInclude });
     if (!booking) throw new DriverPortalError(404, "Booking not found.");
     const earlier = await tx.auditLog.findFirst({ where: { action: "DRIVER_JOB_UNASSIGNED", entityType: "Booking", entityId: bookingId,
@@ -345,6 +360,7 @@ router.post("/", route(async (req, res) => {
   if (!["AVAILABLE", "BUSY", "OFFLINE"].includes(availability)) throw new DriverPortalError(400, "Invalid availability.");
   const active = typeof req.body?.active === "boolean" ? req.body.active : true;
   const driver = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     if (vehicleId) { await tx.$queryRaw`SELECT "id" FROM "Vehicle" WHERE "id" = ${vehicleId} FOR UPDATE`; await availableVan(tx, vehicleId); }
     const created = await tx.driver.create({ data: { name, username, email, password: hash, phone: text(req.body?.phone, 100) || null,
       active, status: active ? DriverStatus.ACTIVE : DriverStatus.INACTIVE, availability: active ? availability : "OFFLINE",
@@ -385,6 +401,7 @@ router.patch("/:id", route(async (req, res) => {
   if (body.status !== undefined && !Object.values(DriverStatus).includes(body.status)) throw new DriverPortalError(400, "Invalid driver status.");
   if (body.password) { data.password = await bcrypt.hash(password(body.password), 12); data.sessionToken = null; }
   const updated = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driverId} FOR UPDATE`;
     const current = await tx.driver.findUnique({ where: { id: driverId }, include: { vehicle: true } });
     if (!current) throw new DriverPortalError(404, "Driver not found.");
@@ -425,6 +442,7 @@ router.patch("/:id", route(async (req, res) => {
 router.delete("/:id", route(async (req, res) => {
   const driverId = text(req.params.id, 100);
   const driver = await prisma.$transaction(async tx => {
+    await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
     await tx.$queryRaw`SELECT "id" FROM "Driver" WHERE "id" = ${driverId} FOR UPDATE`;
     const current = await tx.driver.findUnique({ where: { id: driverId } });
     if (!current) throw new DriverPortalError(404, "Driver not found.");
