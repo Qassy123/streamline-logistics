@@ -3,11 +3,13 @@ import { DriverPortalError } from "./driverPortal";
 import { getReservationWindow } from "./reservationWindow";
 
 type Reader = Pick<Prisma.TransactionClient, "vehicle" | "driver" | "booking" | "vehicleReservation" | "driverVehicleAllocation" | "vehicleMaintenanceRecord" | "driverVehicleCheck" | "companySettings">;
-export type AvailabilityPurpose = "QUOTE" | "ALLOCATION" | "BOOKING";
+export type AvailabilityPurpose = "QUOTE" | "ALLOCATION" | "BOOKING" | "CURRENT";
 export type AvailabilityOptions = {
   startsAt: Date; endsAt: Date; vehicleType?: string; vehicleId?: string;
   bookingId?: string; quoteId?: string; driverId?: string; purpose?: AvailabilityPurpose;
 };
+export const SIX_HOURS = 6 * 60 * 60 * 1000;
+export const capacityEnd = (start: Date, end: Date) => new Date(Math.max(+end, +start + SIX_HOURS));
 type Hold = { reason: string; until: Date | null; state: string };
 const activeStatuses = ["PENDING_PAYMENT", "CONFIRMED", "ASSIGNED", "IN_PROGRESS"] as const;
 const categories = ["Small Van", "SWB Van", "LWB High Roof Van", "XLWB High Roof Van", "Luton Tail Lift Van"];
@@ -15,14 +17,15 @@ const categories = ["Small Van", "SWB Van", "LWB High Roof Van", "XLWB High Roof
 // Shared by the quote badges, booking/payment capacity checks, Fleet and dispatch.
 // The same half-open interval is checked; cancellation removes only its own hold.
 export async function readFleetAvailability(db: Reader, options: AvailabilityOptions, now = new Date()) {
-  const { startsAt, endsAt } = options;
+  const startsAt = options.startsAt, endsAt = options.purpose === "CURRENT" ? options.endsAt : capacityEnd(startsAt, options.endsAt);
+  const lookback = new Date(+startsAt - SIX_HOURS);
   if (!Number.isFinite(+startsAt) || !Number.isFinite(+endsAt) || endsAt <= startsAt) throw new DriverPortalError(400, "Choose a valid start and end time.");
   const vehicles = await db.vehicle.findMany({ where: { vehicleType: options.vehicleType ? options.vehicleType : { in: categories }, ...(options.vehicleId ? { id: options.vehicleId } : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   const ids = vehicles.map(v => v.id), scope = { vehicleId: { in: ids } };
   const [bookings, reservations, allocations, maintenance, defects, settings] = await Promise.all([
-    db.booking.findMany({ where: { ...(options.driverId ? { OR: [scope, { driverId: options.driverId }] } : scope), AND: [{ OR: [{ status: { in: [...activeStatuses] } }, { status: "COMPLETED", estimatedStartTime: { lt: endsAt }, estimatedEndTime: { gt: startsAt } }] }], ...(options.bookingId ? { id: { not: options.bookingId } } : {}) }, take: 2001 }),
-    db.vehicleReservation.findMany({ where: { ...scope, status: { in: ["ACTIVE", "CONFIRMED"] }, reservedFrom: { lt: endsAt }, reservedUntil: { gt: startsAt }, OR: [{ status: "CONFIRMED" }, { expiresAt: null }, { expiresAt: { gt: now } }] } }),
-    db.driverVehicleAllocation.findMany({ where: { ...(options.driverId ? { OR: [scope, { driverId: options.driverId }] } : scope), cancelledAt: null, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } } }),
+    db.booking.findMany({ where: { ...(options.driverId ? { OR: [scope, { driverId: options.driverId }] } : scope), AND: [{ OR: [{ status: { in: [...activeStatuses] } }, { status: "COMPLETED", estimatedStartTime: { lt: endsAt }, estimatedEndTime: { gt: lookback } }] }], ...(options.bookingId ? { id: { not: options.bookingId } } : {}) }, take: 2001 }),
+    db.vehicleReservation.findMany({ where: { ...scope, status: { in: ["ACTIVE", "CONFIRMED"] }, reservedFrom: { lt: endsAt }, reservedUntil: { gt: lookback }, OR: [{ status: "CONFIRMED" }, { expiresAt: null }, { expiresAt: { gt: now } }] } }),
+    db.driverVehicleAllocation.findMany({ where: { ...(options.driverId ? { OR: [scope, { driverId: options.driverId }] } : scope), cancelledAt: null, startsAt: { lt: endsAt }, endsAt: { gt: lookback } } }),
     db.vehicleMaintenanceRecord.findMany({ where: { ...scope, completedAt: null, cancelledAt: null, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } } }),
     db.driverVehicleCheck.findMany({ where: { ...scope, unsafeToDrive: true, resolvedAt: null }, select: { vehicleId: true } }),
     db.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vehicleBlockHours: true } }),
@@ -43,16 +46,20 @@ export async function readFleetAvailability(db: Reader, options: AvailabilityOpt
   for (const defect of defects) add(defect.vehicleId, "Unresolved unsafe defect", null, "UNSAFE_DEFECT");
   for (const record of maintenance) add(record.vehicleId, "Maintenance", record.endsAt, "MAINTENANCE");
   for (const allocation of allocations) {
+    const release = capacityEnd(allocation.startsAt, allocation.endsAt);
+    if (release <= startsAt) continue;
     // Dispatch can attach work to the driver whose allocation fully covers it.
-    const ownBooking = options.purpose === "BOOKING" && options.driverId === allocation.driverId && allocation.startsAt <= startsAt && allocation.endsAt >= endsAt;
-    if (!ownBooking) add(allocation.vehicleId, "Allocated", allocation.endsAt, "ALLOCATED");
+    const ownBooking = options.purpose === "BOOKING" && options.driverId === allocation.driverId && allocation.startsAt <= startsAt && release >= endsAt;
+    if (!ownBooking) add(allocation.vehicleId, "Allocated", release, "ALLOCATED");
     if (allocation.driverId === options.driverId) for (const van of vehicles) {
-      if (options.purpose !== "BOOKING" || van.id !== allocation.vehicleId || !ownBooking) add(van.id, "Driver already allocated", allocation.endsAt, "ALLOCATED");
+      if (options.purpose !== "BOOKING" || van.id !== allocation.vehicleId || !ownBooking) add(van.id, "Driver already allocated", release, "ALLOCATED");
     }
   }
   for (const reservation of reservations) {
+    const release = capacityEnd(reservation.reservedFrom, reservation.reservedUntil);
+    if (release <= startsAt) continue;
     if (options.bookingId && reservation.bookingId === options.bookingId || options.quoteId && reservation.quoteId === options.quoteId) continue;
-    add(reservation.vehicleId, "Reserved", reservation.reservedUntil, "RESERVED");
+    add(reservation.vehicleId, "Reserved", release, "RESERVED");
   }
   for (const booking of bookings) {
     if (options.quoteId && booking.quoteId === options.quoteId) continue;
@@ -60,9 +67,10 @@ export async function readFleetAvailability(db: Reader, options: AvailabilityOpt
     let start = booking.estimatedStartTime, end = booking.estimatedEndTime;
     if (!start || !end || end <= start) {
       if (booking.status === "COMPLETED") continue;
-      try { const w = getReservationWindow(booking.collectionDate, booking.collectionWindow, settings?.vehicleBlockHours || 6); start = w.reservedFrom; end = w.reservedUntil; }
+      try { const w = getReservationWindow(booking.collectionDate, booking.collectionWindow, 6); start = w.reservedFrom; end = w.reservedUntil; }
       catch { add(booking.vehicleId, "Booking times need review", null, "RESERVED"); continue; }
     }
+    end = capacityEnd(start, end);
     const overdue = booking.status === "IN_PROGRESS" && (!booking.estimatedEndTime || booking.estimatedEndTime <= now);
     if (overdue || start < endsAt && end > startsAt) {
       add(booking.vehicleId, booking.status === "IN_PROGRESS" ? "On delivery" : "Booked", overdue ? null : end, booking.status === "IN_PROGRESS" ? "OUT_ON_JOB" : "RESERVED");
@@ -74,7 +82,9 @@ export async function readFleetAvailability(db: Reader, options: AvailabilityOpt
     const blocked = holds.get(vehicle.id) || [];
     const finiteEnds = blocked.flatMap(h => h.until ? [h.until] : []);
     const until = blocked.some(h => !h.until) ? null : finiteEnds.length ? new Date(Math.max(...finiteEnds.map(Number))) : null;
-    return { vehicle, available: blocked.length === 0, operationalState: priority.find(state => blocked.some(h => h.state === state)) || "AVAILABLE", reasons: [...new Set(blocked.map(h => h.reason))], unavailableUntil: until };
+    const driverReasons = [...new Set(blocked.filter(h => h.reason.startsWith("Driver ")).map(h=>h.reason))];
+    const vanHolds = blocked.filter(h => !h.reason.startsWith("Driver "));
+    return { vehicle, vanAvailable: vanHolds.length === 0, driverReasons, available: blocked.length === 0, operationalState: priority.find(state => blocked.some(h => h.state === state)) || "AVAILABLE", reasons: [...new Set(blocked.map(h => h.reason))], unavailableUntil: until };
   });
 }
 

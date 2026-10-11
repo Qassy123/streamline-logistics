@@ -1,4 +1,4 @@
-import { readFleetAvailability } from "./fleetAvailability";
+import { capacityEnd, readFleetAvailability } from "./fleetAvailability";
 import { BookingStatus, Prisma, type AdminUser } from "@prisma/client";
 import { prisma } from "./prisma";
 import { DriverPortalError, text } from "./driverPortal";
@@ -43,9 +43,9 @@ export async function operationalVan(tx: Tx, id: string, at: Date, until: Date) 
   return van;
 }
 export async function bookingWindow(tx: Tx, booking: { estimatedStartTime: Date | null; estimatedEndTime: Date | null; collectionDate: Date; collectionWindow: string }) {
-  if (booking.estimatedStartTime && booking.estimatedEndTime && booking.estimatedEndTime > booking.estimatedStartTime) return { startsAt: booking.estimatedStartTime, endsAt: booking.estimatedEndTime };
+  if (booking.estimatedStartTime && booking.estimatedEndTime && booking.estimatedEndTime > booking.estimatedStartTime) return { startsAt: booking.estimatedStartTime, endsAt: capacityEnd(booking.estimatedStartTime, booking.estimatedEndTime) };
   const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vehicleBlockHours: true } });
-  const window = getReservationWindow(booking.collectionDate, booking.collectionWindow, settings?.vehicleBlockHours || 6);
+  const window = getReservationWindow(booking.collectionDate, booking.collectionWindow, 6);
   return { startsAt: window.reservedFrom, endsAt: window.reservedUntil };
 }
 export async function assertPlan(tx: Tx, input: { bookingId: string; quoteId?: string | null; driverId?: string | null; vehicleId?: string | null; startsAt: Date; endsAt: Date }) {
@@ -73,7 +73,7 @@ export async function assertPlan(tx: Tx, input: { bookingId: string; quoteId?: s
     const driver = await tx.driver.findUnique({ where: { id: driverId } });
     if (!driver?.active || driver.status !== "ACTIVE") throw new DriverPortalError(409, "Select an active driver; unavailable or on-leave drivers cannot be assigned.");
     const slots = await tx.driverVehicleAllocation.findMany({ where: { cancelledAt: null, startsAt: { lt: endsAt }, endsAt: { gt: startsAt }, OR: [{ driverId }, ...(vehicleId ? [{ vehicleId }] : [])] } });
-    if (slots.some(slot => slot.driverId !== driverId || slot.vehicleId !== vehicleId || slot.startsAt > startsAt || slot.endsAt < endsAt)) throw new DriverPortalError(409, "The job conflicts with a driver/van allocation or extends beyond its planned allocation.");
+      if (slots.some(slot => slot.driverId !== driverId || slot.vehicleId !== vehicleId || slot.startsAt > startsAt || capacityEnd(slot.startsAt, slot.endsAt) < endsAt)) throw new DriverPortalError(409, "The job conflicts with a driver/van allocation or extends beyond its reserved window.");
   }
 }
 export async function assertVanChange(tx: Tx, driverId: string, vehicleId: string | null, ignoreAllocationId?: string) {
@@ -91,7 +91,7 @@ export async function assertVanChange(tx: Tx, driverId: string, vehicleId: strin
 export async function createAllocation(tx: Tx, data: { driverId: string; vehicleId: string; startsAt: Date; endsAt: Date; requestId: string; reason: string; createdBy: string }) {
   const saved = await tx.driverVehicleAllocation.findUnique({ where: { requestId: data.requestId } });
   if (saved) { if (saved.driverId !== data.driverId || saved.vehicleId !== data.vehicleId || +saved.startsAt !== +data.startsAt || +saved.endsAt !== +data.endsAt || saved.createdBy !== data.createdBy || saved.reason !== data.reason) throw new DriverPortalError(409, "Request identifier already belongs to a different allocation."); return saved; }
-  const availability = await readFleetAvailability(tx, { vehicleId: data.vehicleId, startsAt: data.startsAt, endsAt: data.endsAt, purpose: "ALLOCATION" });
+  const availability = await readFleetAvailability(tx, { driverId: data.driverId, vehicleId: data.vehicleId, startsAt: data.startsAt, endsAt: data.endsAt, purpose: "ALLOCATION" });
   if (!availability[0]?.available) throw new DriverPortalError(409, availability[0]?.reasons.join("; ") || "This van is unavailable for the selected time.");
   const driver = await tx.driver.findUnique({ where: { id: data.driverId } });
   if (!driver?.active || driver.status !== "ACTIVE") throw new DriverPortalError(409, "Select an active driver.");

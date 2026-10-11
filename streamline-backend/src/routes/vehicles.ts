@@ -237,7 +237,7 @@ router.get("/admin/list", async (req, res) => {
 
   try {
     const currentTime = new Date();
-    const currentAvailability = new Map((await readFleetAvailability(prisma, { startsAt: currentTime, endsAt: new Date(+currentTime + 1), purpose: "QUOTE" }, currentTime)).map(row => [row.vehicle.id, row]));
+    const currentAvailability = new Map((await readFleetAvailability(prisma, { startsAt: currentTime, endsAt: new Date(+currentTime + 1), purpose: "CURRENT" }, currentTime)).map(row => [row.vehicle.id, row]));
     const page = getPositiveInteger(req.query.page, 1);
     const pageSize = Math.min(
       getPositiveInteger(req.query.pageSize, DEFAULT_PAGE_SIZE),
@@ -491,7 +491,7 @@ router.get("/admin/:id", async (req, res) => {
     res.json({
       vehicle: {
         ...vehicle,
-        operationalState: (await readFleetAvailability(prisma, { vehicleId: vehicle.id, startsAt: new Date(), endsAt: new Date(Date.now() + 1000), purpose: "QUOTE" }))[0]?.operationalState || "INACTIVE",
+        operationalState: (await readFleetAvailability(prisma, { vehicleId: vehicle.id, startsAt: new Date(), endsAt: new Date(Date.now() + 1000), purpose: "CURRENT" }))[0]?.operationalState || "INACTIVE",
         assignedDriver,
       },
     });

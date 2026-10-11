@@ -45,18 +45,7 @@ function createUtcDateFromUkLocalTime(
   return new Date(utcGuess.getTime() - offsetMs);
 }
 
-function resolveVehicleBlockHours(vehicleBlockHours: number | undefined) {
-  if (
-    !Number.isInteger(vehicleBlockHours) ||
-    vehicleBlockHours === undefined ||
-    vehicleBlockHours < MIN_VEHICLE_BLOCK_HOURS ||
-    vehicleBlockHours > MAX_VEHICLE_BLOCK_HOURS
-  ) {
-    return VEHICLE_BLOCK_HOURS;
-  }
-
-  return vehicleBlockHours;
-}
+function resolveVehicleBlockHours(_vehicleBlockHours: number | undefined) { return VEHICLE_BLOCK_HOURS; }
 
 export function getReservationWindow(
   collectionDate: Date | string,
