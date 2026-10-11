@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import FleetOperationalOverview from "@/components/admin/FleetOperationalOverview";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -629,6 +630,7 @@ export default function AdminFleetPage() {
         </div>
       ) : null}
 
+      <FleetOperationalOverview />
       <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
           title="Total vehicles"
