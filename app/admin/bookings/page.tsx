@@ -1,4 +1,5 @@
 "use client";
+import { calendarInterval } from "@/lib/bookingCalendar";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -145,6 +146,7 @@ function displayTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: "Europe/London",
   }).format(parsed);
 }
 
@@ -316,34 +318,33 @@ export default function AdminBookingsPage() {
           status: "ALL",
           vehicleId: "ALL",
           driverId: "ALL",
+          calendar: "true",
           dateFrom: selectedDate,
           dateTo: selectedDate,
         });
 
-        const response = await fetch(
-          `${API_BASE}/api/bookings/admin/list?${params.toString()}`,
-          {
-            headers: {
-              "x-admin-key": adminKey,
-            },
-            cache: "no-store",
-          },
-        );
-
-        const payload = (await response.json()) as Payload;
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
-            setAdminKey("");
+        const allBookings: Booking[] = [];
+        let page = 1;
+        let totalPages = 1;
+        let fleet: Vehicle[] = [];
+        let availableDrivers: Driver[] = [];
+        do {
+          params.set("page", String(page));
+          const response = await fetch(`${API_BASE}/api/bookings/admin/list?${params}`, { headers: { "x-admin-key": adminKey }, cache: "no-store" });
+          const payload = await response.json() as Payload;
+          if (!response.ok) {
+            if (response.status === 401) { window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY); setAdminKey(""); }
+            throw new Error(payload.error || "Unable to load bookings.");
           }
-
-          throw new Error(payload.error || "Unable to load bookings.");
-        }
-
-        setBookings(payload.bookings || []);
-        setVehicles(payload.vehicles || []);
-        setDrivers(payload.drivers || []);
+          allBookings.push(...(payload.bookings || []));
+          fleet = payload.vehicles || []; availableDrivers = payload.drivers || [];
+          totalPages = payload.pagination?.totalPages || 1;
+          page++;
+        } while (page <= totalPages);
+        const unique = [...new Map(allBookings.map(booking => [booking.id, booking])).values()];
+        const rows = new Map(fleet.map(vehicle => [vehicle.id, vehicle]));
+        for (const booking of unique) if (booking.vehicle) rows.set(booking.vehicle.id, booking.vehicle);
+        setBookings(unique); setVehicles([...rows.values()]); setDrivers(availableDrivers);
       } catch (requestError) {
         setBookings([]);
         setVehicles([]);
@@ -400,10 +401,6 @@ export default function AdminBookingsPage() {
     });
 
     bookings.forEach((booking) => {
-      if (["CANCELLED", "EXPIRED"].includes(booking.status)) {
-        return;
-      }
-
       if (!booking.vehicle?.id) {
         return;
       }
@@ -670,7 +667,7 @@ export default function AdminBookingsPage() {
                         {vehicleComplianceWarnings(vehicle).length > 0 ? (
                           <p
                             className="mt-1 truncate text-[10px] font-bold text-amber-700"
-                            title={vehicleComplianceWarnings(vehicle).join(" · ")}
+                            title={vehicleComplianceWarnings(vehicle).join(" Â· ")}
                           >
                             Tax / MOT due within 30 days
                           </p>
@@ -699,6 +696,7 @@ export default function AdminBookingsPage() {
                         <BookingBlock
                           key={booking.id}
                           booking={booking}
+                          selectedDate={selectedDate}
                           onClick={() => setSelectedBooking(booking)}
                         />
                       ))}
@@ -706,7 +704,7 @@ export default function AdminBookingsPage() {
                       {vehicleBookings.length === 0 ? (
                         <div className="pointer-events-none absolute inset-0 flex items-center px-5">
                           <span className="text-xs font-medium text-slate-300">
-                            Available
+                            No bookings
                           </span>
                         </div>
                       ) : null}
@@ -719,6 +717,20 @@ export default function AdminBookingsPage() {
           </div>
         )}
       </section>
+
+      {!loading && bookings.length > 0 ? (
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
+          <h2 className="font-bold">All bookings for this day</h2>
+          <p className="mt-1 text-sm text-slate-600">Includes overnight carryovers, unassigned, cancelled and expired bookings. Cancelled and expired bookings do not reserve a van.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {bookings.map(booking => <button key={booking.id} type="button" onClick={() => setSelectedBooking(booking)} className="min-h-12 rounded-xl border border-slate-200 p-4 text-left hover:bg-slate-50">
+              <p className="font-bold">{booking.reference} · {bookingCustomerName(booking)}</p>
+              <p className="mt-1 text-sm">{booking.vehicle?.name || "Vehicle unassigned"} · {bookingTimeText(booking)} (UK)</p>
+              <p className="mt-1 text-sm">{statusLabel(booking.status)} · {booking.driver?.name || "Driver unassigned"}</p>
+            </button>)}
+          </div>
+        </section>
+      ) : null}
 
       {!loading && unassignedBookings.length > 0 ? (
         <section className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6">
@@ -787,43 +799,23 @@ export default function AdminBookingsPage() {
 
 function BookingBlock({
   booking,
+  selectedDate,
   onClick,
 }: {
   booking: Booking;
+  selectedDate: string;
   onClick: () => void;
 }) {
-  const startMinutes = minutesFromStartOfDay(booking.estimatedStartTime);
-  const endMinutes = minutesFromStartOfDay(booking.estimatedEndTime);
-
-  if (startMinutes === null || endMinutes === null) {
-    return null;
-  }
-
-  const timelineStartMinutes = START_HOUR * 60;
-  const timelineEndMinutes = END_HOUR * 60;
-
-  const visibleStart = Math.max(startMinutes, timelineStartMinutes);
-  const visibleEnd = Math.min(endMinutes, timelineEndMinutes);
-
-  if (visibleEnd <= timelineStartMinutes || visibleStart >= timelineEndMinutes) {
-    return null;
-  }
-
-  if (visibleEnd <= visibleStart) {
-    return null;
-  }
-
-  const left =
-    ((visibleStart - timelineStartMinutes) / 60) * HOUR_WIDTH;
-
-  const width =
-    ((visibleEnd - visibleStart) / 60) * HOUR_WIDTH;
+  const interval = calendarInterval(booking, selectedDate);
+  if (!interval) return null;
+  const left = interval.start / 60 * HOUR_WIDTH;
+  const width = (interval.end - interval.start) / 60 * HOUR_WIDTH;
 
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`${bookingCustomerName(booking)} · ${bookingTimeText(booking)}`}
+      title={`${bookingCustomerName(booking)} Â· ${bookingTimeText(booking)}`}
       className={`absolute top-3 z-10 overflow-hidden rounded-xl border-l-4 px-3 py-2 text-left shadow-sm transition hover:z-20 hover:-translate-y-0.5 hover:shadow-md ${statusClasses(
         booking.status,
       )}`}
@@ -1077,7 +1069,7 @@ function BookingDetailsModal({
                 booking.vehicle
                   ? `${booking.vehicle.name}${
                       booking.vehicle.registration
-                        ? ` · ${booking.vehicle.registration}`
+                        ? ` Â· ${booking.vehicle.registration}`
                         : ""
                     }`
                   : "Unassigned"

@@ -1,3 +1,4 @@
+import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability } from "../lib/fleetAvailability";
 import {
   BookingStatus,
@@ -245,10 +246,10 @@ router.get("/", async (req, res) => {
     );
 
     const where: Prisma.BookingWhereInput = {
-      collectionDate: {
-        gte: startDate,
-        lt: endDate,
-      },
+      AND: [{ OR: [
+        { collectionDate: { gte: startDate, lt: endDate } },
+        { estimatedStartTime: { lt: ukMidnight(endDate.toISOString().slice(0, 10)) }, estimatedEndTime: { gt: ukMidnight(startDate.toISOString().slice(0, 10)) } },
+      ] }],
     };
 
     if (status && status !== "ALL") {
@@ -479,10 +480,10 @@ router.patch(
       }
 
       if (req.body.driverId !== undefined && (getString(req.body.driverId) || null) !== booking.driverId) {
-        return res.status(409).json({ error: "Assign or remove drivers through Admin → Drivers." });
+        return res.status(409).json({ error: "Assign or remove drivers through Admin â†’ Drivers." });
       }
       if (booking.driverId && req.body.vehicleId !== undefined && (getString(req.body.vehicleId) || null) !== booking.vehicleId) {
-        return res.status(409).json({ error: "Change an assigned job’s van through Admin → Drivers." });
+        return res.status(409).json({ error: "Change an assigned jobâ€™s van through Admin â†’ Drivers." });
       }
 
       const complianceOverride = getBoolean(

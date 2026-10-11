@@ -1,4 +1,5 @@
 "use client";
+import { calendarInterval, dropCollectionWindow } from "@/lib/bookingCalendar";
 import FleetAllocationBoard from "@/components/admin/FleetAllocationBoard";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -39,10 +40,10 @@ const VEHICLE_TYPES = [
 ] as const;
 
 const CAPACITY_OPTIONS = [
-  { label: "0–25", value: 25, pricingVehicle: "Small Van" },
-  { label: "25–50", value: 50, pricingVehicle: "SWB Van" },
-  { label: "50–75", value: 75, pricingVehicle: "LWB High Roof Van" },
-  { label: "75–100", value: 100, pricingVehicle: "XLWB High Roof Van" },
+  { label: "0â€“25", value: 25, pricingVehicle: "Small Van" },
+  { label: "25â€“50", value: 50, pricingVehicle: "SWB Van" },
+  { label: "50â€“75", value: 75, pricingVehicle: "LWB High Roof Van" },
+  { label: "75â€“100", value: 100, pricingVehicle: "XLWB High Roof Van" },
 ] as const;
 
 const TIMELINE_START_HOUR = 0;
@@ -53,20 +54,7 @@ const ROW_HEIGHT = 88;
 const END_MARKER_WIDTH = 72;
 const TIMELINE_WIDTH = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * HOUR_WIDTH;
 
-const COLLECTION_WINDOWS = [
-  "00:00-02:00",
-  "02:00-04:00",
-  "04:00-06:00",
-  "06:00-08:00",
-  "08:00-10:00",
-  "10:00-12:00",
-  "12:00-14:00",
-  "14:00-16:00",
-  "16:00-18:00",
-  "18:00-20:00",
-  "20:00-22:00",
-  "22:00-24:00",
-] as const;
+const COLLECTION_WINDOWS = Array.from({ length: 23 }, (_, hour) => dropCollectionWindow(hour * HOUR_WIDTH, HOUR_WIDTH));
 
 type JourneyType = "One Way" | "Return" | "Multi";
 
@@ -360,7 +348,7 @@ function extraStopsPrice(calculation: Calculation | null) {
 }
 
 function formatMileageRate(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "£0.00";
+  if (!Number.isFinite(value) || value <= 0) return "Â£0.00";
 
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
@@ -380,39 +368,10 @@ function bookingCustomerName(booking: Booking) {
   );
 }
 
-function minutesFromTimelineStart(value?: string | null) {
-  if (!value) return null;
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return null;
-
-  return (
-    (date.getHours() - TIMELINE_START_HOUR) * 60 +
-    date.getMinutes()
-  );
-}
-
-function bookingBlockStyle(booking: Booking) {
-  const startMinutes = minutesFromTimelineStart(booking.estimatedStartTime);
-  const endMinutes = minutesFromTimelineStart(booking.estimatedEndTime);
-
-  if (startMinutes === null || endMinutes === null) {
-    return null;
-  }
-
-  const visibleStart = Math.max(0, startMinutes);
-  const visibleEnd = Math.min(
-    (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * 60,
-    endMinutes,
-  );
-
-  if (visibleEnd <= visibleStart) return null;
-
-  return {
-    left: (visibleStart / 60) * HOUR_WIDTH,
-    width: Math.max(72, ((visibleEnd - visibleStart) / 60) * HOUR_WIDTH),
-  };
+function bookingBlockStyle(booking: Booking, selectedDate: string) {
+  const interval = calendarInterval(booking, selectedDate);
+  if (!interval) return null;
+  return { left: interval.start / 60 * HOUR_WIDTH, width: Math.max(46, (interval.end - interval.start) / 60 * HOUR_WIDTH - 6) };
 }
 
 function normaliseJourneyTypeForApi(journeyType: JourneyType) {
@@ -428,28 +387,7 @@ function capacityPricingVehicle(capacityPercent: number) {
   );
 }
 
-function windowFromDropOffset(offsetX: number) {
-  const rawHour = TIMELINE_START_HOUR + offsetX / HOUR_WIDTH;
-  const clampedHour = Math.min(
-    TIMELINE_END_HOUR - 2,
-    Math.max(TIMELINE_START_HOUR, rawHour),
-  );
-
-  const roundedStart =
-    TIMELINE_START_HOUR +
-    Math.round((clampedHour - TIMELINE_START_HOUR) / 2) * 2;
-
-  const safeStart = Math.min(TIMELINE_END_HOUR - 2, roundedStart);
-  const label = `${String(safeStart).padStart(2, "0")}:00-${String(
-    safeStart + 2,
-  ).padStart(2, "0")}:00`;
-
-  return COLLECTION_WINDOWS.includes(
-    label as (typeof COLLECTION_WINDOWS)[number],
-  )
-    ? label
-    : "00:00-02:00";
-}
+function windowFromDropOffset(offsetX: number) { return dropCollectionWindow(offsetX, HOUR_WIDTH); }
 
 export default function AdminPlanningBoardPage() {
   const [adminKey, setAdminKey] = useState("");
@@ -474,6 +412,9 @@ export default function AdminPlanningBoardPage() {
   const [calculating, setCalculating] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [draggingDraft, setDraggingDraft] = useState(false);
+  const [savedDraftReference, setSavedDraftReference] = useState("");
+  const [draftVehicleId, setDraftVehicleId] = useState("");
+  const [draftWindow, setDraftWindow] = useState("08:00-10:00");
   const [dragTarget, setDragTarget] = useState<{
     vehicleId: string;
     collectionWindow: string;
@@ -508,11 +449,7 @@ export default function AdminPlanningBoardPage() {
 
   const canonicalVehicles = useMemo(
     () =>
-      vehicles.filter((vehicle) =>
-        VEHICLE_TYPES.includes(
-          vehicle.vehicleType as (typeof VEHICLE_TYPES)[number],
-        ),
-      ),
+      vehicles,
     [vehicles],
   );
 
@@ -520,7 +457,6 @@ export default function AdminPlanningBoardPage() {
     () =>
       bookings.filter(
         (booking) =>
-          booking.status !== "CANCELLED" &&
           booking.vehicleId &&
           canonicalVehicles.some((vehicle) => vehicle.id === booking.vehicleId),
       ),
@@ -594,7 +530,9 @@ export default function AdminPlanningBoardPage() {
         }
 
         setBookings(payload.bookings || []);
-        setVehicles(payload.vehicles || []);
+        const fleet = new Map((payload.vehicles || []).map(vehicle => [vehicle.id, vehicle]));
+        for (const booking of payload.bookings || []) if (booking.vehicle) fleet.set(booking.vehicle.id, booking.vehicle);
+        setVehicles([...fleet.values()]);
       } catch (requestError) {
         setBookings([]);
         setVehicles([]);
@@ -706,7 +644,7 @@ export default function AdminPlanningBoardPage() {
 
   async function calculateJourney(payload: AdminQuotePayload) {
     if (!adminKey) throw new Error("Unlock the admin area before calculating a quote.");
-    setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null);
+    setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null); setSavedDraftReference("");
     try {
       const response = await fetch(API_BASE + "/api/quotes/admin/calculate", {
         method: "POST", headers: { "Content-Type": "application/json", "x-admin-key": adminKey }, body: JSON.stringify(payload),
@@ -714,6 +652,7 @@ export default function AdminPlanningBoardPage() {
       const result = await response.json() as CalculatePayload;
       if (!response.ok || !result.calculation) throw new Error(result.error || "Unable to calculate the journey.");
       setCustomerFormPayload(payload);
+      setDraftVehicleId(""); setDraftWindow(String(payload.collectionWindow || "08:00-10:00"));
       setPlanningDate(String(payload.collectionDate).slice(0, 10));
       setForm((current) => ({ ...current,
         journeyType: payload.journeyType === "Multi Drop" ? "Multi" : payload.journeyType === "Return" ? "Return" : "One Way",
@@ -723,7 +662,7 @@ export default function AdminPlanningBoardPage() {
       }));
       setExtraStops(Array.isArray(payload.extraDrops) ? payload.extraDrops.map((drop: { address?: string }) => drop.address || "") : []);
       setCalculation(result.calculation); setBoardOnly(false); setPlanningOpen(true);
-      setMessage("Journey calculated. Drag onto a vehicle of the selected size and choose a time on the grid.");
+      setMessage("Journey calculated. Choose a vehicle and collection time below, or drag onto the calendar.");
     } catch (error) {
       setCalculation(null);
       throw error;
@@ -924,22 +863,20 @@ export default function AdminPlanningBoardPage() {
     }
   }
 
-  async function handleDraftDrop(
-    event: React.DragEvent<HTMLDivElement>,
-    vehicle: Vehicle,
-  ) {
+  async function handleDraftDrop(event: React.DragEvent<HTMLDivElement>, vehicle: Vehicle) {
     event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const collectionWindow = windowFromDropOffset(event.clientX - rect.left);
+    setDraftVehicleId(vehicle.id); setDraftWindow(collectionWindow);
+    setDraggingDraft(false); setDragTarget(null);
+    if (vehicle.vehicleType !== customerFormPayload?.vehicleSize) { setError("Choose a vehicle matching the quoted size."); return; }
+    setMessage(`Selected ${vehicle.registration || vehicle.name} at ${collectionWindow}. Review and press Create booking below.`);
+  }
 
-    if (!calculation || !customerFormPayload || assigning) return;
-    if (vehicle.vehicleType !== customerFormPayload.vehicleSize) {
-      setError("Drop onto a vehicle matching the size selected in the quote form, or go back and select a different size.");
-      return;
-    }
-
-    const timelineElement = event.currentTarget;
-    const rect = timelineElement.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left;
-    const collectionWindow = windowFromDropOffset(offsetX);
+  async function submitDraft(vehicle: Vehicle, collectionWindow: string) {
+    if (!calculation || !customerFormPayload || assigning || createdBookingId || savedDraftReference) return;
+    if (vehicle.vehicleType !== customerFormPayload.vehicleSize) { setError("Choose a vehicle matching the quoted size."); return; }
+    if (!COLLECTION_WINDOWS.includes(collectionWindow)) { setError("Choose a valid collection time."); return; }
 
     setAssigning(true);
     setDraggingDraft(false);
@@ -961,7 +898,7 @@ export default function AdminPlanningBoardPage() {
             "Content-Type": "application/json",
             "x-admin-key": adminKey,
           },
-          body: JSON.stringify({ ...customerFormPayload, vehicleSize: vehicle.vehicleType }),
+          body: JSON.stringify({ ...customerFormPayload, vehicleSize: vehicle.vehicleType, collectionDate: planningDate + "T00:00:00.000Z", collectionWindow }),
         },
       );
 
@@ -987,6 +924,7 @@ export default function AdminPlanningBoardPage() {
 
       if (!newBooking) return;
 
+      setSavedDraftReference(newBooking.reference);
       await assignExactVehicle(newBooking.id, vehicle.id);
 
       setCreatedBookingId(newBooking.id);
@@ -1217,7 +1155,7 @@ export default function AdminPlanningBoardPage() {
             <FieldLabel label="Select Account">
               <select value={form.accountId} disabled={loadingCustomers || calculating} onChange={(event) => { updateForm("accountId", event.target.value); setCustomerFormPayload(null); }} className="manual-input">
                 <option value="GUEST">Guest Customer (No Account)</option>
-                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"} · {customer.companyName || customer.legalEntity || customer.name}</option>)}
+                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"} Â· {customer.companyName || customer.legalEntity || customer.name}</option>)}
               </select>
             </FieldLabel>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1444,7 +1382,7 @@ export default function AdminPlanningBoardPage() {
                     />
                     <QuotePriceRow
                       icon={<MapPinned size={20} />}
-                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi × ${formatMileageRate(
+                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi Ã— ${formatMileageRate(
                         mileageRate(calculation),
                       )})`}
                       value={money(calculation?.fuelSurcharge)}
@@ -1487,8 +1425,9 @@ export default function AdminPlanningBoardPage() {
           <div className={`mt-6 grid items-start gap-4 ${boardOnly ? "" : "lg:grid-cols-[240px_minmax(0,1fr)]"}`}>
             {!boardOnly ? (
             <div
-              draggable={!assigning && !createdBookingId}
-              onDragStart={() => {
+              draggable={!assigning && !createdBookingId && !savedDraftReference}
+              onDragStart={(event) => {
+                event.dataTransfer.setData("text/plain", "planning-draft"); event.dataTransfer.effectAllowed = "copy";
                 setDraggingDraft(true);
                 setDragTarget(null);
               }}
@@ -1516,18 +1455,34 @@ export default function AdminPlanningBoardPage() {
                     It is now shown on the planning board.
                   </p>
                 </>
+              ) : savedDraftReference ? (
+                <><p className="font-bold">Booking saved: {savedDraftReference}</p><p className="mt-2 text-sm">Vehicle assignment needs review. Open the existing booking before trying again.</p><a className="mt-3 inline-flex min-h-12 items-center font-bold text-blue-700" href="/admin/bookings">Open existing bookings →</a></>
               ) : (
                 <>
                   <Truck className="h-7 w-7 text-[#E55300]" />
                   <p className="mt-3 font-bold text-slate-950">
-                    Drag this booking
+                    Choose vehicle and time
                   </p>
                   <p className="mt-1 text-sm leading-5 text-slate-500">
-                    Drop it onto an available vehicle at the required time.
+                    Use the controls below, or drag onto the calendar to select a time. Review before creating.
                   </p>
                   <p className="mt-3 text-lg font-bold text-[#E55300]">
                     {money(calculation?.totalPrice)}
                   </p>
+                  <label className="mt-4 block text-sm font-bold">Vehicle
+                    <select value={draftVehicleId} onChange={event => setDraftVehicleId(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 font-normal">
+                      <option value="">Choose vehicle</option>
+                      {canonicalVehicles.filter(vehicle => vehicle.vehicleType === customerFormPayload?.vehicleSize).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.registration || vehicle.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="mt-3 block text-sm font-bold">Collection window (UK)
+                    <select value={draftWindow} onChange={event => setDraftWindow(event.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 font-normal">
+                      {COLLECTION_WINDOWS.map(value => <option key={value} value={value}>{value}</option>)}
+                    </select>
+                  </label>
+                  <p className="mt-3 text-sm">Date: {planningDate}. Van availability is checked when you create the booking. The minimum six-hour reservation still applies.</p>
+                  <button type="button" disabled={!draftVehicleId || assigning} onClick={() => { const vehicle = canonicalVehicles.find(item => item.id === draftVehicleId); if (vehicle) void submitDraft(vehicle, draftWindow); }} className="mt-4 min-h-12 w-full rounded-xl bg-[#FF6A00] px-4 py-3 font-bold text-white disabled:opacity-50">Create booking</button>
+
                 </>
               )}
             </div>
@@ -1678,7 +1633,7 @@ export default function AdminPlanningBoardPage() {
                                 : "bg-white"
                             }`}
                             onDragOver={(event) => {
-                              if (!createdBookingId && draggingDraft) {
+                              if (!createdBookingId && !savedDraftReference && draggingDraft) {
                                 event.preventDefault();
                                 const rect = event.currentTarget.getBoundingClientRect();
                                 const collectionWindow = windowFromDropOffset(
@@ -1709,7 +1664,7 @@ export default function AdminPlanningBoardPage() {
                               }
                             }}
                             onDrop={(event) => {
-                              if (!createdBookingId) {
+                              if (!createdBookingId && !savedDraftReference) {
                                 setDragTarget(null);
                                 void handleDraftDrop(event, vehicle);
                               }
@@ -1723,7 +1678,6 @@ export default function AdminPlanningBoardPage() {
                                     COLLECTION_WINDOWS.indexOf(
                                       dragTarget.collectionWindow as (typeof COLLECTION_WINDOWS)[number],
                                     ) *
-                                    2 *
                                     HOUR_WIDTH,
                                   width: 2 * HOUR_WIDTH,
                                 }}
@@ -1755,7 +1709,7 @@ export default function AdminPlanningBoardPage() {
                             )}
 
                             {vehicleBookings.map((booking) => {
-                              const block = bookingBlockStyle(booking);
+                              const block = bookingBlockStyle(booking, planningDate);
 
                               if (!block) return null;
 
@@ -1775,9 +1729,9 @@ export default function AdminPlanningBoardPage() {
                                     left: block.left,
                                     width: block.width,
                                   }}
-                                  title={`${booking.reference} · ${bookingCustomerName(
+                                  title={`${booking.reference} Â· ${bookingCustomerName(
                                     booking,
-                                  )} · ${money(booking.totalPrice)}`}
+                                  )} Â· ${money(booking.totalPrice)}`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <p className="truncate text-xs font-bold text-slate-950">
@@ -1788,7 +1742,7 @@ export default function AdminPlanningBoardPage() {
                                     </span>
                                   </div>
                                   <p className="mt-1 truncate text-[11px] text-slate-500">
-                                    {displayTime(booking.estimatedStartTime)}–
+                                    {displayTime(booking.estimatedStartTime)}â€“
                                     {displayTime(booking.estimatedEndTime)}
                                   </p>
                                 </button>

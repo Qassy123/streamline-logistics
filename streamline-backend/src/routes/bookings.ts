@@ -1,3 +1,4 @@
+import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import {
   BookingStatus,
@@ -459,6 +460,17 @@ router.get("/admin/list", async (req, res) => {
       where.status = status as BookingStatus;
     }
 
+    if (req.query.calendar === "true" && dateFrom && dateTo) {
+      const rangeStart = ukMidnight(dateFrom);
+      ukMidnight(dateTo);
+      const next = new Date(dateTo + "T00:00:00Z"); next.setUTCDate(next.getUTCDate() + 1);
+      const rangeEnd = ukMidnight(next.toISOString().slice(0, 10));
+      if (+rangeEnd <= +rangeStart) return res.status(400).json({ error: "Choose a valid calendar range." });
+      where.AND = [{ OR: [
+        { collectionDate: { gte: new Date(dateFrom + "T00:00:00Z"), lt: next } },
+        { estimatedStartTime: { lt: rangeEnd }, estimatedEndTime: { gt: rangeStart } },
+      ] }];
+    } else {
     if (dateFrom || dateTo) {
       where.collectionDate = {};
 
@@ -469,6 +481,8 @@ router.get("/admin/list", async (req, res) => {
       if (dateTo) {
         where.collectionDate.lte = new Date(`${dateTo}T23:59:59.999Z`);
       }
+    }
+
     }
 
     if (vehicleId && vehicleId !== "ALL") {
@@ -483,9 +497,7 @@ router.get("/admin/list", async (req, res) => {
       await Promise.all([
         prisma.booking.findMany({
           where,
-          orderBy: {
-            collectionDate: "desc",
-          },
+          orderBy: [{ collectionDate: "desc" }, { id: "asc" }],
           include: adminBookingInclude(),
           skip: (page - 1) * pageSize,
           take: pageSize,
@@ -737,10 +749,10 @@ router.patch("/admin/:id", async (req, res) => {
     }
 
     if (req.body.driverId !== undefined && (getOptionalString(req.body.driverId) || null) !== current.driverId) {
-      return res.status(409).json({ error: "Assign or remove drivers through Admin → Drivers." });
+      return res.status(409).json({ error: "Assign or remove drivers through Admin â†’ Drivers." });
     }
     if (current.driverId && req.body.vehicleId !== undefined && (getOptionalString(req.body.vehicleId) || null) !== current.vehicleId) {
-      return res.status(409).json({ error: "Change an assigned job’s van through Admin → Drivers." });
+      return res.status(409).json({ error: "Change an assigned jobâ€™s van through Admin â†’ Drivers." });
     }
 
     const statusValue = getString(req.body.status).toUpperCase();
