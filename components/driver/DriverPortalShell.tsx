@@ -3,7 +3,7 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, ClipboardList, Loader2, MoreHorizontal, Phone, Truck } from "lucide-react";
+import { CalendarDays, ClipboardList, Loader2, MoreHorizontal, Phone, Truck, Menu, ChevronDown } from "lucide-react";
 
 import { pausePhoneTracking } from "@/lib/driverPhoneTracking";
 
@@ -48,6 +48,11 @@ const portalLinks = [
 
 function PortalNavigation({ pathname, unread }: { pathname: string; unread: number }) {
   const strip = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/") || href === "/driver/dashboard" && pathname === "/driver";
+  const currentLabel = portalLinks.find(item => isActive(item.href))?.label || "Driver portal";
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
   useEffect(() => {
     const active = strip.current?.querySelector<HTMLElement>('[aria-current="page"]');
     const container = strip.current;
@@ -57,8 +62,23 @@ function PortalNavigation({ pathname, unread }: { pathname: string; unread: numb
       container.scrollTo({ left: container.scrollLeft + link.left - viewport.left - (container.clientWidth - link.width) / 2 });
     }
   }, [pathname]);
-  return <nav aria-label="Driver portal pages" className="border-b border-slate-200 bg-white text-slate-700">
-    <div ref={strip} className="overflow-x-auto overscroll-x-contain">
+  return <nav aria-label="Driver portal pages" className="relative border-b border-slate-200 bg-white text-slate-700">
+    <div className="relative md:hidden" onKeyDown={event => { if (event.key === "Escape") { setMenuOpen(false); menuButton.current?.focus(); } }}>
+      <button ref={menuButton} type="button" aria-expanded={menuOpen} aria-controls="driver-mobile-menu" onClick={() => setMenuOpen(value => !value)} className="flex min-h-12 w-full min-w-0 items-center gap-3 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500">
+        <Menu size={20} aria-hidden="true" className="shrink-0" /><span className="shrink-0 text-sm font-bold">Menu</span><span className="min-w-0 flex-1 truncate text-sm text-slate-500">{currentLabel}</span>{unread > 0 && <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white" aria-label={`${unread} unread notifications`}>{unread > 99 ? "99+" : unread}</span>}<ChevronDown size={18} aria-hidden="true" className={`shrink-0 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
+      </button>
+      <div id="driver-mobile-menu" hidden={!menuOpen} className="absolute inset-x-0 top-full max-h-[calc(100dvh-180px)] overflow-y-auto overscroll-contain border-b border-slate-200 bg-white p-3 shadow-lg">
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          {portalLinks.map(item => {
+            const active = isActive(item.href);
+            return <Link key={item.href} href={item.href} prefetch={false} aria-current={active ? "page" : undefined} onClick={() => setMenuOpen(false)} className={`flex min-h-14 min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-center text-sm font-semibold leading-5 whitespace-normal [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${active ? "border-[#FF6A00] bg-[#FF6A00] text-white" : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>
+              <span className="min-w-0">{item.label}</span>{item.href === "/driver/profile" && unread > 0 && <span className="shrink-0 rounded-full bg-red-600 px-1.5 text-xs text-white">{unread > 99 ? "99+" : unread}</span>}
+            </Link>;
+          })}
+        </div>
+      </div>
+    </div>
+    <div ref={strip} className="hidden overflow-x-auto overscroll-x-contain md:block">
       <div className="mx-auto flex w-max min-w-full items-center gap-2 px-4 py-2 sm:px-6 md:justify-center">
         {portalLinks.map(item => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/") || item.href === "/driver/dashboard" && pathname === "/driver";
