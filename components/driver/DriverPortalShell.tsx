@@ -167,7 +167,9 @@ function SignedInPortal({ children, pathname }: { children: ReactNode; pathname:
         const data = await request<{ driver: PortalDriver; expiresAt: string | null }>("/api/driver/auth/me");
         if (!mounted.current || cycle !== lifecycle.current) return;
         if (!data.driver?.id || !data.driver.active) { invalidate(); return; }
-        driverIdRef.current = data.driver.id; setDriver(data.driver); setSessionStale(false); setError("");
+        driverIdRef.current = data.driver.id;
+        if (!data.driver.onDuty) pausePhoneTracking(data.driver.id, "Your shift is off duty. Phone collection stopped on this device.");
+        setDriver(data.driver); setSessionStale(false); setError("");
         try {
           window.localStorage.setItem("driver", JSON.stringify(data.driver));
           if (data.expiresAt) window.localStorage.setItem("driverSessionExpiresAt", data.expiresAt);

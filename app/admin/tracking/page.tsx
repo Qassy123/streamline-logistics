@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import LiveFleetTracking from "@/components/admin/LiveFleetTracking";
 import GoogleLocationMap from "@/components/GoogleLocationMap";
 import {
   CircleAlert,
@@ -71,6 +72,7 @@ type Booking = {
   vehicle?: Vehicle | null;
   latestLocation?: Location | null;
   locationStale?: boolean;
+  trackingLive?: boolean; locationState?: string;
   trackingEvents: TrackingEvent[];
 };
 
@@ -127,6 +129,9 @@ function isCurrentBooking(booking: Booking) {
 }
 
 export default function AdminTrackingPage() {
+  return <main className="mx-auto w-full max-w-[1280px] space-y-5"><h1 className="text-3xl font-bold">Tracking</h1><LiveFleetTracking /><details className="rounded-2xl border bg-white p-4"><summary className="min-h-12 cursor-pointer content-center font-semibold">Existing booking tracking tools</summary><LegacyTrackingTools /></details></main>;
+}
+function LegacyTrackingTools() {
   const [adminKey, setAdminKey] = useState("");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
@@ -550,14 +555,14 @@ export default function AdminTrackingPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-bold text-slate-950">
-                        Live Location
+                        {currentBooking.trackingLive ? "Recent phone location" : "Last known phone location"}
                       </h3>
                       <p className="mt-1 text-sm text-slate-500">
                         Latest location shared by the driver.
                       </p>
                     </div>
 
-                    {currentBooking.locationStale ? (
+                    {currentBooking.locationStale || !currentBooking.trackingLive ? (
                       <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700">
                         Location may be stale
                       </span>

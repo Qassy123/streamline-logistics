@@ -6,6 +6,8 @@ import {
   performDriverAction, requestId, requireAssignmentVersion, requireOpenJob, safeDriverJob, text, withBookingLock,
 } from "../lib/driverPortal";
 
+import { trackingState, TRACKING_SHARE_MS } from "../lib/trackingState";
+
 const router = express.Router();
 const trackingInclude = {
   ...driverJobInclude,
@@ -60,24 +62,19 @@ async function requireTrackingJourney(tx: Tx, booking: TrackingBooking, driverId
 }
 
 function trackingPayload(booking: TrackingBooking) {
-  const point = booking.driverLocations[0];
-  const latestLocation = point ? {
-    id: point.id, latitude: Number(point.latitude), longitude: Number(point.longitude),
-    accuracy: point.accuracy == null ? null : Number(point.accuracy),
-    heading: point.heading == null ? null : Number(point.heading),
-    speed: point.speed == null ? null : Number(point.speed), createdAt: point.createdAt,
-  } : null;
-  const active = booking.status === BookingStatus.IN_PROGRESS && Boolean(booking.trackingStartedAt) && !booking.trackingEndedAt;
-  const stale = !!point && Date.now() - point.createdAt.getTime() > 120_000;
+  const state = trackingState(booking, true);
   const job = { ...safeDriverJob(booking), trackingStartedAt: booking.trackingStartedAt,
-    trackingEndedAt: booking.trackingEndedAt, driverLocations: latestLocation ? [latestLocation] : [] };
-  return { job, booking: job, trackingActive: active, latestLocation,
-    lastLocationAt: latestLocation?.createdAt || null, locationStale: stale,
-    source: "PHONE", sourceLabel: "Phone location",
-    locationState: !active ? "STOPPED" : !point ? "WAITING" : stale ? "STALE" : "RECENT",
-    hardwareTrackerConnected: false,
-    message: "Phone location can pause when the portal is closed, the phone is locked or another app is opened. Vehicle GPS integration is not configured yet.",
-    serverTime: new Date() };
+    trackingEndedAt: booking.trackingEndedAt, driverLocations: state.latestLocation ? [state.latestLocation] : [] };
+  return { ...state, job, booking: job,
+    message: "Phone sharing requires your permission and an open portal. It pauses when hidden or offline. A vehicle tracker and live ETA are not connected." };
+}
+
+function freshCapture(value: unknown, required: boolean) {
+  const captured = capturedDate(value);
+  if (required && (!captured || Date.now() - captured.getTime() > 120_000 || captured.getTime() - Date.now() > 30_000)) {
+    throw new DriverPortalError(400, "Use a fresh location reading with its capture time. Old GPS cannot be replayed as live location.");
+  }
+  return captured;
 }
 
 function optionalNumber(value: unknown, name: string, min: number, max: number) {
@@ -111,14 +108,19 @@ async function previousRequest(tx: Tx, booking: TrackingBooking, driverId: strin
 }
 
 router.get("/:bookingId", driverRoute(async (req, res, driverId) => {
-  const payload = await withBookingLock(bookingId(req), async tx => trackingPayload(await assignedBooking(tx, bookingId(req), driverId)));
+  const payload = await withBookingLock(bookingId(req), async tx => {
+    const booking = await assignedBooking(tx, bookingId(req), driverId);
+    let eligible = true;
+    try { await requireTrackingJourney(tx, booking, driverId); } catch (error) { if (!(error instanceof DriverPortalError)) throw error; eligible = false; }
+    return { ...trackingPayload(booking), ...trackingState(booking, eligible), trackingActive: eligible && trackingPayload(booking).trackingActive };
+  });
   res.json(payload);
 }));
 
 router.post("/:bookingId/start", driverRoute(async (req, res, driverId) => {
   const id = bookingId(req), retryId = requestId(req.body?.requestId);
   const point = locationInput(req.body || {}, false);
-  const capturedAt = capturedDate(req.body?.capturedAt);
+  const capturedAt = freshCapture(req.body?.capturedAt, !!point);
   const result = await withBookingLock(id, async tx => {
     const booking = await assignedBooking(tx, id, driverId);
     if (await previousRequest(tx, booking, driverId, retryId, "START_TRACKING")) {
@@ -128,18 +130,18 @@ router.post("/:bookingId/start", driverRoute(async (req, res, driverId) => {
     await requireTrackingJourney(tx, booking, driverId);
     const alreadyActive = Boolean(booking.trackingStartedAt) && !booking.trackingEndedAt;
     // Keep existing customer links valid. Never rotate a token just because a driver refreshed.
-    const shareToken = booking.trackingShareTokenHash ? null : crypto.randomBytes(32).toString("hex");
+    const shareToken = booking.trackingShareTokenHash && booking.trackingShareExpiresAt && booking.trackingShareExpiresAt > new Date() ? null : crypto.randomBytes(32).toString("hex");
     if (!alreadyActive) {
       await tx.booking.update({ where: { id }, data: { trackingStartedAt: booking.trackingStartedAt || new Date(), trackingEndedAt: null,
-        ...(shareToken ? { trackingShareTokenHash: crypto.createHash("sha256").update(shareToken).digest("hex") } : {}) } });
+        ...(shareToken ? { trackingShareTokenHash: crypto.createHash("sha256").update(shareToken).digest("hex"), trackingShareExpiresAt: new Date(Date.now() + TRACKING_SHARE_MS) } : {}) } });
       await tx.bookingTrackingEvent.create({ data: { bookingId: id, status: booking.status,
         title: "Phone tracking started", description: "The driver enabled phone location sharing.", userVisible: true } });
     } else if (shareToken) {
-      await tx.booking.update({ where: { id }, data: { trackingShareTokenHash: crypto.createHash("sha256").update(shareToken).digest("hex") } });
+      await tx.booking.update({ where: { id }, data: { trackingShareTokenHash: crypto.createHash("sha256").update(shareToken).digest("hex"), trackingShareExpiresAt: new Date(Date.now() + TRACKING_SHARE_MS) } });
     }
-    if (point && !alreadyActive) {
+    if (point) {
       if (capturedAt && Date.now() - capturedAt.getTime() > 120_000) throw new DriverPortalError(400, "Use a fresh location reading.");
-      await tx.driverLocation.create({ data: { bookingId: id, driverId, ...point } });
+      await tx.driverLocation.create({ data: { bookingId: id, driverId, vehicleId: booking.vehicleId, assignedAtSnapshot: booking.driverAssignedAt, ...point, capturedAt } });
     }
     await tx.driverJobAction.create({ data: { bookingId: id, driverId, requestId: retryId, action: "START_TRACKING", capturedAt } });
     const updated = await assignedBooking(tx, id, driverId);
@@ -153,7 +155,7 @@ router.post("/:bookingId/start", driverRoute(async (req, res, driverId) => {
 router.post("/:bookingId/location", driverRoute(async (req, res, driverId) => {
   const id = bookingId(req), retryId = requestId(req.body?.requestId);
   const point = locationInput(req.body || {}, true)!;
-  const capturedAt = capturedDate(req.body?.capturedAt);
+  const capturedAt = freshCapture(req.body?.capturedAt, true);
   const result = await withBookingLock(id, async tx => {
     const booking = await assignedBooking(tx, id, driverId);
     if (await previousRequest(tx, booking, driverId, retryId, "PHONE_LOCATION")) {
@@ -164,7 +166,7 @@ router.post("/:bookingId/location", driverRoute(async (req, res, driverId) => {
     if (!booking.trackingStartedAt || booking.trackingEndedAt) throw new DriverPortalError(409, "Enable phone tracking before sending location.");
     // Delayed queued GPS must not be presented to dispatch as a current position.
     if (capturedAt && Date.now() - capturedAt.getTime() > 120_000) throw new DriverPortalError(400, "Use a fresh location reading. Old GPS points cannot be replayed as live location.");
-    const location = await tx.driverLocation.create({ data: { bookingId: id, driverId, ...point } });
+    const location = await tx.driverLocation.create({ data: { bookingId: id, driverId, vehicleId: booking.vehicleId, assignedAtSnapshot: booking.driverAssignedAt, ...point, capturedAt } });
     await tx.driverJobAction.create({ data: { bookingId: id, driverId, requestId: retryId, action: "PHONE_LOCATION", capturedAt } });
     return { ...trackingPayload(await assignedBooking(tx, id, driverId)), location: {
       id: location.id, latitude: Number(location.latitude), longitude: Number(location.longitude), createdAt: location.createdAt,
@@ -187,6 +189,20 @@ router.post("/:bookingId/stop", driverRoute(async (req, res, driverId) => {
     }
     await tx.driverJobAction.create({ data: { bookingId: id, driverId, requestId: retryId, action: "STOP_TRACKING", capturedAt } });
     return trackingPayload(await assignedBooking(tx, id, driverId));
+  });
+  res.json(result);
+}));
+
+router.post("/:bookingId/share", driverRoute(async (req, res, driverId) => {
+  const id = bookingId(req);
+  const result = await withBookingLock(id, async tx => {
+    const booking = await assignedBooking(tx, id, driverId);
+    requireAssignmentVersion(booking, req.body?.expectedAssignedAt, req.body?.expectedVehicleId);
+    await requireTrackingJourney(tx, booking, driverId);
+    if (!booking.trackingStartedAt || booking.trackingEndedAt) throw new DriverPortalError(409, "Enable tracking first.");
+    const token = crypto.randomBytes(32).toString("hex"), expiresAt = new Date(Date.now() + TRACKING_SHARE_MS);
+    await tx.booking.update({ where: { id }, data: { trackingShareTokenHash: crypto.createHash("sha256").update(token).digest("hex"), trackingShareExpiresAt: expiresAt } });
+    return { trackingUrl: `/tracking/${encodeURIComponent(booking.reference)}?token=${token}`, expiresAt };
   });
   res.json(result);
 }));

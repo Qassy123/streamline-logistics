@@ -53,6 +53,15 @@ export async function changeAttendance(tx: Tx, driverId: string, action: Attenda
     if (action === "CLOCK_OUT") await tx.driverShift.update({ where: { id: shift.id }, data: { endedAt: now } });
     else await tx.driverShiftActivity.create({ data: { shiftId: shift.id, startedAt: now, kind: next! } });
   }
+  // A break/rest/POA or shift end revokes the sharing session, without changing booking status.
+  const nextWorking = action === "CLOCK_IN" || action === "END_BREAK" || action === "ACTIVITY" && ["WORK", "DRIVING", "OTHER_WORK"].includes(kind || "");
+  if (!nextWorking) {
+    const sessions = await tx.booking.findMany({ where: { driverId, status: "IN_PROGRESS", trackingStartedAt: { not: null }, trackingEndedAt: null }, select: { id: true, status: true } });
+    if (sessions.length) {
+      await tx.booking.updateMany({ where: { id: { in: sessions.map(b => b.id) }, driverId, trackingEndedAt: null }, data: { trackingEndedAt: now } });
+      await tx.bookingTrackingEvent.createMany({ data: sessions.map(b => ({ bookingId: b.id, status: b.status, title: "Phone sharing paused", description: "The driver changed to a non-working activity or ended the shift.", userVisible: true })) });
+    }
+  }
   const current = await tx.driverShift.findFirst({ where: { driverId, endedAt: null }, include: shiftInclude });
   await tx.driver.update({ where: { id: driverId }, data: { portalOnDuty: Boolean(current) } });
   await reconcileDriverActivity(tx, driverId);

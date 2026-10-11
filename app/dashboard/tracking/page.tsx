@@ -62,6 +62,7 @@ type LatestLocation = {
 };
 
 type CustomerTrackingResponse = {
+  trackingLive?: boolean; locationState?: string;
   booking: {
     id: string;
     reference: string;
@@ -83,6 +84,7 @@ type CustomerTrackingResponse = {
 };
 
 type EnrichedTrackingBooking = TrackingBooking & {
+  trackingLive?: boolean; locationState?: string;
   latestLocation?: LatestLocation | null;
   trackingStartedAt?: string | null;
   trackingEndedAt?: string | null;
@@ -225,7 +227,7 @@ function findStageEvent(events: TrackingEvent[], stage: JourneyStage) {
 }
 
 function isTrackingLive(booking: EnrichedTrackingBooking) {
-  return Boolean(booking.trackingStartedAt && !booking.trackingEndedAt);
+  return booking.trackingLive === true && booking.status === "IN_PROGRESS" && !!booking.latestLocation && Date.now() - Date.parse(booking.latestLocation.createdAt) <= 120_000;
 }
 
 function isOperationalBooking(booking: EnrichedTrackingBooking) {
@@ -413,6 +415,7 @@ export default function TrackingPage() {
               trackingEvents:
                 trackingData.trackingEvents || booking.trackingEvents,
               latestLocation: trackingData.latestLocation,
+              trackingLive: trackingData.trackingLive === true, locationState: trackingData.locationState,
               trackingStartedAt: trackingData.booking.trackingStartedAt || null,
               trackingEndedAt: trackingData.booking.trackingEndedAt || null,
             };
@@ -799,7 +802,7 @@ function LiveStatusPanel({
           <SmallStat label="Last updated" value={formatTime(location.createdAt)} />
           <SmallStat
             label="Tracking"
-            value={trackingLive ? "Live" : "Ended"}
+            value={trackingLive ? "Recent phone GPS" : booking.locationState === "STALE" ? "Stale phone GPS" : booking.locationState === "PAUSED" ? "Sharing paused" : "No live GPS"}
           />
           <SmallStat
             label="Shipment stage"
@@ -942,7 +945,7 @@ function MapPanel({
               <MapStat
                 icon={<Truck size={18} />}
                 label="Tracking"
-                value={trackingLive ? "Live" : "Ended"}
+                value={trackingLive ? "Recent phone GPS" : booking.locationState === "STALE" ? "Stale phone GPS" : booking.locationState === "PAUSED" ? "Sharing paused" : "No live GPS"}
                 highlight={trackingLive}
               />
             </div>

@@ -3,11 +3,29 @@ import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 
+import { requireStaff } from "../lib/adminAccess";
+import { DriverPortalError } from "../lib/driverPortal";
+import { dispatchRoles } from "../lib/fleetOperations";
+import { customerTracking, driverEligible, retentionCutoff, trackingState } from "../lib/trackingState";
+
 const router = Router();
+router.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store, private"); res.setHeader("Referrer-Policy", "no-referrer"); next(); });
+const driverSelection = { id: true, name: true, phone: true, vehicleId: true, active: true, portalOnDuty: true } as const;
+const userSelection = { id: true, name: true, companyName: true, email: true } as const;
+async function workingDrivers(ids: string[]) {
+  if (!ids.length) return new Set<string>();
+  const now = new Date();
+  const [shifts, sessions] = await Promise.all([
+    prisma.driverShift.findMany({ where: { driverId: { in: ids }, startedAt: { lte: now }, endedAt: null,
+      activities: { some: { active: true, startedAt: { lte: now }, endedAt: null, kind: { in: ["WORK", "DRIVING", "OTHER_WORK"] } } } }, select: { driverId: true } }),
+    prisma.driverPortalSession.findMany({ where: { driverId: { in: ids }, revokedAt: null, expiresAt: { gt: now }, NOT: { tokenHash: { startsWith: "reset:" } } }, select: { driverId: true } })]);
+  const authenticated = new Set(sessions.map(s => s.driverId));
+  return new Set(shifts.filter(s => authenticated.has(s.driverId)).map(s => s.driverId));
+}
+
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
-const STALE_LOCATION_MINUTES = 10;
 
 function getString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -113,10 +131,10 @@ async function getAuthenticatedUser(req: {
 
 function adminTrackingInclude() {
   return {
-    user: true,
+    user: { select: userSelection },
     quote: true,
     vehicle: true,
-    driver: true,
+    driver: { select: driverSelection },
     pod: true,
     trackingEvents: {
       orderBy: {
@@ -234,9 +252,10 @@ router.get("/admin/list", async (req, res) => {
         not: null,
       };
       where.trackingEndedAt = null;
+      where.AND = [{ status: "IN_PROGRESS" }];
     }
 
-    const [bookings, total, activeCount, staleCount] = await Promise.all([
+    const [bookings, total, activeCount] = await Promise.all([
       prisma.booking.findMany({
         where,
         orderBy: {
@@ -251,60 +270,20 @@ router.get("/admin/list", async (req, res) => {
       }),
       prisma.booking.count({
         where: {
+          status: "IN_PROGRESS",
           trackingStartedAt: {
             not: null,
           },
           trackingEndedAt: null,
         },
       }),
-      prisma.driverLocation.count({
-        where: {
-          createdAt: {
-            lt: new Date(
-              Date.now() - STALE_LOCATION_MINUTES * 60 * 1000,
-            ),
-          },
-          booking: {
-            trackingStartedAt: {
-              not: null,
-            },
-            trackingEndedAt: null,
-          },
-        },
-      }),
+
     ]);
 
-    const enrichedBookings = bookings.map((booking) => {
-      const latestLocation = booking.driverLocations[0] || null;
-      const stale =
-        Boolean(latestLocation) &&
-        latestLocation!.createdAt.getTime() <
-          Date.now() - STALE_LOCATION_MINUTES * 60 * 1000;
-
-      return {
-        ...booking,
-        latestLocation: latestLocation
-          ? {
-              id: latestLocation.id,
-              latitude: Number(latestLocation.latitude),
-              longitude: Number(latestLocation.longitude),
-              accuracy:
-                latestLocation.accuracy === null
-                  ? null
-                  : Number(latestLocation.accuracy),
-              heading:
-                latestLocation.heading === null
-                  ? null
-                  : Number(latestLocation.heading),
-              speed:
-                latestLocation.speed === null
-                  ? null
-                  : Number(latestLocation.speed),
-              createdAt: latestLocation.createdAt,
-            }
-          : null,
-        locationStale: stale,
-      };
+    const working = await workingDrivers(bookings.flatMap(b => b.driverId ? [b.driverId] : []));
+    const enrichedBookings = bookings.map(booking => {
+      const { trackingShareTokenHash, trackingShareExpiresAt, driverLocations, ...safe } = booking;
+      return { ...safe, ...trackingState(booking, driverEligible(booking, working)) };
     });
 
     res.json({
@@ -316,8 +295,9 @@ router.get("/admin/list", async (req, res) => {
         totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
       summary: {
-        activeTracking: activeCount,
-        staleLocations: staleCount,
+        activeTracking: enrichedBookings.filter(b => b.trackingLive).length,
+        staleLocations: enrichedBookings.filter(b => b.locationStale).length,
+        sessionsEnabled: activeCount, scope: "PAGE",
       },
     });
   } catch (error) {
@@ -344,10 +324,10 @@ router.get("/admin/:bookingId", async (req, res) => {
         id: req.params.bookingId,
       },
       include: {
-        user: true,
+        user: { select: userSelection },
         quote: true,
         vehicle: true,
-        driver: true,
+        driver: { select: driverSelection },
         pod: true,
         trackingEvents: {
           orderBy: {
@@ -359,6 +339,7 @@ router.get("/admin/:bookingId", async (req, res) => {
             createdAt: "desc",
           },
           take: 100,
+          where: { createdAt: { gte: retentionCutoff() } },
         },
       },
     });
@@ -369,9 +350,12 @@ router.get("/admin/:bookingId", async (req, res) => {
       });
     }
 
+    const working = await workingDrivers(booking.driverId ? [booking.driverId] : []);
+    const { trackingShareTokenHash, trackingShareExpiresAt, ...safeBooking } = booking;
     res.json({
       booking: {
-        ...booking,
+        ...safeBooking,
+        ...trackingState(booking, driverEligible(booking, working)),
         driverLocations: booking.driverLocations.map((location) => ({
           ...location,
           latitude: Number(location.latitude),
@@ -518,12 +502,13 @@ router.patch("/admin/:bookingId/tracking", async (req, res) => {
                 trackingStartedAt: null,
                 trackingEndedAt: null,
                 trackingShareTokenHash: null,
+                trackingShareExpiresAt: null,
               },
     });
 
     res.json({
       success: true,
-      booking: updatedBooking,
+      booking: { id: updatedBooking.id, reference: updatedBooking.reference, status: updatedBooking.status, trackingStartedAt: updatedBooking.trackingStartedAt, trackingEndedAt: updatedBooking.trackingEndedAt },
     });
   } catch (error) {
     console.error("Admin tracking update error:", error);
@@ -562,6 +547,7 @@ router.get("/customer/:bookingId", async (req, res) => {
         userId: user.id,
       },
       include: {
+        driver: { select: driverSelection },
         quote: true,
         vehicle: true,
         pod: true,
@@ -588,41 +574,14 @@ router.get("/customer/:bookingId", async (req, res) => {
       });
     }
 
-    const latestLocation = booking.driverLocations[0] || null;
-
-    res.json({
-      booking: {
-        id: booking.id,
-        reference: booking.reference,
-        status: booking.status,
-        collectionDate: booking.collectionDate,
-        collectionWindow: booking.collectionWindow,
-        collectionAddress: booking.collectionAddress,
-        deliveryAddress: booking.deliveryAddress,
-        vehicle: booking.vehicle,
-        pod: booking.pod,
-        trackingStartedAt: booking.trackingStartedAt,
-        trackingEndedAt: booking.trackingEndedAt,
-      },
-      latestLocation: latestLocation
-        ? {
-            latitude: Number(latestLocation.latitude),
-            longitude: Number(latestLocation.longitude),
-            accuracy:
-              latestLocation.accuracy === null
-                ? null
-                : Number(latestLocation.accuracy),
-            heading:
-              latestLocation.heading === null
-                ? null
-                : Number(latestLocation.heading),
-            speed:
-              latestLocation.speed === null
-                ? null
-                : Number(latestLocation.speed),
-            createdAt: latestLocation.createdAt,
-          }
-        : null,
+    const working = await workingDrivers(booking.driverId ? [booking.driverId] : []);
+    const state = customerTracking(booking, driverEligible(booking, working));
+    res.json({ ...state,
+      booking: { id: booking.id, reference: booking.reference, status: booking.status,
+        collectionDate: booking.collectionDate, collectionWindow: booking.collectionWindow,
+        collectionAddress: booking.collectionAddress, deliveryAddress: booking.deliveryAddress,
+        vehicle: booking.vehicle ? { name: booking.vehicle.name, vehicleType: booking.vehicle.vehicleType, registration: booking.vehicle.registration } : null,
+        pod: booking.pod, trackingStartedAt: booking.trackingStartedAt, trackingEndedAt: booking.trackingEndedAt },
       trackingEvents: booking.trackingEvents,
     });
   } catch (error) {
@@ -632,6 +591,61 @@ router.get("/customer/:bookingId", async (req, res) => {
       error: "Failed to fetch customer tracking.",
     });
   }
+});
+
+
+router.get("/fleet", async (req, res) => {
+  try {
+    await requireStaff(req, [...dispatchRoles]);
+    const page = Number(req.query.page || 1), pageSize = 25;
+    if (!Number.isInteger(page) || page < 1 || page > 10000) throw new DriverPortalError(400, "Invalid page.");
+    const where = { active: true };
+    const [vehicles, total] = await Promise.all([
+      prisma.vehicle.findMany({ where, select: { id: true, name: true, registration: true, vehicleType: true }, orderBy: { id: "asc" }, skip: (page-1)*pageSize, take: pageSize }),
+      prisma.vehicle.count({ where })]);
+    const bookings = vehicles.length ? await prisma.booking.findMany({ where: { vehicleId: { in: vehicles.map(v=>v.id) }, status: "IN_PROGRESS" },
+      include: { driver: { select: driverSelection }, driverStops: { select: { sequence: true, address: true, status: true }, orderBy: { sequence: "asc" } }, driverLocations: { orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 500 }) : [];
+    const working = await workingDrivers(bookings.flatMap(b=>b.driverId ? [b.driverId] : []));
+    const rows = vehicles.map(vehicle => {
+      const matches = bookings.filter(b=>b.vehicleId === vehicle.id);
+      const states = matches.map(booking => ({ booking, state: trackingState(booking, driverEligible(booking, working)) }));
+      states.sort((a,b) => Number(b.state.trackingLive)-Number(a.state.trackingLive) || (b.state.lastLocationAt?.getTime() || 0)-(a.state.lastLocationAt?.getTime() || 0));
+      const selected = states[0];
+      return { vehicle, booking: selected ? { id: selected.booking.id, reference: selected.booking.reference, status: selected.booking.status,
+        plannedArrivalAt: selected.booking.estimatedEndTime, destination: selected.booking.driverStops.find(stop => !["COMPLETED", "SKIPPED"].includes(stop.status))?.address || selected.booking.deliveryAddress, driver: selected.booking.driver ? { name: selected.booking.driver.name } : null } : null,
+        ...(selected?.state || { trackingLive: false, locationState: "WAITING", latestLocation: null, source: "PHONE", eta: null }),
+        openJobs: matches.length };
+    });
+    res.json({ rows, page, pageSize, total, pages: Math.max(1, Math.ceil(total/pageSize)), truncatedJobs: bookings.length === 500,
+      serverTime: new Date(), freshForSeconds: 120 });
+  } catch(error) {
+    if (error instanceof DriverPortalError) return void res.status(error.status).json({ error: error.message });
+    console.error("Fleet tracking read failed"); res.status(500).json({ error: "Unable to refresh fleet tracking." });
+  }
+});
+
+// A bounded in-memory abuse guard. It contains no coordinates or raw share tokens.
+const publicReads = new Map<string, { started: number; count: number }>();
+router.get("/public/:reference", async (req, res) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const reference = typeof req.params.reference === "string" ? req.params.reference : "";
+  if (!/^[a-f0-9]{64}$/i.test(token) || !reference || reference.length > 100) return void res.status(404).json({ error: "Tracking link is unavailable or expired." });
+  const key = hashValue((req.ip || "unknown") + token), now = Date.now();
+  let bucket = publicReads.get(key);
+  if (!bucket || now - bucket.started >= 60_000) { bucket = { started: now, count: 0 }; publicReads.set(key, bucket); }
+  if (publicReads.size > 10000) publicReads.delete(publicReads.keys().next().value!);
+  if (++bucket.count > 30) { res.setHeader("Retry-After", "60"); return void res.status(429).json({ error: "Please wait before refreshing tracking again." }); }
+  try {
+    const booking = await prisma.booking.findFirst({ where: { reference, trackingShareTokenHash: hashValue(token), trackingShareExpiresAt: { gt: new Date() } },
+      include: { driver: { select: driverSelection }, driverLocations: { orderBy: { createdAt: "desc" }, take: 1 },
+        trackingEvents: { where: { userVisible: true }, select: { id: true, title: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 50 } } });
+    if (!booking) return void res.status(404).json({ error: "Tracking link is unavailable or expired." });
+    const working = await workingDrivers(booking.driverId ? [booking.driverId] : []);
+    const state = customerTracking(booking, driverEligible(booking, working));
+    res.json({ ...state, booking: { reference: booking.reference, status: booking.status, plannedArrivalAt: booking.estimatedEndTime },
+      trackingEvents: [...booking.trackingEvents].reverse(), expiresAt: booking.trackingShareExpiresAt });
+  } catch { res.status(500).json({ error: "Unable to refresh tracking. Please retry." }); }
 });
 
 export default router;

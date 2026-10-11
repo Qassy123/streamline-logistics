@@ -9,7 +9,7 @@ export type PhoneTrackingState = {
 };
 type TrackingPayload = {
   trackingActive: boolean; trackingUrl?: string | null; lastLocationAt: string | null;
-  job: { id: string; status: string; assignedAt: string | null; vehicle: { id: string } | null };
+  job: { id: string; status: string; assignedAt: string | null; vehicle: { id: string } | null; trackingStartedAt?: string | null; trackingEndedAt?: string | null };
 };
 type Point = { latitude: number; longitude: number; accuracy: number | null; heading: number | null; speed: number | null; capturedAt: string };
 const off: PhoneTrackingState = { phase: "OFF", driverId: null, bookingId: null, sharing: false, stopPending: false, lastConfirmedAt: null, message: "Phone location sharing is off.", trackingUrl: null };
@@ -38,7 +38,7 @@ function status(error: unknown) { return error && typeof error === "object" && "
 function positionPoint(position: GeolocationPosition): Point {
   const { latitude, longitude, accuracy, heading, speed } = position.coords;
   const age = Date.now() - position.timestamp;
-  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(position.timestamp) || age > 45_000 || age < -300_000) throw new Error("Waiting for a fresh phone location.");
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(position.timestamp) || age > 45_000 || age < -30_000) throw new Error("Waiting for a fresh phone location.");
   return { latitude, longitude, accuracy: Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 100000 ? accuracy : null,
     heading: heading != null && Number.isFinite(heading) && heading >= 0 && heading < 360 ? heading : null,
     speed: speed != null && Number.isFinite(speed) && speed >= 0 && speed <= 200 ? speed : null,
@@ -64,6 +64,10 @@ export function pausePhoneTracking(driverId: string, reason = "Phone sharing pau
   if (binding?.driverId !== driverId) return;
   stopWatcher(); publish({ phase: "BLOCKED", sharing: false, stopPending: true, message: reason });
 }
+function foregroundPause(reason: string) {
+  stopWatcher();
+  publish({ phase: "PAUSED", sharing: false, stopPending: false, message: reason + " Open the job and tap Resume phone sharing. Last known location becomes stale after two minutes." });
+}
 function firstPosition(): Promise<Point> {
   return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(position => {
     try { resolve(positionPoint(position)); } catch (error) { reject(error); }
@@ -73,7 +77,7 @@ function firstPosition(): Promise<Point> {
 async function tick() {
   if (tickBusy || !binding || !sender || watcher === null) return;
   if (!navigator.onLine || document.visibilityState !== "visible") {
-    latest = null; publish({ phase: "PAUSED", message: !navigator.onLine ? "Offline. No old GPS points will be replayed as live location." : "Phone location can pause while this portal is in the background." }); return;
+    foregroundPause(!navigator.onLine ? "Offline: phone collection and sending paused." : "Portal hidden: phone collection and sending paused."); return;
   }
   if (!latest || Date.now() - Date.parse(latest.capturedAt) > 45_000) { publish({ phase: "WAITING", message: "Waiting for a fresh phone location. The last confirmed point may be stale." }); return; }
   const current = { ...binding }, send = sender, cycle = epoch, point = { ...latest };
@@ -100,6 +104,7 @@ async function tick() {
 
 export async function startPhoneTracking(next: PhoneTrackingBinding, request: TrackingRequest): Promise<PhoneTrackingState> {
   if (typeof window === "undefined" || !window.isSecureContext || !navigator.geolocation) throw new Error("Phone location requires HTTPS and a browser with location access.");
+  if (document.visibilityState !== "visible") throw new Error("Open this portal before enabling phone location.");
   if (!navigator.onLine) throw new Error("Connect to the internet before enabling phone location.");
   if (!next.driverId || !next.bookingId || !next.vehicleId || !Number.isFinite(Date.parse(next.assignedAt))) throw new Error("Refresh the job and its assigned van before enabling tracking.");
   if (startBusy || ["STARTING", "STOPPING"].includes(state.phase)) throw new Error("Wait for the current tracking request to finish.");
@@ -108,6 +113,7 @@ export async function startPhoneTracking(next: PhoneTrackingBinding, request: Tr
     if (binding.driverId === next.driverId && binding.bookingId === next.bookingId && binding.assignedAt === next.assignedAt && binding.vehicleId === next.vehicleId) return getPhoneTrackingState(next.driverId);
     throw new Error("Stop phone tracking for the other job before starting this one.");
   }
+  if (binding && binding.bookingId !== next.bookingId && state.phase === "PAUSED") throw new Error("Stop the paused session before starting another job.");
   if (state.stopPending) throw new Error("Confirm the previous tracking stop before starting another session.");
   binding = { ...next }; sender = request; stopRequestId = null;
   publish({ phase: "STARTING", driverId: next.driverId, bookingId: next.bookingId, sharing: false, stopPending: false, lastConfirmedAt: null, trackingUrl: state.driverId === next.driverId && state.bookingId === next.bookingId ? state.trackingUrl : null, message: "Checking the job and requesting phone location…" });
@@ -120,11 +126,13 @@ export async function startPhoneTracking(next: PhoneTrackingBinding, request: Tr
     const checked = await request<TrackingPayload>(`/api/driver/tracking/${encodeURIComponent(next.bookingId)}`);
     if (cycle !== epoch) throw new Error("Phone tracking was interrupted. Refresh before trying again.");
     if (!sameAssignment(checked, next)) throw new Error("Accept and start this job with your assigned van before enabling phone tracking.");
+    if (!navigator.onLine || document.visibilityState !== "visible") throw new Error("Portal hidden or offline. Enable phone sharing when this job is open.");
     if (Date.now() - Date.parse(point.capturedAt) > 45_000) throw new Error("The location reading expired. Try again for a fresh reading.");
     startAttempted = true;
     const data = await request<TrackingPayload>(`/api/driver/tracking/${encodeURIComponent(next.bookingId)}/start`, { method: "POST", body: JSON.stringify({ ...point, requestId: identifier(), expectedAssignedAt: next.assignedAt, expectedVehicleId: next.vehicleId }) });
     serverStarted = true;
     if (cycle !== epoch) throw new Error("Phone tracking was interrupted. Check its server status.");
+    if (!navigator.onLine || document.visibilityState !== "visible") throw new Error("Portal hidden or offline. Phone collection was not started.");
     if (!data.trackingActive || !sameAssignment(data, next)) throw new Error("Unable to confirm tracking for this assignment.");
     latest = point;
     watcher = navigator.geolocation.watchPosition(position => {
@@ -137,8 +145,8 @@ export async function startPhoneTracking(next: PhoneTrackingBinding, request: Tr
       if (error.code === 1) { stopWatcher(); publish({ phase: "BLOCKED", sharing: false, stopPending: true, message: "Location permission was withdrawn. Confirm the server tracking stop." }); }
       else publish({ phase: "WAITING", message: "Phone location is unavailable. Check location services." });
     }, { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 });
-    const visible = () => { if (document.visibilityState !== "visible") { latest = null; publish({ phase: "PAUSED", message: "Phone sharing can pause in the background." }); } else void tick(); };
-    const offline = () => { latest = null; publish({ phase: "PAUSED", message: "Offline. Waiting for a fresh live reading after reconnecting." }); };
+    const visible = () => { if (document.visibilityState !== "visible") foregroundPause("Portal hidden: phone collection and sending paused."); };
+    const offline = () => foregroundPause("Offline: phone collection and sending paused.");
     const online = () => { void tick(); };
     const changedSession = (event: StorageEvent) => { if (event.key === "driverToken" || event.key === null) pausePhoneTracking(next.driverId, "Your login changed in another tab. Refresh before sharing phone location."); };
     window.addEventListener("online", online); window.addEventListener("offline", offline); window.addEventListener("storage", changedSession); document.addEventListener("visibilitychange", visible);
@@ -159,7 +167,7 @@ export async function stopPhoneTracking(driverId: string, request: TrackingReque
   stopWatcher(); publish({ phase: "STOPPING", sharing: false, stopPending: true, message: "Phone watcher stopped. Confirming the stop with the server…" });
   try {
     const checked = await request<TrackingPayload>(`/api/driver/tracking/${encodeURIComponent(current.bookingId)}`);
-    if (!checked.trackingActive) { binding = null; sender = null; stopRequestId = null; publish({ ...off }); return; }
+    if (!checked.trackingActive && (checked.job.status !== "IN_PROGRESS" || !checked.job.trackingStartedAt || checked.job.trackingEndedAt)) { binding = null; sender = null; stopRequestId = null; publish({ ...off }); return; }
     stopRequestId ||= identifier();
     const result = await request<TrackingPayload>(`/api/driver/tracking/${encodeURIComponent(current.bookingId)}/stop`, { method: "POST", body: JSON.stringify({ requestId: stopRequestId, capturedAt: new Date().toISOString() }) });
     if (result.trackingActive) throw new Error("The server has not confirmed the tracking stop. Retry or contact dispatch.");

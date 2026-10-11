@@ -380,6 +380,7 @@ model Booking {
   driverAssignedAt    DateTime?
 
   trackingShareTokenHash String?
+  trackingShareExpiresAt DateTime?
   trackingStartedAt      DateTime?
   trackingEndedAt        DateTime?
 
@@ -505,6 +506,9 @@ model Driver {
 }
 
 model DriverLocation {
+  capturedAt DateTime?
+  vehicleId String?
+  assignedAtSnapshot DateTime?
   id        String   @id @default(cuid())
   bookingId String
   driverId  String?
@@ -521,6 +525,7 @@ model DriverLocation {
   @@index([bookingId])
   @@index([driverId])
   @@index([createdAt])
+  @@index([bookingId, createdAt])
 }
 
 model Payment {
