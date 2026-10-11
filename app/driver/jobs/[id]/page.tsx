@@ -314,7 +314,7 @@ function DraftEditor({ binding, version, disabled, onSubmit, onSaved }: { bindin
     event.preventDefault(); if (locked || capturingSignature) return;
     setError("");
     try {
-      await saveChain.current;
+      await saveChain.current.catch(() => null); // Retry the current form after a failed local save.
       const values = formRef.current;
       validateSubmission(binding.kind, values);
       const next = { ...values, form: { ...values.form, submittedAt: new Date().toISOString() } }; formRef.current = next; setForm(next.form);

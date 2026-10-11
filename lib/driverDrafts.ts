@@ -27,9 +27,45 @@ const DB_NAME = "streamline-driver-drafts";
 const MAX_PHOTOS = 8, MAX_MEDIA_BYTES = 8 * 1024 * 1024, MAX_DRIVER_BYTES = 200 * 1024 * 1024;
 const photoTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 let database: Promise<IDBDatabase> | null = null;
+type StoredMedia = Omit<DraftMedia, "blob"> & { bytes: ArrayBuffer; mimeType: string };
+type StoredDraft = Omit<DriverDraft, "photos" | "signature"> & { photos: (StoredMedia | DraftMedia)[]; signature: StoredMedia | DraftMedia | null };
+const mediaBytes = new WeakMap<Blob, Promise<ArrayBuffer>>();
 
-function storageError(error?: DOMException | null) {
-  return new DriverDraftError(error?.name === "QuotaExceededError" ? "Your device is out of draft storage. Upload or review saved drafts before adding more. This draft has not been saved." : "Unable to save or read driver drafts on this device. Allow site storage and try again. Keep this page open until your work is saved.");
+// Read file bytes before opening a write transaction. Safari may close a transaction
+// while awaiting file I/O, and native file-backed Blobs need not persist reliably.
+async function encodeMedia(media: DraftMedia): Promise<StoredMedia> {
+  mediaSize(media);
+  let pending = mediaBytes.get(media.blob);
+  if (!pending) {
+    pending = media.blob.arrayBuffer();
+    mediaBytes.set(media.blob, pending);
+    void pending.catch(() => { if (mediaBytes.get(media.blob) === pending) mediaBytes.delete(media.blob); });
+  }
+  let bytes: ArrayBuffer;
+  try { bytes = await pending; }
+  catch { throw new DriverDraftError("Unable to read this photo. Select it again and retry saving. Keep this page open; the draft has not been saved."); }
+  if (bytes.byteLength !== media.blob.size) throw new DriverDraftError("The photo could not be read completely. Select it again before saving.");
+  return { id: media.id, name: media.name, uploadedUrl: media.uploadedUrl, mimeType: media.blob.type, bytes };
+}
+function decodeMedia(media: StoredMedia | DraftMedia): DraftMedia {
+  if ("blob" in media) return media; // Existing drafts remain readable without a database reset.
+  if (!(media.bytes instanceof ArrayBuffer) || !photoTypes.includes(media.mimeType)) throw new DriverDraftError("This saved photo cannot be read. Keep the original photo and review this draft.");
+  const blob = new Blob([media.bytes], { type: media.mimeType });
+  mediaBytes.set(blob, Promise.resolve(media.bytes));
+  const decoded = { id: media.id, name: media.name, uploadedUrl: media.uploadedUrl, blob };
+  mediaSize(decoded);
+  return decoded;
+}
+function decodeDraft(row: StoredDraft): DriverDraft {
+  return { ...row, photos: row.photos.map(decodeMedia), signature: row.signature ? decodeMedia(row.signature) : null };
+}
+async function encodeDraft(row: DriverDraft): Promise<StoredDraft> {
+  const [photos, signature] = await Promise.all([Promise.all(row.photos.map(encodeMedia)), row.signature ? encodeMedia(row.signature) : null]);
+  return { ...row, photos, signature };
+}
+
+function storageError(error?: { name: string } | null) {
+  return new DriverDraftError(error?.name === "QuotaExceededError" ? "Your device is out of draft storage. Upload or review saved drafts before adding more. This draft has not been saved." : "Unable to save or read driver drafts on this device. Retry saving; if it still fails, keep this page open until your evidence is sent." + (error && /^[A-Za-z]+Error$/.test(error.name) ? ` (${error.name})` : ""));
 }
 function openDatabase(): Promise<IDBDatabase> {
   if (typeof window === "undefined" || !window.indexedDB) return Promise.reject(new DriverDraftError("Driver draft storage is unavailable on this device."));
@@ -63,7 +99,7 @@ async function transaction<T>(name: string, mode: IDBTransactionMode, run: (stor
   const db = await openDatabase();
   return new Promise<T>((resolve, reject) => {
     let tx: IDBTransaction;
-    try { tx = db.transaction(name, mode); } catch { database = null; reject(storageError()); return; }
+    try { tx = db.transaction(name, mode); } catch (error) { database = null; reject(storageError(error instanceof Error ? error : undefined)); return; }
     let value: T, hasValue = false, failure: Error | null = null;
     const fail = (error: Error) => { failure = error; try { tx.abort(); } catch { reject(error); } };
     tx.oncomplete = () => { if (hasValue) resolve(value); else reject(new DriverDraftError("The draft operation did not finish. Please retry.")); };
@@ -137,13 +173,22 @@ function owned<T extends { driverId: string }>(row: T | undefined, driverId: str
   if (!row || row.driverId !== driverId) throw new DriverDraftError("This saved draft is not available to this driver.");
   return row;
 }
-function updateDraft(id: string, driverId: string, change: (draft: DriverDraft) => DriverDraft | null) {
+async function updateDraft(id: string, driverId: string, change: (draft: DriverDraft) => DriverDraft | null) {
   identifier(driverId, "driver");
+  const previous = await transaction<DriverDraft>("drafts", "readonly", (store, done, fail) => {
+    const read = store.get(id);
+    read.onsuccess = () => { try { done(decodeDraft(owned(read.result as StoredDraft | undefined, driverId))); } catch (error) { fail(error instanceof Error ? error : storageError()); } };
+  });
+  const row = change(previous), stored = row ? await encodeDraft(row) : null;
   return transaction<DriverDraft | null>("drafts", "readwrite", (store, done, fail) => {
     const read = store.get(id);
     read.onsuccess = () => {
-      try { const row = change(owned(read.result as DriverDraft | undefined, driverId)); if (row) store.put(row); else store.delete(id); done(row); }
-      catch (error) { fail(error instanceof Error ? error : storageError()); }
+      try {
+        const current = owned(read.result as StoredDraft | undefined, driverId);
+        if (current.revision !== previous.revision || current.requestId !== previous.requestId) throw new DriverDraftError("This draft changed. Reload it before trying again.");
+        if (stored) store.put(stored); else store.delete(id);
+        done(row);
+      } catch (error) { fail(error instanceof Error ? error : storageError()); }
     };
   });
 }
@@ -153,20 +198,21 @@ export function createDraftMedia(blob: Blob, name = "driver-photo"): DraftMedia 
 }
 export function getDriverDraft(binding: DraftBinding) {
   const id = bindingKey(binding);
-  return transaction<DriverDraft | null>("drafts", "readonly", (store, done) => { const read = store.get(id); read.onsuccess = () => done(read.result ? owned(read.result, binding.driverId) : null); });
+  return transaction<DriverDraft | null>("drafts", "readonly", (store, done, fail) => { const read = store.get(id); read.onsuccess = () => { try { done(read.result ? decodeDraft(owned(read.result, binding.driverId)) : null); } catch (error) { fail(error instanceof Error ? error : storageError()); } }; });
 }
 export function listDriverDrafts(driverId: string) {
   identifier(driverId, "driver");
-  return transaction<DriverDraft[]>("drafts", "readonly", (store, done) => { const read = store.index("driverId").getAll(driverId); read.onsuccess = () => done((read.result as DriverDraft[]).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))); });
+  return transaction<DriverDraft[]>("drafts", "readonly", (store, done, fail) => { const read = store.index("driverId").getAll(driverId); read.onsuccess = () => { try { done((read.result as StoredDraft[]).map(decodeDraft).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))); } catch (error) { fail(error instanceof Error ? error : storageError()); } }; });
 }
-export function saveDriverDraft(input: DraftBinding & { fields: { [key: string]: DraftJson }; photos?: DraftMedia[]; signature?: DraftMedia | null; capturedAt: string }, expectedRevision: number | null = null) {
+export async function saveDriverDraft(input: DraftBinding & { fields: { [key: string]: DraftJson }; photos?: DraftMedia[]; signature?: DraftMedia | null; capturedAt: string }, expectedRevision: number | null = null) {
   const id = bindingKey(input), fields = cloneFields(input.fields), photos = (input.photos || []).map(item => ({ ...item })), signature = input.signature ? { ...input.signature } : null;
   const size = draftSize({ photos, signature }), capturedAt = validTime(input.capturedAt, "capture time");
+  const [storedPhotos, storedSignature] = await Promise.all([Promise.all(photos.map(encodeMedia)), signature ? encodeMedia(signature) : null]);
   return transaction<DriverDraft>("drafts", "readwrite", (store, done, fail) => {
     const read = store.index("driverId").getAll(input.driverId);
     read.onsuccess = () => {
       try {
-        const rows = read.result as DriverDraft[], existing = rows.find(row => row.id === id);
+        const rows = (read.result as StoredDraft[]).map(decodeDraft), existing = rows.find(row => row.id === id);
         if (existing && (existing.revision !== expectedRevision || existing.phase !== "EDITING")) throw new DriverDraftError("This draft changed or is awaiting confirmation. Reload it before editing.");
         if (!existing && expectedRevision !== null) throw new DriverDraftError("This draft no longer exists. Refresh before saving.");
         if (!existing && rows.length >= 50) throw new DriverDraftError("You have 50 saved drafts. Upload or review them before adding another.");
@@ -174,7 +220,7 @@ export function saveDriverDraft(input: DraftBinding & { fields: { [key: string]:
         const now = new Date().toISOString();
         const row: DriverDraft = { driverId: input.driverId, kind: input.kind, bookingId: input.bookingId, stopId: input.stopId, assignedAt: input.assignedAt ? validTime(input.assignedAt, "job assignment") : undefined, vehicleId: input.vehicleId,
           id, requestId: existing?.requestId || newId(), revision: (existing?.revision || 0) + 1, phase: "EDITING", fields, photos, signature, capturedAt, createdAt: existing?.createdAt || now, updatedAt: now };
-        store.put(row); done(row);
+        store.put({ ...row, photos: storedPhotos, signature: storedSignature }); done(row);
       } catch (error) { fail(error instanceof Error ? error : storageError()); }
     };
   });
