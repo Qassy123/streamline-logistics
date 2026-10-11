@@ -18,6 +18,7 @@ export default function VehiclePage() {
   const [data, setData] = useState<VehicleData | null>(null), [draft, setDraft] = useState<DriverDraft | null>(null);
   const [items, setItems] = useState<Record<string, string>>({}), [odometer, setOdometer] = useState(""), [severity, setSeverity] = useState("MINOR"), [notes, setNotes] = useState(""), [unsafe, setUnsafe] = useState(false), [photos, setPhotos] = useState<DraftMedia[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState(""), [ready, setReady] = useState(false), [dirty, setDirty] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
   const flight = useRef(false), generation = useRef(0);
   const vehicleId = driver.vehicle?.id || "";
   const binding = { driverId: driver.id, kind: "VEHICLE_CHECK" as const, vehicleId };
@@ -38,14 +39,20 @@ export default function VehiclePage() {
   }, [driver.id, vehicleId, refresh]);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [dirty]);
   const locked = draft?.phase === "PENDING_SUBMISSION" || draft?.phase === "NEEDS_REVIEW";
-  function changed() { setDirty(true); setMessage("Changes are not saved yet. Save this draft before leaving."); }
+  useEffect(() => { setConfirmation(""); }, [driver.id, vehicleId]);
+  function changed() { setConfirmation(""); setDirty(true); setMessage("Changes are not saved yet. Save this draft before leaving."); }
+  function confirmed(check: Check) {
+    setDraft(null); setItems({}); setNotes(""); setOdometer(""); setSeverity("MINOR"); setUnsafe(false); setPhotos([]); setDirty(false); setMessage("");
+    const time = new Date(check.createdAt).toLocaleString("en-GB", { timeZone: "Europe/London" });
+    setConfirmation(`Vehicle check submitted successfully. Confirmed at ${time} (UK time). It is listed under Recent checks below.`);
+  }
   async function save() {
     const row = await saveDriverDraft({ ...binding, fields: { items, odometer, notes, severity, checklistVersion: 2, unsafeToDrive: unsafe }, photos, capturedAt: new Date().toISOString() }, draft?.revision ?? null);
     setDraft(row); setDirty(false); setMessage("Draft saved on this device. Dispatch has not received it yet."); return row;
   }
   async function run(submit: boolean) {
     if (flight.current || !vehicleId || !ready) return;
-    flight.current = true; setBusy(true); setError("");
+    flight.current = true; setBusy(true); setError(""); setMessage(""); setConfirmation("");
     let row: DriverDraft | null = draft;
     try {
       if (!submit) { await save(); return; }
@@ -61,7 +68,7 @@ export default function VehiclePage() {
       const current = await refresh();
       if (current.vehicle?.id !== row.vehicleId) throw new DriverRequestError("Dispatch changed your van. This draft needs review before sending.", 409);
       const receipt = current.checks.find(check => check.requestId === row!.requestId);
-      if (receipt) { await confirmDriverDraft(row.id, driver.id, row.requestId); setDraft(null); setItems({}); setNotes(""); setPhotos([]); setMessage("Vehicle check confirmed by the server."); return; }
+      if (receipt) { await confirmDriverDraft(row.id, driver.id, row.requestId); confirmed(receipt); return; }
       for (const photo of row.photos) {
         if (photo.uploadedUrl) continue;
         const form = new FormData(); form.set("vehicleId", row.vehicleId!); form.set("requestId", photo.id); form.set("file", photo.blob, photo.name);
@@ -71,7 +78,7 @@ export default function VehiclePage() {
       }
       const result = await request<{ check: Check; message: string }>("/api/driver/jobs/vehicle/checks", { method: "POST", body: JSON.stringify({ ...row.fields, vehicleId: row.vehicleId, requestId: row.requestId, capturedAt: row.capturedAt, photoUrls: row.photos.map(photo => photo.uploadedUrl) }) });
       if (result.check.requestId !== row.requestId) throw new Error("Unable to confirm this exact check. Keep the saved draft and retry.");
-      await confirmDriverDraft(row.id, driver.id, row.requestId); setDraft(null); setItems({}); setNotes(""); setOdometer(""); setUnsafe(false); setPhotos([]); setDirty(false); setMessage(result.message); await refresh(); await refreshSession();
+      await confirmDriverDraft(row.id, driver.id, row.requestId); confirmed(result.check); await refresh(); await refreshSession();
     } catch (failure) {
       const text = failure instanceof Error ? failure.message : "Unable to save this check."; setError(text);
       if (row?.phase === "PENDING_SUBMISSION" && failure instanceof DriverRequestError && [400, 403, 404, 409, 422].includes(failure.status)) setDraft(await markDraftNeedsReview(row.id, driver.id, row.requestId, text));
@@ -80,7 +87,7 @@ export default function VehiclePage() {
   async function addPhotos(files: FileList | null) { try { if (!files) return; const additions = Array.from(files).map(file => createDraftMedia(file, file.name)); if (photos.length + additions.length > 8) throw new Error("Use up to eight photos."); setPhotos([...photos, ...additions]); changed(); } catch (failure) { setError(failure instanceof Error ? failure.message : "Unable to add photos."); } }
   return <div className="space-y-5"><div><h1 className="text-2xl font-bold text-[#071D49]">Your vehicle</h1><p className="mt-1 text-sm text-slate-600">Dispatch assigns your van. Report defects before starting work.</p></div>
     <Link href="/driver/handovers" className="inline-flex min-h-12 items-center rounded-xl bg-[#071D49] px-5 py-3 font-semibold text-white">Vehicle handovers & returns →</Link>
-    {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}{message && <p role="status" className="rounded-xl bg-blue-50 p-4 text-blue-900">{message}</p>}
+    {!vehicleId && error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
     {!vehicleId ? <div className="rounded-2xl bg-white p-5">No vehicle assigned. Call dispatch to arrange a van.</div> : <>
       <section className="rounded-2xl border bg-white p-5"><h2 className="text-lg font-bold">{driver.vehicle?.name}</h2><p className="text-slate-600">{driver.vehicle?.registration || "Registration not recorded"}</p>{data?.vehicle?.mileage != null && <p className="mt-2 text-sm">Recorded mileage: {data.vehicle.mileage.toLocaleString()}</p>}</section>
       {data?.unresolvedDefects.map(defect => <div key={defect.id} className={`rounded-xl p-4 ${defect.unsafeToDrive ? "bg-red-50 text-red-900" : "bg-amber-50 text-amber-900"}`}><p className="font-bold">{defect.unsafeToDrive ? "Unsafe defect — do not drive this van" : "Open vehicle defect"}</p><p className="mt-1">{defect.notes}</p><p className="mt-2 text-sm">{defect.dispatchResponse || "Awaiting dispatch review"}</p></div>)}
@@ -94,6 +101,8 @@ export default function VehiclePage() {
           {photos.map(photo => <div key={photo.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3"><span className="truncate text-sm">{photo.name}</span><button type="button" onClick={() => { setPhotos(photos.filter(item => item.id !== photo.id)); changed(); }} className="min-h-11 px-3 text-red-700">Remove</button></div>)}
         </fieldset>
         {locked ? <p className="text-sm text-amber-900">{draft?.phase === "NEEDS_REVIEW" ? draft.reviewMessage : "Saved submission pending server confirmation. Its contents are locked for a safe retry."}</p> : <button disabled={busy || !ready} onClick={() => void run(false)} className="min-h-12 rounded-xl border px-5 py-3 font-semibold">Save draft on device</button>}
+        {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 font-semibold text-red-800">{error}</p>}
+        {confirmation ? <div role="status" aria-live="polite" className="rounded-xl border border-green-300 bg-green-50 p-4 text-green-900"><p className="font-bold">✓ Vehicle check submitted</p><p className="mt-1 text-sm">{confirmation}</p></div> : message && <p role="status" className="rounded-xl bg-blue-50 p-4 text-blue-900">{message}</p>}
         <button disabled={busy || !ready || draft?.phase === "NEEDS_REVIEW"} onClick={() => void run(true)} className={`${button} w-full`}>{busy ? "Saving…" : locked ? "Send saved check" : "Submit vehicle check"}</button>
       </section>
       <section className="rounded-2xl border bg-white p-5"><div className="flex items-center justify-between"><h2 className="font-bold">Recent checks</h2><button disabled={!online || busy} onClick={() => void refresh().catch(failure => setError(failure.message))} className="min-h-11 px-3 text-blue-700">Refresh</button></div><p className="text-xs text-slate-500">Most recent 20 checks. Offline records may be out of date.</p>{data?.checks.map(check => <div key={check.id} className="mt-3 border-t pt-3"><p className="text-sm font-semibold">{check.checkDate} · {check.unsafeToDrive ? "Unsafe defect" : check.hasDefect ? "Defect reported" : "Check recorded"}</p><p className="text-sm text-slate-600">{check.notes}</p>{check.dispatchResponse && <p className="mt-1 text-sm text-blue-800">Dispatch: {check.dispatchResponse}</p>}</div>)}</section>
