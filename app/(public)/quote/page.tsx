@@ -1,4 +1,5 @@
 "use client";
+import { QuoteAvailabilityGate } from "@/components/QuoteAvailability";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
 import VehicleDetailsModal from "@/components/VehicleDetailsModal";
@@ -331,9 +332,11 @@ function setFormField(
 
 export default function QuotePage() {
   return (
-    <Suspense fallback={<QuotePageLoading />}>
-      <QuotePageForm />
-    </Suspense>
+    <QuoteAvailabilityGate>
+      <Suspense fallback={<QuotePageLoading />}>
+        <QuotePageForm />
+      </Suspense>
+    </QuoteAvailabilityGate>
   );
 }
 

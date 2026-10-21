@@ -48,7 +48,7 @@ export default function Hero() {
               <div className="max-w-3xl">
                 <p className="mb-2 text-xs font-bold uppercase tracking-widest text-amber-800">Website maintenance</p>
                 <h2 id="homepage-maintenance-title" className="text-xl font-bold leading-snug text-[#071D49] sm:text-2xl">
-                  call to get a quote site under maintance temporarily
+                  Online quotes are temporarily unavailable
                 </h2>
                 <p className="mt-3 text-base leading-7 text-[#071D49]/80">
                   You can still browse our services. Call our team for a quote while online quoting is temporarily unavailable.
