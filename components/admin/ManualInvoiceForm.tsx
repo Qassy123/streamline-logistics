@@ -1,4 +1,5 @@
 "use client";
+import { TRADE_PAYMENT_TERMS } from "@/lib/billingPolicy";
 
 import { useEffect, useState } from "react";
 import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
@@ -59,7 +60,7 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
     userId: invoice?.userId || "", recipientName: snapshot?.recipientName || "", recipientEmail: snapshot?.recipientEmail || "",
     recipientAddress: snapshot?.recipientAddress || "", recipientPhone: snapshot?.recipientPhone || "",
     invoiceDate: initialDate, supplyDate: invoice?.supplyDate?.slice(0, 10) || initialDate,
-    dueDate: invoice?.dueDate?.slice(0, 10) || addDays(initialDate, 30),
+    dueDate: invoice?.dueDate ? new Date(invoice.dueDate).toLocaleDateString("en-CA", { timeZone: "Europe/London" }) : addDays(initialDate, 30),
     paymentTerms: invoice?.paymentTerms || "30 days", customerReference: invoice?.customerReference || "",
     purchaseOrderNumber: invoice?.purchaseOrderNumber || "", notes: invoice?.notes || "",
   });
@@ -107,7 +108,9 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
     return () => controller.abort();
   }, [apiBase, adminKey, invoice, reload]);
 
-  function update(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })); }
+  function update(field: keyof typeof form, value: string) {
+    setForm(current => { const next = { ...current, [field]: value }; const account = customers.find(c => c.id === next.userId); if (account && ["BUSINESS", "TRADE"].includes(account.accountType) && ["invoiceDate", "dueDate", "paymentTerms"].includes(field)) { next.paymentTerms = account.accountType === "TRADE" ? TRADE_PAYMENT_TERMS : "Due immediately"; next.dueDate = account.accountType === "TRADE" ? `${next.invoiceDate.slice(0, 7)}-15` : next.invoiceDate; } return next; });
+  }
   function selectCustomer(userId: string) {
     const customer = customers.find((item) => item.id === userId);
     if (!customer) {
@@ -115,13 +118,14 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
       return;
     }
     const trade = customer.accountType === "TRADE" ? customer.tradeAccount : null;
-    const days = customer.billingProfile?.paymentTermsDays ?? trade?.paymentTermsDays ?? defaultTermsDays;
+    const isTrade = customer.accountType === "TRADE";
+    const privateDays = customer.billingProfile?.paymentTermsDays ?? defaultTermsDays;
     const customerAddress = [customer.registeredAddressLine1, customer.registeredAddressLine2, customer.registeredTownCity, customer.registeredCounty, customer.registeredPostcode, customer.registeredCountry].filter(Boolean).join(", ");
     const tradeAddress = trade ? [trade.registeredAddressLine1, trade.registeredAddressLine2, trade.registeredTownCity, trade.registeredCounty, trade.registeredPostcode, trade.registeredCountry].filter(Boolean).join(", ") : "";
     setForm((current) => ({ ...current, userId, recipientName: customer.companyName || trade?.companyName || customer.name,
       recipientEmail: trade?.invoiceDeliveryEmail || customer.billingProfile?.accountsEmail || trade?.accountsEmail || customer.accountsEmail || customer.email, recipientPhone: trade?.accountsPhone || customer.phone || trade?.primaryMobile || customer.alternativeContactNumber || "",
       recipientAddress: customerAddress || tradeAddress,
-      paymentTerms: `${days} days`, dueDate: addDays(current.invoiceDate, days),
+      paymentTerms: isTrade ? TRADE_PAYMENT_TERMS : customer.accountType === "BUSINESS" ? "Due immediately" : `${privateDays} days`, dueDate: isTrade ? `${current.invoiceDate.slice(0, 7)}-15` : customer.accountType === "BUSINESS" ? current.invoiceDate : addDays(current.invoiceDate, privateDays),
     }));
   }
   function updateLine(index: number, field: keyof Line, value: string) { setLines((current) => current.map((line, i) => i === index ? { ...line, [field]: value } : line)); }
@@ -177,7 +181,7 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
               <label className="text-sm font-bold text-slate-700">Phone<input maxLength={50} value={form.recipientPhone} onChange={(e) => update("recipientPhone", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Invoice date<input required type="date" value={form.invoiceDate} onChange={(e) => update("invoiceDate", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Supply / service date<input required type="date" value={form.supplyDate} onChange={(e) => update("supplyDate", e.target.value)} className={fieldClass} /></label>
-              <label className="text-sm font-bold text-slate-700">Due date<input required type="date" min={form.invoiceDate} value={form.dueDate} onChange={(e) => update("dueDate", e.target.value)} className={fieldClass} /></label>
+              <label className="text-sm font-bold text-slate-700">Due date<input required type="date" min={customers.find(c => c.id === form.userId)?.accountType === "TRADE" ? undefined : form.invoiceDate} value={form.dueDate} onChange={(e) => update("dueDate", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Payment terms<input required maxLength={150} value={form.paymentTerms} onChange={(e) => update("paymentTerms", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Customer reference<input maxLength={100} value={form.customerReference} onChange={(e) => update("customerReference", e.target.value)} className={fieldClass} /></label>
               <label className="text-sm font-bold text-slate-700">Purchase order / order reference<input maxLength={100} value={form.purchaseOrderNumber} onChange={(e) => update("purchaseOrderNumber", e.target.value)} className={fieldClass} /></label>

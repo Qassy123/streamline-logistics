@@ -1,3 +1,4 @@
+import { renderInvoicePdf } from "../lib/invoicePdf";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
@@ -396,6 +397,7 @@ router.post("/business", async (req, res) => {
     const guestQuotes = await prisma.quote.findMany({
       where: {
         userId: null,
+        archivedCustomerId: null,
         customerEmail: {
           equals: email,
           mode: "insensitive",
@@ -416,6 +418,7 @@ router.post("/business", async (req, res) => {
               in: guestQuoteIds,
             },
             userId: null,
+        archivedCustomerId: null,
           },
           data: {
             userId: user.id,
@@ -424,6 +427,7 @@ router.post("/business", async (req, res) => {
         prisma.booking.updateMany({
           where: {
             userId: null,
+        archivedCustomerId: null,
             quoteId: {
               in: guestQuoteIds,
             },
@@ -435,6 +439,7 @@ router.post("/business", async (req, res) => {
         prisma.payment.updateMany({
           where: {
             userId: null,
+        archivedCustomerId: null,
             booking: {
               quoteId: {
                 in: guestQuoteIds,
@@ -448,6 +453,7 @@ router.post("/business", async (req, res) => {
         prisma.invoice.updateMany({
           where: {
             userId: null,
+        archivedCustomerId: null,
             booking: {
               quoteId: {
                 in: guestQuoteIds,
@@ -464,7 +470,7 @@ router.post("/business", async (req, res) => {
     if (quoteId) {
       await prisma.quote.updateMany({
         where: {
-          id: quoteId,
+          id: quoteId, userId: null, archivedCustomerId: null, customerEmail: { equals: email, mode: "insensitive" },
         },
         data: {
           userId: user.id,
@@ -479,7 +485,7 @@ router.post("/business", async (req, res) => {
 
       await prisma.booking.updateMany({
         where: {
-          quoteId,
+          quoteId, userId: null, archivedCustomerId: null, quote: { is: { userId: user.id, archivedCustomerId: null } },
         },
         data: {
           userId: user.id,
@@ -488,8 +494,9 @@ router.post("/business", async (req, res) => {
 
       await prisma.payment.updateMany({
         where: {
+          userId: null, archivedCustomerId: null,
           booking: {
-            quoteId,
+            quoteId, archivedCustomerId: null, userId: user.id, quote: { is: { userId: user.id, archivedCustomerId: null } },
           },
         },
         data: {
@@ -499,8 +506,9 @@ router.post("/business", async (req, res) => {
 
       await prisma.invoice.updateMany({
         where: {
+          userId: null, archivedCustomerId: null,
           booking: {
-            quoteId,
+            quoteId, archivedCustomerId: null, userId: user.id, quote: { is: { userId: user.id, archivedCustomerId: null } },
           },
         },
         data: {
@@ -620,6 +628,15 @@ router.post("/logout", async (req, res) => {
       error: "Failed to log out.",
     });
   }
+});
+
+router.get("/me/invoices/:id/pdf", async (req, res) => {
+  const user = await getAuthenticatedUser(req);
+  if (!user || user.accountStatus !== "ACTIVE") return res.status(401).json({ error: "Please log in." });
+  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, userId: user.id, archivedCustomerId: null, status: { not: "DRAFT" } }, include: { user: true, adjustments: true, lines: true, invoiceBookings: true, allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true, booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } });
+  if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  try { const buffer = await renderInvoicePdf(invoice); res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer); }
+  catch { res.status(500).json({ error: "Unable to render invoice PDF." }); }
 });
 
 router.get("/me", async (req, res) => {

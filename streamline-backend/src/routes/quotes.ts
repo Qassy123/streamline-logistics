@@ -1,3 +1,4 @@
+import { quoteMaintenance } from "../lib/quoteMaintenance";
 import crypto from "crypto";
 import { Router } from "express";
 import { departmentEmail, departmentSender, emailLayout } from "../lib/email";
@@ -7,6 +8,7 @@ import { calculateQuotePrice } from "../lib/pricing";
 import { calculateGoogleRoute, geocodeGoogleAddress } from "../lib/googleMaps";
 
 const router = Router();
+router.use(quoteMaintenance);
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -1162,6 +1164,7 @@ router.patch("/admin/:id", async (req, res) => {
 router.get("/", async (_, res) => {
   try {
     const quotes = await prisma.quote.findMany({
+      where: { archivedCustomerId: null },
       orderBy: {
         createdAt: "desc",
       },
@@ -1185,7 +1188,7 @@ router.get("/:id", async (req, res) => {
       },
     });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({
         error: "Quote not found",
       });

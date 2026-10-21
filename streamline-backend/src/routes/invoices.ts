@@ -1,8 +1,10 @@
+import { invoiceTerms, tradeMonth } from "../lib/billingPolicy";
+import { processMonthlyTradeBilling } from "../lib/monthlyTradeBilling";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { departmentEmail, departmentSender, emailLayout } from "../lib/email";
 import { prisma } from "../lib/prisma";
-import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer } from "../lib/invoicePdf";
+import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer, renderInvoicePdf } from "../lib/invoicePdf";
 
 import { getManualInvoiceDetails, parseManualInvoiceInput } from "../lib/manualInvoice";
 
@@ -72,6 +74,7 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) {
 function invoiceInclude() {
   return {
     user: true,
+    payments: true,
     adjustments: { orderBy: { createdAt: "asc" } },
     lines: { orderBy: { createdAt: "asc" } },
     invoiceBookings: { orderBy: { bookingDate: "asc" } },
@@ -140,7 +143,8 @@ async function sendInvoiceEmail(input: {
 
   const dueText = input.dueDate
     ? new Intl.DateTimeFormat("en-GB", {
-        day: "2-digit",
+        timeZone: "Europe/London",
+    day: "2-digit",
         month: "short",
         year: "numeric",
       }).format(input.dueDate)
@@ -284,6 +288,7 @@ async function sendInvoiceReminderEmail(input: {
         ? "Invoice due today"
         : "Invoice due soon";
   const dueText = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -332,6 +337,16 @@ async function sendInvoiceReminderEmail(input: {
 
   return payload.id || null;
 }
+
+router.get("/admin/:id/pdf", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
+    if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+    const buffer = await renderInvoicePdf(invoice);
+    res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer);
+  } catch { res.status(500).json({ error: "Unable to render invoice PDF." }); }
+});
 
 router.get("/admin/list", async (req, res) => {
   const admin = requireAdmin(req);
@@ -534,7 +549,10 @@ router.post("/admin/manual", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const input = parseManualInvoiceInput(req.body);
+    const selectedCustomerId = getString(req.body.userId);
+    const billingCustomer = selectedCustomerId ? await prisma.user.findUnique({ where: { id: selectedCustomerId }, select: { accountType: true } }) : null;
+    const input = parseManualInvoiceInput(req.body, billingCustomer?.accountType === "TRADE");
+    if (billingCustomer && ["BUSINESS", "TRADE"].includes(billingCustomer.accountType)) Object.assign(input, invoiceTerms(billingCustomer.accountType, input.invoiceDate));
     const requestId = getString(req.body.requestId);
     if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) return res.status(400).json({ error: "Manual invoice request ID is missing. Reopen the form and try again." });
     const existingRequest = await prisma.invoiceAuditEvent.findFirst({ where: { eventType: "MANUAL_INVOICE_CREATED", metadata: { path: ["requestId"], equals: requestId } } });
@@ -574,7 +592,10 @@ router.patch("/admin/:id/manual", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const input = parseManualInvoiceInput(req.body);
+    const selectedCustomerId = getString(req.body.userId);
+    const billingCustomer = selectedCustomerId ? await prisma.user.findUnique({ where: { id: selectedCustomerId }, select: { accountType: true } }) : null;
+    const input = parseManualInvoiceInput(req.body, billingCustomer?.accountType === "TRADE");
+    if (billingCustomer && ["BUSINESS", "TRADE"].includes(billingCustomer.accountType)) Object.assign(input, invoiceTerms(billingCustomer.accountType, input.invoiceDate));
     if (input.userId && !(await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true } }))) return res.status(400).json({ error: "Customer account does not exist." });
     const invoice = await prisma.$transaction(async (tx) => {
       const existing = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
@@ -660,64 +681,17 @@ router.post("/admin/draft", async (req, res) => {
       });
     }
 
-    // Trade accounts are billed as a 30-day cycle. When more than one
-    // completed, uninvoiced booking falls inside the same cycle, the draft is
-    // automatically consolidated. A single eligible booking remains a normal
-    // single invoice.
-    let cycleBookings = [
-      {
-        id: booking.id,
-        totalPrice: booking.totalPrice,
-        reference: booking.reference,
-        collectionDate: booking.collectionDate,
-        purchaseOrderNumber: booking.purchaseOrderNumber,
-        collectionAddress: booking.collectionAddress,
-        deliveryAddress: booking.deliveryAddress,
-        vehicleType: booking.vehicleType,
-        journeyType: booking.journeyType,
-      },
-    ];
-
-    if (booking.user?.accountType === "TRADE" && booking.userId) {
-      const cycleEnd = new Date(booking.collectionDate);
-      cycleEnd.setUTCHours(23, 59, 59, 999);
-
-      const cycleStart = new Date(cycleEnd);
-      cycleStart.setUTCDate(cycleStart.getUTCDate() - 29);
-      cycleStart.setUTCHours(0, 0, 0, 0);
-
-      const tradeBookings = await prisma.booking.findMany({
-        where: {
-          userId: booking.userId,
-          status: "COMPLETED",
-          collectionDate: {
-            gte: cycleStart,
-            lte: cycleEnd,
-          },
-          invoices: { none: {} },
-          invoiceBookings: { none: {} },
-        },
-        select: {
-          id: true,
-          totalPrice: true,
-          reference: true,
-          collectionDate: true,
-          purchaseOrderNumber: true,
-          collectionAddress: true,
-          deliveryAddress: true,
-          vehicleType: true,
-          journeyType: true,
-        },
-        orderBy: [{ collectionDate: "asc" }, { createdAt: "asc" }],
-      });
-
-      if (tradeBookings.some((item) => item.id === booking.id)) {
-        cycleBookings = tradeBookings;
-      }
+    if (booking.user?.accountType === "TRADE") {
+      const month = tradeMonth(booking.createdAt);
+      if (month.issueDate > new Date()) return res.status(409).json({ error: "Trade bookings are invoiced on the 1st of the following month, payable by the 15th." });
+      const processed = await processMonthlyTradeBilling();
+      const invoice = await prisma.invoice.findFirst({ where: { OR: [{ bookingId }, { invoiceBookings: { some: { bookingId } } }] }, include: invoiceInclude() });
+      if (!invoice) return res.status(409).json({ error: processed.failures[0]?.error || "This booking is not eligible for monthly billing." });
+      return res.json({ success: true, invoice });
     }
+    const cycleBookings = [booking];
 
-    const shouldConsolidate =
-      booking.user?.accountType === "TRADE" && cycleBookings.length > 1;
+    const shouldConsolidate = false;
 
     const result = await prisma.$transaction(async (transaction) => {
       const settings = await transaction.companySettings.findFirst();
@@ -733,15 +707,7 @@ router.post("/admin/draft", async (req, res) => {
         settings.nextInvoiceNumber,
       ).padStart(6, "0")}`;
 
-      const paymentTermsDays =
-        booking.user?.accountType === "TRADE"
-          ? booking.user.billingProfile?.paymentTermsDays ??
-            booking.user.tradeAccount?.paymentTermsDays ??
-            settings.paymentTermsDays
-          : settings.paymentTermsDays;
-
-      const dueDate = new Date();
-      dueDate.setUTCDate(dueDate.getUTCDate() + paymentTermsDays);
+      const { paymentTerms, dueDate } = invoiceTerms(booking.user?.accountType, new Date(), { paymentTerms: `${settings.paymentTermsDays} days`, dueDate: new Date(Date.now() + settings.paymentTermsDays * 86400000) });
 
       if (shouldConsolidate) {
         let subtotal = new Prisma.Decimal(0);
@@ -774,7 +740,7 @@ router.post("/admin/draft", async (req, res) => {
             vatAmount: roundMoney(vatAmount),
             total: roundMoney(total),
             dueDate,
-            paymentTerms: `${paymentTermsDays} days`,
+            paymentTerms,
           },
         });
 
@@ -854,7 +820,7 @@ router.post("/admin/draft", async (req, res) => {
           vatAmount,
           total,
           dueDate,
-          paymentTerms: `${paymentTermsDays} days`,
+          paymentTerms,
           customerReference: booking.customerReference,
           purchaseOrderNumber: booking.purchaseOrderNumber,
         },
@@ -1384,6 +1350,7 @@ router.post("/admin/:id/send", async (req, res) => {
 
       const finalisedAt = new Date();
       const issuedAt = invoice.issuedAt || finalisedAt;
+      const terms = invoiceTerms(invoice.user?.accountType, issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
       const supplyDate =
         invoice.supplyDate ||
         invoice.booking?.collectionDate ||
@@ -1394,6 +1361,7 @@ router.post("/admin/:id/send", async (req, res) => {
         invoice: {
           ...invoice,
           status: "FINALISED",
+          ...terms,
           finalisedAt,
           issuedAt,
           supplyDate,
@@ -1420,6 +1388,7 @@ router.post("/admin/:id/send", async (req, res) => {
           where: { id: invoice!.id },
           data: {
             status: "FINALISED",
+            ...terms,
             finalisedAt,
             issuedAt,
             supplyDate,
@@ -1639,9 +1608,9 @@ router.patch("/admin/:id", async (req, res) => {
         .json({ error: "Invoice total must be zero or greater." });
     }
 
-    const nextStatus = statusValue
-      ? (statusValue as InvoiceStatusValue)
-      : undefined;
+    if (statusValue && statusValue !== existingInvoice.status) return res.status(409).json({ error: "Use Finalise, Unfinalise or Record payment to change invoice status." });
+    const nextStatus = statusValue ? existingInvoice.status : undefined;
+    const account = existingInvoice.userId ? await prisma.user.findUnique({ where: { id: existingInvoice.userId }, select: { accountType: true } }) : null;
 
     const invoice = await prisma.invoice.update({
       where: { id: req.params.id },
@@ -1660,6 +1629,7 @@ router.patch("/admin/:id", async (req, res) => {
               ? new Date(dueDateValue)
               : null
             : undefined,
+        ...(account?.accountType === "BUSINESS" && financialEditRequested ? invoiceTerms("BUSINESS", existingInvoice.issuedAt || new Date()) : {}),
         paidAt:
           nextStatus === "PAID"
             ? existingInvoice.paidAt || new Date()
@@ -1724,6 +1694,8 @@ router.post("/admin", async (req, res) => {
       });
     }
 
+    const account = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { accountType: true } }) : null;
+    if (account?.accountType === "TRADE") return res.status(409).json({ error: "Use monthly trade billing for this account." });
     const invoice = await prisma.invoice.create({
       data: {
         invoiceNumber,
@@ -1733,7 +1705,7 @@ router.post("/admin", async (req, res) => {
         subtotal,
         vatAmount,
         total,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        ...invoiceTerms(account?.accountType, new Date(), { dueDate: dueDate ? new Date(dueDate) : null, paymentTerms: null }),
       },
       include: invoiceInclude(),
     });
@@ -1769,7 +1741,9 @@ router.get("/admin/billing-profile/:userId", async (req, res) => {
       data: {
         userId: user.id,
         paymentMode: user.accountType === "TRADE" ? "PAY_LATER" : "PAY_NOW",
-        paymentTermsDays: user.tradeAccount?.paymentTermsDays ?? 30,
+        paymentTermsDays: user.accountType === "TRADE" ? 14 : user.accountType === "BUSINESS" ? 0 : 30,
+        invoiceMode: user.accountType === "TRADE" ? "CONSOLIDATED" : "PER_BOOKING",
+        billingFrequency: user.accountType === "TRADE" ? "MONTHLY" : "PER_BOOKING",
         accountsEmail: user.tradeAccount?.accountsEmail || user.accountsEmail || user.email,
         creditLimit: user.tradeAccount?.creditLimit,
         creditFacilityOnHold: user.tradeAccount?.creditFacilityOnHold ?? false,
@@ -1787,7 +1761,10 @@ router.patch("/admin/billing-profile/:userId", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const paymentTermsDays = getPositiveInteger(req.body.paymentTermsDays, 30);
+    const account = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { accountType: true } });
+    if (!account) return res.status(404).json({ error: "Customer not found." });
+    const isTrade = account.accountType === "TRADE";
+    const paymentTermsDays = isTrade ? 14 : 0;
     const invoiceDayOfWeek = req.body.invoiceDayOfWeek == null ? null : Number(req.body.invoiceDayOfWeek);
     const invoiceDayOfMonth = req.body.invoiceDayOfMonth == null ? null : Number(req.body.invoiceDayOfMonth);
     if (invoiceDayOfWeek != null && (invoiceDayOfWeek < 0 || invoiceDayOfWeek > 6)) return res.status(400).json({ error: "Invoice day of week must be 0 to 6." });
@@ -1796,18 +1773,18 @@ router.patch("/admin/billing-profile/:userId", async (req, res) => {
       where: { userId: req.params.userId },
       create: {
         userId: req.params.userId,
-        paymentMode: req.body.paymentMode === "PAY_LATER" ? "PAY_LATER" : "PAY_NOW",
-        invoiceMode: req.body.invoiceMode === "CONSOLIDATED" ? "CONSOLIDATED" : "PER_BOOKING",
-        billingFrequency: ["WEEKLY", "MONTHLY"].includes(req.body.billingFrequency) ? req.body.billingFrequency : "PER_BOOKING",
+        paymentMode: isTrade ? "PAY_LATER" : "PAY_NOW",
+        invoiceMode: isTrade ? "CONSOLIDATED" : "PER_BOOKING",
+        billingFrequency: isTrade ? "MONTHLY" : "PER_BOOKING",
         invoiceDayOfWeek, invoiceDayOfMonth, paymentTermsDays,
         accountsEmail: getOptionalString(req.body.accountsEmail), poRequired: Boolean(req.body.poRequired),
         creditLimit: getNumber(req.body.creditLimit), creditFacilityOnHold: Boolean(req.body.creditFacilityOnHold),
         holdReason: getOptionalString(req.body.holdReason),
       },
       update: {
-        paymentMode: req.body.paymentMode === "PAY_LATER" ? "PAY_LATER" : "PAY_NOW",
-        invoiceMode: req.body.invoiceMode === "CONSOLIDATED" ? "CONSOLIDATED" : "PER_BOOKING",
-        billingFrequency: ["WEEKLY", "MONTHLY"].includes(req.body.billingFrequency) ? req.body.billingFrequency : "PER_BOOKING",
+        paymentMode: isTrade ? "PAY_LATER" : "PAY_NOW",
+        invoiceMode: isTrade ? "CONSOLIDATED" : "PER_BOOKING",
+        billingFrequency: isTrade ? "MONTHLY" : "PER_BOOKING",
         invoiceDayOfWeek, invoiceDayOfMonth, paymentTermsDays,
         accountsEmail: getOptionalString(req.body.accountsEmail), poRequired: Boolean(req.body.poRequired),
         creditLimit: getNumber(req.body.creditLimit), creditFacilityOnHold: Boolean(req.body.creditFacilityOnHold),
@@ -1823,291 +1800,9 @@ router.patch("/admin/billing-profile/:userId", async (req, res) => {
 
 
 router.post("/admin/process-billing-cycles", async (req, res) => {
-  const admin = requireAdmin(req);
-  if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
-  }
-
-  try {
-    const now = new Date();
-    const cycleCutoff = new Date(now);
-    cycleCutoff.setUTCDate(cycleCutoff.getUTCDate() - 30);
-
-    const eligibleBookings = await prisma.booking.findMany({
-      where: {
-        status: "COMPLETED",
-        userId: { not: null },
-        user: {
-          is: {
-            accountType: "TRADE",
-          },
-        },
-        invoiceBookings: { none: {} },
-        invoices: { none: {} },
-      },
-      include: {
-        user: {
-          include: {
-            billingProfile: true,
-            tradeAccount: true,
-          },
-        },
-      },
-      orderBy: [{ userId: "asc" }, { collectionDate: "asc" }],
-    });
-
-    const byCustomer = new Map<string, typeof eligibleBookings>();
-
-    for (const booking of eligibleBookings) {
-      if (!booking.userId || !booking.user) continue;
-
-      const paymentMode =
-        booking.user.billingProfile?.paymentMode ?? "PAY_LATER";
-
-      if (paymentMode !== "PAY_LATER") continue;
-
-      const current = byCustomer.get(booking.userId) ?? [];
-      current.push(booking);
-      byCustomer.set(booking.userId, current);
-    }
-
-    const created: Array<{
-      invoiceId: string;
-      invoiceNumber: string;
-      userId: string;
-      bookingCount: number;
-      total: string;
-      invoiceType: string;
-    }> = [];
-    const skipped: Array<{ userId: string; reason: string }> = [];
-    const failures: Array<{ userId: string; error: string }> = [];
-
-    for (const [userId, bookings] of byCustomer.entries()) {
-      const oldestBooking = bookings[0];
-
-      if (!oldestBooking || oldestBooking.collectionDate > cycleCutoff) {
-        skipped.push({
-          userId,
-          reason: "The current 30-day billing cycle has not closed yet.",
-        });
-        continue;
-      }
-
-      const user = oldestBooking.user;
-      if (!user) continue;
-
-      if (
-        user.billingProfile?.poRequired &&
-        bookings.some((booking) => !booking.purchaseOrderNumber)
-      ) {
-        skipped.push({
-          userId,
-          reason: "One or more bookings are missing a required PO/order reference.",
-        });
-        continue;
-      }
-
-      try {
-        const result = await prisma.$transaction(async (tx) => {
-          const bookingIds = bookings.map((booking) => booking.id);
-
-          const stillEligible = await tx.booking.findMany({
-            where: {
-              id: { in: bookingIds },
-              status: "COMPLETED",
-              invoiceBookings: { none: {} },
-              invoices: { none: {} },
-            },
-            orderBy: { collectionDate: "asc" },
-          });
-
-          if (!stillEligible.length) {
-            return null;
-          }
-
-          const settings = await tx.companySettings.findFirst();
-          if (!settings) {
-            throw new Error(
-              "Company settings must be configured before invoices can be created.",
-            );
-          }
-
-          const vatRate = new Prisma.Decimal(settings.vatRate);
-          const invoiceNumber = `${settings.invoicePrefix}-${String(
-            settings.nextInvoiceNumber,
-          ).padStart(6, "0")}`;
-
-          let subtotal = new Prisma.Decimal(0);
-          let vatAmount = new Prisma.Decimal(0);
-          let total = new Prisma.Decimal(0);
-
-          const amounts = stillEligible.map((booking) => {
-            const gross = roundMoney(new Prisma.Decimal(booking.totalPrice));
-            const net = vatRate.greaterThan(0)
-              ? roundMoney(
-                  gross.div(
-                    new Prisma.Decimal(1).add(vatRate.div(100)),
-                  ),
-                )
-              : gross;
-            const vat = roundMoney(gross.sub(net));
-
-            subtotal = subtotal.add(net);
-            vatAmount = vatAmount.add(vat);
-            total = total.add(gross);
-
-            return { booking, net, vat, gross };
-          });
-
-          const paymentTermsDays =
-            user.billingProfile?.paymentTermsDays ??
-            user.tradeAccount?.paymentTermsDays ??
-            settings.paymentTermsDays;
-
-          const dueDate = new Date(now);
-          dueDate.setUTCDate(dueDate.getUTCDate() + paymentTermsDays);
-
-          const invoice = await tx.invoice.create({
-            data: {
-              invoiceNumber,
-              userId,
-              status: "DRAFT",
-              invoiceType:
-                stillEligible.length > 1 ? "CONSOLIDATED" : "SINGLE",
-              subtotal: roundMoney(subtotal),
-              vatAmount: roundMoney(vatAmount),
-              total: roundMoney(total),
-              dueDate,
-              paymentTerms: `${paymentTermsDays} days`,
-              ...(stillEligible.length === 1
-                ? {
-                    bookingId: stillEligible[0].id,
-                    customerReference:
-                      stillEligible[0].customerReference,
-                    purchaseOrderNumber:
-                      stillEligible[0].purchaseOrderNumber,
-                  }
-                : {}),
-            },
-          });
-
-          for (const item of amounts) {
-            await tx.invoiceBooking.create({
-              data: {
-                invoiceId: invoice.id,
-                bookingId: item.booking.id,
-                bookingReference: item.booking.reference,
-                bookingDate: item.booking.collectionDate,
-                poReference: item.booking.purchaseOrderNumber,
-                routeDescription: `${item.booking.collectionAddress} → ${item.booking.deliveryAddress}`,
-                serviceDescription:
-                  item.booking.vehicleType ||
-                  item.booking.journeyType ||
-                  "Courier service",
-                netAmount: item.net,
-                vatAmount: item.vat,
-                grossAmount: item.gross,
-              },
-            });
-
-            await tx.invoiceLine.create({
-              data: {
-                invoiceId: invoice.id,
-                bookingId: item.booking.id,
-                chargeType: "BASE_SERVICE",
-                description: `Courier service · ${item.booking.reference}`,
-                quantity: new Prisma.Decimal(1),
-                unitPrice: item.net,
-                netAmount: item.net,
-                vatRate,
-                vatAmount: item.vat,
-                grossAmount: item.gross,
-                bookingReference: item.booking.reference,
-                sourceType: "BOOKING",
-                sourceId: item.booking.id,
-              },
-            });
-          }
-
-          await tx.invoiceAuditEvent.create({
-            data: {
-              invoiceId: invoice.id,
-              eventType: "DRAFT_CREATED",
-              description:
-                stillEligible.length > 1
-                  ? `Automatic 30-day consolidated draft created for ${stillEligible.length} bookings.`
-                  : `Automatic 30-day draft created for booking ${stillEligible[0].reference}.`,
-              metadata: {
-                automaticBillingCycle: true,
-                cycleDays: 30,
-                bookingCount: stillEligible.length,
-              },
-            },
-          });
-
-          await tx.companySettings.update({
-            where: { id: settings.id },
-            data: {
-              nextInvoiceNumber: {
-                increment: 1,
-              },
-            },
-          });
-
-          return {
-            invoiceId: invoice.id,
-            invoiceNumber,
-            userId,
-            bookingCount: stillEligible.length,
-            total: roundMoney(total).toFixed(2),
-            invoiceType:
-              stillEligible.length > 1 ? "CONSOLIDATED" : "SINGLE",
-          };
-        });
-
-        if (result) {
-          created.push(result);
-        }
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          skipped.push({
-            userId,
-            reason:
-              "Billing cycle was already processed by another request.",
-          });
-          continue;
-        }
-
-        failures.push({
-          userId,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Unable to create automatic billing-cycle invoice.",
-        });
-      }
-    }
-
-    res.json({
-      success: failures.length === 0,
-      cycleDays: 30,
-      processedAt: now.toISOString(),
-      created,
-      skipped,
-      failures,
-    });
-  } catch (error) {
-    console.error("Automatic billing-cycle processing error:", error);
-    res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to process automatic billing cycles.",
-    });
-  }
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try { res.json(await processMonthlyTradeBilling()); }
+  catch { res.status(500).json({ error: "Unable to process monthly trade billing." }); }
 });
 
 router.get("/admin/billing-queue", async (req, res) => {
@@ -2143,6 +1838,17 @@ router.post("/admin/consolidated-draft", async (req, res) => {
     });
     if (bookings.length !== bookingIds.length) return res.status(400).json({ error: "One or more bookings could not be found." });
     const userId = bookings[0].userId;
+    if (userId) {
+      const customer = await prisma.user.findUnique({ where: { id: userId }, select: { accountType: true } });
+      if (customer?.accountType === "TRADE") {
+        const months = new Set(bookings.map(b => tradeMonth(b.createdAt).key));
+        if (months.size !== 1 || bookings.some(b => tradeMonth(b.createdAt).issueDate > new Date())) return res.status(409).json({ error: "Choose trade bookings made in one closed calendar month." });
+        const processed = await processMonthlyTradeBilling();
+        const invoice = await prisma.invoice.findFirst({ where: { userId, invoiceBookings: { some: { bookingId: bookings[0].id } } }, include: invoiceInclude() });
+        if (!invoice) return res.status(409).json({ error: processed.failures[0]?.error || "Monthly invoice could not be created." });
+        return res.json({ success: true, invoice });
+      }
+    }
     if (!userId || bookings.some((b) => b.userId !== userId)) return res.status(400).json({ error: "Consolidated invoices must contain bookings for one customer account." });
     const user = bookings[0].user;
     if (!user || user.accountType !== "TRADE") return res.status(400).json({ error: "Consolidated billing is only available for trade accounts." });
@@ -2163,8 +1869,8 @@ router.post("/admin/consolidated-draft", async (req, res) => {
         return { booking, net, vat, gross };
       });
       const terms = user.billingProfile?.paymentTermsDays ?? user.tradeAccount?.paymentTermsDays ?? settings.paymentTermsDays;
-      const dueDate = new Date(); dueDate.setUTCDate(dueDate.getUTCDate() + terms);
-      const invoice = await tx.invoice.create({ data: { invoiceNumber, userId, status: "DRAFT", invoiceType: "CONSOLIDATED", subtotal: roundMoney(subtotal), vatAmount: roundMoney(vatAmount), total: roundMoney(total), dueDate, paymentTerms: `${terms} days` } });
+      const { dueDate, paymentTerms } = invoiceTerms(user.accountType, new Date());
+      const invoice = await tx.invoice.create({ data: { invoiceNumber, userId, status: "DRAFT", invoiceType: "CONSOLIDATED", subtotal: roundMoney(subtotal), vatAmount: roundMoney(vatAmount), total: roundMoney(total), dueDate, paymentTerms } });
       for (const item of amounts) {
         await tx.invoiceBooking.create({ data: { invoiceId: invoice.id, bookingId: item.booking.id, bookingReference: item.booking.reference, bookingDate: item.booking.collectionDate, poReference: item.booking.purchaseOrderNumber, routeDescription: `${item.booking.collectionAddress} → ${item.booking.deliveryAddress}`, serviceDescription: item.booking.vehicleType || item.booking.journeyType || "Courier service", netAmount: item.net, vatAmount: item.vat, grossAmount: item.gross } });
         await tx.invoiceLine.create({ data: { invoiceId: invoice.id, bookingId: item.booking.id, chargeType: "BASE_SERVICE", description: `Courier service · ${item.booking.reference}`, quantity: 1, unitPrice: item.net, netAmount: item.net, vatRate, vatAmount: item.vat, grossAmount: item.gross, bookingReference: item.booking.reference, sourceType: "BOOKING", sourceId: item.booking.id } });
@@ -2180,95 +1886,20 @@ router.post("/admin/consolidated-draft", async (req, res) => {
   }
 });
 
-router.post("/admin/:id/reopen", async (req, res) => {
-  const admin = requireAdmin(req);
-  if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
-  }
-
+router.post(["/admin/:id/reopen", "/admin/:id/unfinalise"], async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: req.params.id },
-      include: invoiceInclude(),
-    });
-
-    if (!invoice) {
-      return res.status(404).json({ error: "Invoice not found." });
-    }
-
-    if (!["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(invoice.status)) {
-      return res.status(400).json({
-        error: "Only an issued unpaid invoice can be reopened for editing.",
-      });
-    }
-
-    const allocatedTotal = invoice.allocations.reduce(
-      (sum, allocation) => sum.add(allocation.amount),
-      new Prisma.Decimal(0),
-    );
-    const issuedCreditTotal = invoice.creditNotes
-      .filter((creditNote) => creditNote.status === "ISSUED")
-      .reduce(
-        (sum, creditNote) => sum.add(creditNote.amount),
-        new Prisma.Decimal(0),
-      );
-
-    if (allocatedTotal.greaterThan(0) || issuedCreditTotal.greaterThan(0)) {
-      return res.status(400).json({
-        error:
-          "This invoice already has a payment or issued credit note. Use the payment/credit-note correction workflow instead of editing its financial values.",
-      });
-    }
-
-    const previousStatus = invoice.status;
-    const previousPdfStorageKey = invoice.pdfStorageKey;
-    const wasPreviouslySent = Boolean(invoice.sentAt);
-
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.invoiceAuditEvent.create({
-        data: {
-          invoiceId: invoice.id,
-          eventType: "REOPENED_FOR_EDIT",
-          description: wasPreviouslySent
-            ? `Previously sent invoice reopened for correction from ${previousStatus}. It must be finalised and resent after editing.`
-            : `Invoice reopened for correction from ${previousStatus}. It must be finalised again after editing.`,
-          metadata: {
-            previousStatus,
-            previousPdfStorageKey,
-            wasPreviouslySent,
-          },
-        },
-      });
-
-      return tx.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: "DRAFT",
-          finalisedAt: null,
-          issuedAt: null,
-          pdfUrl: null,
-          pdfStorageKey: null,
-        },
-        include: invoiceInclude(),
-      });
-    });
-
-    res.json({
-      success: true,
-      message: wasPreviouslySent
-        ? `${updated.invoiceNumber} reopened for editing. Finalise and resend the corrected invoice when ready.`
-        : `${updated.invoiceNumber} reopened for editing. Finalise it again when ready.`,
-      invoice: updated,
-    });
-  } catch (error) {
-    console.error("Invoice reopen error:", error);
-    res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to reopen invoice for editing.",
-    });
-  }
+    const invoice = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${getString(req.params.id)} FOR UPDATE`;
+      const row = await tx.invoice.findUnique({ where: { id: getString(req.params.id) }, include: invoiceInclude() });
+      if (!row) throw new Error("Invoice not found.");
+      if (row.status === "DRAFT") return row;
+      if (!["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(row.status) || row.paidAt || row.allocations.some(a => a.amount.greaterThan(0)) || row.payments.some(p => p.status === "PAID") || row.creditNotes.some(n => n.status === "ISSUED")) throw new Error("Only an unpaid invoice without payments or issued credit notes can be unfinalised.");
+      await tx.invoiceAuditEvent.create({ data: { invoiceId: row.id, eventType: "UNFINALISED", description: "Invoice returned to Pending for correction. Finalise and resend after editing.", metadata: { previousStatus: row.status, previousPdfStorageKey: row.pdfStorageKey, previouslySentAt: row.sentAt?.toISOString() || null } } });
+      return tx.invoice.update({ where: { id: row.id }, data: { status: "DRAFT", finalisedAt: null, sentAt: null, pdfUrl: null, pdfStorageKey: null }, include: invoiceInclude() });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    res.json({ success: true, invoice, message: "Invoice unfinalised and returned to Pending." });
+  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to unfinalise invoice." }); }
 });
 
 router.post("/admin/:id/finalise", async (req, res) => {
@@ -2281,12 +1912,14 @@ router.post("/admin/:id/finalise", async (req, res) => {
     if (!invoice.lines.length) return res.status(400).json({ error: "Invoice must contain at least one financial charge line." });
     const finalisedAt = new Date();
     const issuedAt = invoice.issuedAt || finalisedAt;
+    const terms = invoiceTerms(invoice.user?.accountType, issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
     const supplyDate = invoice.supplyDate || invoice.booking?.collectionDate || invoice.invoiceBookings[0]?.bookingDate || finalisedAt;
 
     const pdf = await generateAndStoreInvoicePdf({
       invoice: {
         ...invoice,
         status: "FINALISED",
+        ...terms,
         finalisedAt,
         issuedAt,
         supplyDate,
@@ -2312,6 +1945,7 @@ router.post("/admin/:id/finalise", async (req, res) => {
         where: { id: invoice.id },
         data: {
           status: "FINALISED",
+          ...terms,
           finalisedAt,
           issuedAt,
           supplyDate,

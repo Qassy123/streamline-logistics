@@ -50,7 +50,7 @@ function decimal(value: unknown, label: string, maximum: number, places: number)
   return parsed;
 }
 
-export function parseManualInvoiceInput(body: Record<string, unknown>) {
+export function parseManualInvoiceInput(body: Record<string, unknown>, allowEarlierDueDate = false) {
   const recipientName = text(body.recipientName, "Recipient name", 150, true);
   const recipientEmail = text(body.recipientEmail, "Recipient email", 254, true);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) throw new Error("Enter a valid recipient email address.");
@@ -59,7 +59,7 @@ export function parseManualInvoiceInput(body: Record<string, unknown>) {
   const invoiceDate = calendarDate(body.invoiceDate, "Invoice date", true)!;
   const dueDate = calendarDate(body.dueDate, "Due date", true)!;
   const supplyDate = calendarDate(body.supplyDate, "Supply date", true)!;
-  if (dueDate < invoiceDate) throw new Error("Due date cannot be before the invoice date.");
+  if (!allowEarlierDueDate && dueDate < invoiceDate) throw new Error("Due date cannot be before the invoice date.");
   if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 50) throw new Error("Add between 1 and 50 invoice lines.");
   const lines = body.lines.map((item: unknown, index: number) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Invoice line is invalid.");

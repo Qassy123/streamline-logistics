@@ -113,6 +113,7 @@ type TradeAccount = {
 };
 
 type Payload = {
+  emailDelivery?: { sent: boolean; error?: string } | null;
   accounts?: TradeAccount[];
   pagination?: {
     page: number;
@@ -363,6 +364,7 @@ export default function TradeAccountsPage() {
       const payload = (await response.json()) as Payload;
       if (!response.ok)
         throw new Error(payload.error || "Unable to update trade account.");
+      if (payload.emailDelivery && !payload.emailDelivery.sent) setError(`Account saved, but the decision email was not sent: ${payload.emailDelivery.error || "Delivery failed"}. Use Retry decision email.`);
       if (payload.account) {
         setSelected(payload.account);
         setAccounts((items) =>
@@ -575,7 +577,7 @@ export default function TradeAccountsPage() {
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-400">
                     Terms and activity
                   </p>
-                  <p className="mt-1 font-bold">{a.paymentTermsDays} days</p>
+                  <p className="mt-1 font-bold">Monthly: issued 1st, due 15th</p>
                   <p className="mt-1 text-sm text-slate-500">
                     {a.user._count.bookings} bookings · {a.user._count.invoices}{" "}
                     invoices
@@ -667,7 +669,7 @@ export default function TradeAccountsPage() {
                   <Info label="Last updated" value={date(selected.updatedAt)} />
                   <Info
                     label="Preferred terms"
-                    value={selected.preferredPaymentTerms || "Not provided"}
+                    value="Monthly: issued on the 1st, payable by the 15th"
                   />
                 </div>
               </Section>
@@ -832,13 +834,12 @@ export default function TradeAccountsPage() {
                     value={form.currentBalance}
                     onChange={(v) => setForm({ ...form, currentBalance: v })}
                   />
-                  <Field
-                    label="Payment terms (days)"
-                    type="number"
-                    value={form.paymentTermsDays}
-                    onChange={(v) => setForm({ ...form, paymentTermsDays: v })}
-                  />
+                  <Info label="Trade account payment terms" value="Monthly: issued 1st, due 15th" />
                 </div>
+                <button type="button" disabled={saving} className="mt-3 min-h-11 rounded-xl border px-4 font-semibold" onClick={async () => {
+                  const response = await fetch(`${API_BASE}/api/trade-accounts/admin/${selected.id}/retry-decision-email`, { method: "POST", headers: { "x-admin-key": adminKey } });
+                  const result = await response.json(); if (!response.ok || !result.success) setError(result.error || "Decision email retry failed; check email configuration."); else { setError(""); setMessage("Pending decision emails sent."); }
+                }}>Retry decision email</button>
                 <p className="mt-3 text-sm text-slate-500">
                   Requested credit limit: {money(selected.requestedCreditLimit)}
                   . Approved trade accounts are activated for credit-account

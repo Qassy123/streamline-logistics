@@ -1,3 +1,5 @@
+import { TRADE_PAYMENT_TERMS } from "../lib/billingPolicy";
+import { sendTradeDecisionEmail, processTradeDecisionEmails } from "../lib/tradeDecisionEmail";
 import { Router } from "express";
 import crypto from "crypto";
 import {
@@ -308,9 +310,7 @@ router.post("/apply", async (req, res) => {
     }
 
     const requestedCreditLimit = getNumber(req.body.requestedCreditLimit);
-    const preferredPaymentTerms = Number(
-      getString(req.body.preferredPaymentTerms),
-    );
+    const preferredPaymentTerms = 14;
 
     if (requestedCreditLimit === null || requestedCreditLimit <= 0) {
       return res.status(400).json({
@@ -318,11 +318,7 @@ router.post("/apply", async (req, res) => {
       });
     }
 
-    if (![7, 14, 30].includes(preferredPaymentTerms)) {
-      return res.status(400).json({
-        error: "Please select valid preferred payment terms.",
-      });
-    }
+
 
     const tradeAccount = await prisma.tradeAccount.create({
       data: {
@@ -392,7 +388,7 @@ router.post("/apply", async (req, res) => {
         estimatedShipmentsPerMonth: getOptionalString(
           req.body.estimatedShipmentsPerMonth,
         ),
-        preferredPaymentTerms: String(preferredPaymentTerms),
+        preferredPaymentTerms: TRADE_PAYMENT_TERMS,
         serviceSameDayDelivery,
         serviceNextDayDelivery,
         serviceMultiDrop,
@@ -431,6 +427,17 @@ router.post("/apply", async (req, res) => {
       error: "Failed to submit trade account application.",
     });
   }
+});
+
+router.post("/admin/process-decision-emails", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  res.json({ results: await processTradeDecisionEmails() });
+});
+router.post("/admin/:id/retry-decision-email", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  const pending = await prisma.tradeDecisionEmail.findMany({ where: { tradeAccountId: req.params.id, sentAt: null }, orderBy: { createdAt: "asc" } });
+  const results = []; for (const mail of pending) results.push(await sendTradeDecisionEmail(mail.id));
+  res.json({ success: results.every(r => r.sent), results });
 });
 
 router.get("/admin", async (req, res) => {
@@ -584,7 +591,7 @@ router.patch("/admin/:id", async (req, res) => {
       : undefined;
     const creditLimit = getNumber(req.body.creditLimit);
     const currentBalance = getNumber(req.body.currentBalance);
-    const paymentTermsDays = getNumber(req.body.paymentTermsDays);
+    const paymentTermsDays = 14;
     const rejectionReason = getString(req.body.rejectionReason);
     const suspensionReason = getString(req.body.suspensionReason);
     const accountsEmail = getString(req.body.accountsEmail).toLowerCase();
@@ -653,7 +660,9 @@ router.patch("/admin/:id", async (req, res) => {
       });
     }
 
-    await prisma.$transaction(async (transaction) => {
+    const decisionEmail = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT id FROM "TradeAccount" WHERE id = ${req.params.id} FOR UPDATE`;
+      const current = await transaction.tradeAccount.findUniqueOrThrow({ where: { id: req.params.id } });
       await transaction.tradeAccount.update({
         where: { id: req.params.id },
         data: {
@@ -706,10 +715,8 @@ router.patch("/admin/:id", async (req, res) => {
             req.body.currentBalance !== undefined
               ? (currentBalance as number)
               : undefined,
-          paymentTermsDays:
-            req.body.paymentTermsDays !== undefined
-              ? (paymentTermsDays as number)
-              : undefined,
+          paymentTermsDays: 14,
+          preferredPaymentTerms: TRADE_PAYMENT_TERMS,
           rejectionReason:
             nextStatus === TradeAccountStatus.REJECTED
               ? rejectionReason
@@ -810,7 +817,10 @@ router.patch("/admin/:id", async (req, res) => {
           where: { userId: existing.userId },
           update: {
             paymentMode: BillingPaymentMode.PAY_LATER,
-            paymentTermsDays: approvedPaymentTerms,
+            paymentTermsDays: 14,
+            invoiceMode: BillingInvoiceMode.CONSOLIDATED,
+            billingFrequency: BillingFrequency.MONTHLY,
+            invoiceDayOfMonth: 1,
             accountsEmail: approvedAccountsEmail || null,
             creditLimit: approvedCreditLimit,
             creditFacilityOnHold: false,
@@ -819,9 +829,10 @@ router.patch("/admin/:id", async (req, res) => {
           create: {
             userId: existing.userId,
             paymentMode: BillingPaymentMode.PAY_LATER,
-            invoiceMode: BillingInvoiceMode.PER_BOOKING,
-            billingFrequency: BillingFrequency.PER_BOOKING,
-            paymentTermsDays: approvedPaymentTerms,
+            paymentTermsDays: 14,
+            invoiceMode: BillingInvoiceMode.CONSOLIDATED,
+            billingFrequency: BillingFrequency.MONTHLY,
+            invoiceDayOfMonth: 1,
             accountsEmail: approvedAccountsEmail || null,
             creditLimit: approvedCreditLimit,
             creditFacilityOnHold: false,
@@ -862,14 +873,19 @@ router.patch("/admin/:id", async (req, res) => {
           data: commonUserData,
         });
       }
+      if (nextStatus && ["APPROVED", "REJECTED"].includes(nextStatus) && current.status !== nextStatus) {
+        return transaction.tradeDecisionEmail.create({ data: { tradeAccountId: existing.id, userId: existing.userId, decision: nextStatus, recipient: existing.user.email, companyName: existing.companyName, reason: nextStatus === "REJECTED" ? rejectionReason : null } });
+      }
+      return null;
     });
+    const emailDelivery = decisionEmail ? await sendTradeDecisionEmail(decisionEmail.id) : null;
 
     const account = await prisma.tradeAccount.findUnique({
       where: { id: req.params.id },
       select: tradeAccountSelect(),
     });
 
-    res.json({ success: true, account });
+    res.json({ success: true, account, emailDelivery });
   } catch (error) {
     console.error("Admin trade-account update error:", error);
     res.status(500).json({ error: "Unable to update trade account." });

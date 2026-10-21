@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { TRADE_PAYMENT_NOTICE, TRADE_PAYMENT_EXAMPLE } from "@/lib/billingPolicy";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 import type { SelectedPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -53,11 +54,6 @@ const monthlySpendOptions = [
   "£10,000+",
 ];
 const deliveryVolumes = ["1-25", "26-100", "101-500", "500+"];
-const paymentTerms = [
-  { label: "7 Days", value: "7" },
-  { label: "14 Days", value: "14" },
-  { label: "30 Days", value: "30" },
-];
 
 type AccountUser = {
   accountType: "PRIVATE" | "BUSINESS" | "TRADE";
@@ -255,7 +251,7 @@ function RegisterTradeForm() {
       requestedCreditLimit: formData.get("requestedCreditLimit"),
       expectedMonthlySpend: formData.get("expectedMonthlySpend"),
       estimatedShipmentsPerMonth: formData.get("estimatedShipmentsPerMonth"),
-      preferredPaymentTerms: formData.get("preferredPaymentTerms"),
+      preferredPaymentTerms: "MONTHLY_1ST_DUE_15TH",
       serviceSameDayDelivery,
       serviceNextDayDelivery,
       serviceMultiDrop,
@@ -387,7 +383,7 @@ function RegisterTradeForm() {
                 <SelectField name="requestedCreditLimit" label="Requested Credit Limit" required><option value="">Select credit limit</option>{creditLimits.map((limit) => <option key={limit.value} value={limit.value}>{limit.label}</option>)}</SelectField>
                 <SelectField name="expectedMonthlySpend" label="Expected Monthly Spend" required><option value="">Select monthly spend</option>{monthlySpendOptions.map((spend) => <option key={spend} value={spend}>{spend}</option>)}</SelectField>
                 <SelectField name="estimatedShipmentsPerMonth" label="Estimated Deliveries Per Month" required><option value="">Select delivery volume</option>{deliveryVolumes.map((volume) => <option key={volume} value={volume}>{volume}</option>)}</SelectField>
-                <SelectField name="preferredPaymentTerms" label="Preferred Payment Terms" required><option value="">Select payment terms</option>{paymentTerms.map((term) => <option key={term.value} value={term.value}>{term.label}</option>)}</SelectField>
+                <div className="rounded-xl border-2 border-blue-500 bg-blue-50 p-5 sm:col-span-2"><h3 className="text-lg font-bold text-[#071D49]">Trade account payment terms</h3><p className="mt-3 font-semibold leading-7 text-[#071D49]">{TRADE_PAYMENT_NOTICE}</p><p className="mt-3 leading-7 text-slate-700">{TRADE_PAYMENT_EXAMPLE}</p></div>
               </div>
             </FormSection>
 

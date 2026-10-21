@@ -216,7 +216,7 @@ export default function DashboardPage() {
                     <StatusLine
                       icon={<Clock size={17} />}
                       label="Payment terms"
-                      value={`${user?.tradeAccount?.paymentTermsDays || 30} days`}
+                      value="Monthly: issued 1st, due 15th"
                     />
                   )}
                 </div>

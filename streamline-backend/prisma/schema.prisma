@@ -284,6 +284,8 @@ model Vehicle {
 }
 
 model Quote {
+  archivedCustomerId String?
+  @@index([archivedCustomerId])
   id                       String               @id @default(cuid())
   status                   String               @default("submitted")
   deliveryType             String
@@ -347,6 +349,8 @@ model Quote {
 }
 
 model Booking {
+  archivedCustomerId String?
+  @@index([archivedCustomerId])
   handovers VehicleHandover[]
   evidenceUploads DriverEvidenceUpload[]
   id        String        @id @default(cuid())
@@ -529,6 +533,8 @@ model DriverLocation {
 }
 
 model Payment {
+  archivedCustomerId String?
+  @@index([archivedCustomerId])
   id                String        @id @default(cuid())
   bookingId         String?
   invoiceId         String?
@@ -558,6 +564,8 @@ model Payment {
 }
 
 model Invoice {
+  archivedCustomerId String?
+  @@index([archivedCustomerId])
   id                      String        @id @default(cuid())
   invoiceNumber           String        @unique
   bookingId               String?
@@ -1663,4 +1671,31 @@ model DriverEvidenceUpload {
   @@index([bookingId, createdAt])
   @@index([vehicleId, createdAt])
   @@index([handoverId])
+}
+
+// Restricted historical archive. Never used to authenticate or attach a new account.
+model CustomerArchive {
+  id String @id @default(cuid())
+  originalUserId String @unique
+  deletedAt DateTime @default(now())
+  retainUntil DateTime
+  snapshot Json
+  @@index([retainUntil])
+}
+
+model TradeDecisionEmail {
+  id String @id @default(cuid())
+  tradeAccountId String
+  userId String
+  decision String
+  recipient String
+  companyName String
+  reason String?
+  sentAt DateTime?
+  providerMessageId String?
+  attempts Int @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  @@index([sentAt, createdAt])
+  @@index([tradeAccountId])
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -290,7 +291,7 @@ function toEditForm(customer: Customer): EditForm {
     invoiceDayOfMonth:
       customer.billingProfile?.invoiceDayOfMonth?.toString() || "1",
     paymentTermsDays:
-      customer.billingProfile?.paymentTermsDays?.toString() || "30",
+      customer.accountType === "TRADE" ? "14" : "0",
     billingAccountsEmail:
       customer.billingProfile?.accountsEmail || customer.accountsEmail || "",
     poRequired: customer.billingProfile?.poRequired || false,
@@ -664,7 +665,7 @@ export default function CustomerAccountPage() {
     }
 
     const firstConfirmation = window.confirm(
-      `Delete ${customerDisplayName(customer)}? This removes the customer account while keeping linked historical bookings, invoices, payments and quotes.`,
+      `Delete ${customerDisplayName(customer)}? This removes the live customer account and keeps its historical records in an isolated archive for five years. A new account with the same email starts fresh.`,
     );
 
     if (!firstConfirmation) {
@@ -1056,19 +1057,7 @@ export default function CustomerAccountPage() {
               </div>
             </EditRow>
 
-            <EditRow label="Payment Terms">
-              <select
-                value={form.paymentTermsDays}
-                onChange={(event) =>
-                  update("paymentTermsDays", event.target.value)
-                }
-                className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
-              >
-                <option value="7">7 Days</option>
-                <option value="14">14 Days</option>
-                <option value="30">30 Days</option>
-              </select>
-            </EditRow>
+            <EditRow label="Payment Terms"><p className="py-3 font-semibold">{form.accountType === "TRADE" ? "Monthly: issued on the 1st, payable by the 15th" : form.accountType === "BUSINESS" ? "Due immediately" : `${form.paymentTermsDays} days`}</p></EditRow>
 
             <EditRow label="Billing Accounts Email">
               <TextInput
@@ -1345,7 +1334,7 @@ export default function CustomerAccountPage() {
 
             <DetailRow
               label="Payment Terms"
-              value={`${customer.billingProfile?.paymentTermsDays || 30} days`}
+              value={customer.accountType === "TRADE" ? "Monthly: issued 1st, due 15th" : "Due immediately"}
             />
 
             <DetailRow
@@ -1413,6 +1402,13 @@ export default function CustomerAccountPage() {
               invoices={finalisedIssuedInvoices}
               customerId={customer.id}
               emptyMessage="No finalised or issued invoices."
+              onUnfinalise={async (invoice) => {
+                const key = window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+                const response = await fetch(`${API_BASE}/api/invoices/admin/${invoice.id}/unfinalise`, { method: "POST", headers: { "x-admin-key": key } });
+                const payload = await response.json();
+                if (!response.ok) { setError(payload.error || "Unable to unfinalise invoice."); return; }
+                window.location.reload();
+              }}
             />
 
             <InvoiceSection
@@ -1460,7 +1456,9 @@ function InvoiceSection({
   invoices,
   customerId,
   emptyMessage,
+  onUnfinalise,
 }: {
+  onUnfinalise?: (invoice: Invoice) => Promise<void>;
   title: string;
   invoices: Invoice[];
   customerId: string;
@@ -1488,6 +1486,7 @@ function InvoiceSection({
       ) : (
         <div className="divide-y divide-slate-200">
           {invoices.map((invoice) => (
+            <div key={invoice.id}>
             <Link
               key={invoice.id}
               href={`/admin/invoices?invoice=${encodeURIComponent(
@@ -1522,7 +1521,7 @@ function InvoiceSection({
                       invoice.status,
                     )}`}
                   >
-                    {invoice.status.replace(/_/g, " ")}
+                    {invoiceDisplayStatus(invoice.status)}
                   </span>
                 </div>
               </div>
@@ -1532,6 +1531,8 @@ function InvoiceSection({
                 <ArrowRight size={15} />
               </div>
             </Link>
+            {onUnfinalise && ["FINALISED", "SENT", "ISSUED", "OVERDUE"].includes(invoice.status) && <button type="button" className="mx-5 mb-4 min-h-11 rounded-xl border px-4 font-semibold text-[#071D49]" onClick={() => { if (window.confirm(`Unfinalise ${invoice.invoiceNumber} and return it to Pending?`)) void onUnfinalise(invoice); }}>Unfinalise</button>}
+            </div>
           ))}
         </div>
       )}

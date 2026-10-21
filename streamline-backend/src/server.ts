@@ -1,3 +1,4 @@
+import { processTradeDecisionEmails } from "./lib/tradeDecisionEmail";
 import { driverVehicleRecords, adminVehicleRecords } from "./routes/vehicleRecords";
 import { evidenceLinks } from "./lib/operationalEvidence";
 import driverShiftRoutes from "./routes/driverShifts";
@@ -238,9 +239,11 @@ app.listen(PORT, () => {
 
   setTimeout(() => {
     void processAutomaticBillingCycles();
+    void processTradeDecisionEmails().catch(error => console.error("Trade decision email retry failed:", error));
 
     setInterval(() => {
       void processAutomaticBillingCycles();
+      void processTradeDecisionEmails().catch(error => console.error("Trade decision email retry failed:", error));
     }, BILLING_CYCLE_INTERVAL_MS);
   }, BILLING_CYCLE_INITIAL_DELAY_MS);
 });

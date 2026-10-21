@@ -929,7 +929,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       },
     });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({
         error: "Quote not found",
       });
@@ -1512,7 +1512,7 @@ router.get("/:id", async (req, res) => {
       },
     });
 
-    if (!booking) {
+    if (!booking || booking.archivedCustomerId) {
       return res.status(404).json({
         error: "Booking not found",
       });
@@ -1598,7 +1598,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       },
     });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({
         error: "Quote not found",
       });

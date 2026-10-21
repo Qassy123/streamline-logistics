@@ -187,7 +187,7 @@ export default function UpgradeAccountPage() {
 
                   <AccountMetric
                     label="Payment Terms"
-                    value={`${user?.tradeAccount?.paymentTermsDays || 30} days`}
+                    value="Monthly: issued 1st, due 15th"
                   />
                 </div>
               </section>

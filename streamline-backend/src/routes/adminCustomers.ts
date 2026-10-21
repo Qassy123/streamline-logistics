@@ -1,3 +1,4 @@
+import { archiveAndDeleteCustomer } from "../lib/customerArchive";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
@@ -631,9 +632,9 @@ router.post("/", async (req, res) => {
               accountTypeValue === AccountType.TRADE
                 ? BillingPaymentMode.PAY_LATER
                 : BillingPaymentMode.PAY_NOW,
-            invoiceMode: BillingInvoiceMode.PER_BOOKING,
-            billingFrequency: BillingFrequency.PER_BOOKING,
-            paymentTermsDays: 30,
+            invoiceMode: accountTypeValue === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
+            billingFrequency: accountTypeValue === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
+            paymentTermsDays: accountTypeValue === "TRADE" ? 14 : accountTypeValue === "BUSINESS" ? 0 : 30,
             accountsEmail,
             poRequired: false,
             creditLimit:
@@ -855,6 +856,15 @@ router.get("/guests", async (req, res) => {
       error: "Unable to load guest bookings.",
     });
   }
+});
+
+router.get("/archives/:id", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  const archive = await prisma.customerArchive.findUnique({ where: { id: req.params.id } });
+  if (!archive) return res.status(404).json({ error: "Archive not found." });
+  const scope = { archivedCustomerId: archive.id };
+  const [quotes, bookings, invoices, payments] = await Promise.all([prisma.quote.findMany({ where: scope }), prisma.booking.findMany({ where: scope }), prisma.invoice.findMany({ where: scope }), prisma.payment.findMany({ where: scope })]);
+  res.setHeader("Cache-Control", "no-store"); res.json({ archive, quotes, bookings, invoices, payments });
 });
 
 router.get("/:id", async (req, res) => {
@@ -1225,10 +1235,7 @@ router.patch("/:id", async (req, res) => {
           null
         : undefined;
 
-    const paymentTermsDays =
-      req.body.paymentTermsDays !== undefined
-        ? Number.parseInt(String(req.body.paymentTermsDays), 10)
-        : undefined;
+    const paymentTermsDays = nextAccountType === AccountType.TRADE ? 14 : nextAccountType === AccountType.BUSINESS ? 0 : (req.body.paymentTermsDays !== undefined ? Number(req.body.paymentTermsDays) : 30);
 
     const invoiceDayOfWeek =
       req.body.invoiceDayOfWeek !== undefined &&
@@ -1277,7 +1284,7 @@ router.patch("/:id", async (req, res) => {
 
     if (
       paymentTermsDays !== undefined &&
-      ![7, 14, 30].includes(paymentTermsDays)
+      ![0, 7, 14, 30].includes(paymentTermsDays)
     ) {
       return res.status(400).json({
         error: "Payment terms must be 7, 14 or 30 days.",
@@ -1508,11 +1515,9 @@ router.patch("/:id", async (req, res) => {
                   ? BillingPaymentMode.PAY_LATER
                   : BillingPaymentMode.PAY_NOW),
 
-              invoiceMode:
-                billingInvoiceMode ?? BillingInvoiceMode.PER_BOOKING,
+              invoiceMode: nextAccountType === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
 
-              billingFrequency:
-                billingFrequency ?? BillingFrequency.PER_BOOKING,
+              billingFrequency: nextAccountType === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
 
               invoiceDayOfWeek:
                 billingFrequency === BillingFrequency.WEEKLY
@@ -1524,7 +1529,7 @@ router.patch("/:id", async (req, res) => {
                   ? invoiceDayOfMonth ?? null
                   : null,
 
-              paymentTermsDays: paymentTermsDays ?? 30,
+              paymentTermsDays,
 
               accountsEmail:
                 billingAccountsEmail ?? nextAccountsEmail,
@@ -1552,9 +1557,9 @@ router.patch("/:id", async (req, res) => {
             update: {
               paymentMode: billingPaymentMode,
 
-              invoiceMode: billingInvoiceMode,
+              invoiceMode: nextAccountType === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
 
-              billingFrequency,
+              billingFrequency: nextAccountType === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
 
               invoiceDayOfWeek:
                 req.body.billingFrequency !== undefined ||
@@ -1817,86 +1822,12 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    await prisma.$transaction(async (transaction) => {
-      // Keep financial and operational history, but detach it from the
-      // customer login/account that is being removed.
-      await transaction.quote.updateMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-        data: {
-          userId: null,
-        },
-      });
-
-      await transaction.booking.updateMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-        data: {
-          userId: null,
-        },
-      });
-
-      await transaction.invoice.updateMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-        data: {
-          userId: null,
-        },
-      });
-
-      await transaction.payment.updateMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-        data: {
-          userId: null,
-        },
-      });
-
-      // Account-only records cannot exist after the customer account is gone.
-      await transaction.userSession.deleteMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-      });
-
-      await transaction.savedRoute.deleteMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-      });
-
-      await transaction.customerNote.deleteMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-      });
-
-      await transaction.billingProfile.deleteMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-      });
-
-      await transaction.tradeAccount.deleteMany({
-        where: {
-          userId: existingCustomer.id,
-        },
-      });
-
-      await transaction.user.delete({
-        where: {
-          id: existingCustomer.id,
-        },
-      });
-    });
+    const archived = await prisma.$transaction(transaction => archiveAndDeleteCustomer(transaction, existingCustomer.id), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     return res.json({
       success: true,
-      message: "Customer account deleted successfully.",
+      message: "Customer account deleted. Historical records are isolated and retained for five years.",
+      ...archived,
     });
   } catch (error) {
     console.error("Admin customer deletion error:", error);

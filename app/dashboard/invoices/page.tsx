@@ -226,10 +226,10 @@ export default function InvoicesPage() {
   }, []);
 
   async function downloadInvoicePdf(invoice: Invoice) {
-    if (!invoice.pdfUrl) return;
+
 
     try {
-      const response = await fetch(invoice.pdfUrl);
+      const response = await fetch(`${API_URL.split("/api/")[0]}/api/accounts/me/invoices/${invoice.id}/pdf`, { headers: { Authorization: `Bearer ${window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ""}` }, cache: "no-store" });
 
       if (!response.ok) {
         throw new Error("Failed to download invoice PDF.");

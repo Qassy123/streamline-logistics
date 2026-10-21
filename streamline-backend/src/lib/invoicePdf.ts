@@ -1,3 +1,4 @@
+import { invoiceDisplayStatus, invoiceTerms } from "./billingPolicy";
 import PDFDocument = require("pdfkit");
 import { v2 as cloudinary } from "cloudinary";
 import { Prisma } from "@prisma/client";
@@ -52,6 +53,7 @@ function money(value: Prisma.Decimal | number | string) {
 function date(value: Date | null | undefined) {
   if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -74,7 +76,7 @@ function ensureCloudinaryConfigured() {
   }
 }
 
-async function renderInvoicePdf(
+export async function renderInvoicePdf(
   invoice: PdfInvoiceInput,
 ): Promise<Buffer> {
   const settings = await prisma.companySettings.findFirst();
@@ -126,17 +128,20 @@ async function renderInvoicePdf(
     invoice.total.sub(amountPaid).sub(credited),
   );
 
+  const archived = invoice.archivedCustomerId ? await prisma.customerArchive.findUnique({ where: { id: invoice.archivedCustomerId }, select: { snapshot: true } }) : null;
+  const snapshot = archived?.snapshot;
+  const billingUser = invoice.user || (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot as unknown as InvoiceForPdf["user"] : null);
   const manualDetails = getManualInvoiceDetails(invoice);
   const accountName =
-    manualDetails?.recipientName || invoice.user?.companyName || invoice.user?.name || "Guest customer";
+    manualDetails?.recipientName || billingUser?.companyName || billingUser?.name || "Guest customer";
 
   const billingAddress = manualDetails?.recipientAddress || [
-    invoice.user?.registeredAddressLine1,
-    invoice.user?.registeredAddressLine2,
-    invoice.user?.registeredTownCity,
-    invoice.user?.registeredCounty,
-    invoice.user?.registeredPostcode,
-    invoice.user?.registeredCountry,
+    billingUser?.registeredAddressLine1,
+    billingUser?.registeredAddressLine2,
+    billingUser?.registeredTownCity,
+    billingUser?.registeredCounty,
+    billingUser?.registeredPostcode,
+    billingUser?.registeredCountry,
   ]
     .filter(Boolean)
     .join(", ");
@@ -186,10 +191,10 @@ async function renderInvoicePdf(
   const infoY = 90;
   const infoRows = [
     ["Invoice No", invoice.invoiceNumber],
-    ["Status", invoice.status.replace(/_/g, " ")],
+    ["Status", invoiceDisplayStatus(invoice.status)],
     ["Issue Date", date(invoice.issuedAt || invoice.finalisedAt)],
     ["Supply Date", date(invoice.supplyDate)],
-    ["Due Date", date(invoice.dueDate)],
+    ["Due Date", date(billingUser?.accountType === "BUSINESS" ? invoiceTerms("BUSINESS", invoice.issuedAt || invoice.createdAt).dueDate : invoice.dueDate)],
   ];
   infoRows.forEach(([label, value], index) => {
     const rowY = infoY + index * 16;
@@ -212,10 +217,10 @@ async function renderInvoicePdf(
   const customerDetails = [
     accountName,
     billingAddress || null,
-    manualDetails?.recipientEmail || invoice.user?.email,
+    manualDetails?.recipientEmail || billingUser?.email,
     manualDetails?.recipientPhone ? `Tel: ${manualDetails.recipientPhone}` : null,
-    invoice.user?.accountNumber
-      ? `Account: ${invoice.user.accountNumber}`
+    billingUser?.accountNumber
+      ? `Account: ${billingUser.accountNumber}`
       : null,
   ].filter(Boolean) as string[];
   doc.text(customerDetails.join("\n"), 60, y + 31, { width: 250 });
@@ -232,7 +237,7 @@ async function renderInvoicePdf(
     invoice.customerReference
       ? `Customer Ref: ${invoice.customerReference}`
       : null,
-    invoice.paymentTerms ? `Payment Terms: ${invoice.paymentTerms}` : null,
+    billingUser?.accountType === "BUSINESS" ? "Payment Terms: Due immediately" : invoice.paymentTerms ? `Payment Terms: ${invoice.paymentTerms}` : null,
     booking?.reference ? `Booking: ${booking.reference}` : null,
   ].filter(Boolean) as string[];
   doc.text(refs.length ? refs.join("\n") : "-", 330, y + 31, {
@@ -502,23 +507,8 @@ export async function generateAndStoreInvoicePdf(input: {
   };
 }
 
-export async function getStoredInvoicePdfBuffer(invoice: {
-  pdfUrl: string | null;
-  status: string;
-}) {
-  if (!invoice.pdfUrl) {
-    throw new Error("This invoice does not have a stored issued PDF.");
-  }
-
-  if (invoice.status === "DRAFT") {
-    throw new Error("Draft invoices cannot be sent as issued PDFs.");
-  }
-
-  const response = await fetch(invoice.pdfUrl);
-
-  if (!response.ok) {
-    throw new Error(`Stored invoice PDF returned HTTP ${response.status}.`);
-  }
-
-  return Buffer.from(await response.arrayBuffer());
+export async function getStoredInvoicePdfBuffer(invoice: PdfInvoiceInput) {
+  if (invoice.status === "DRAFT") throw new Error("Pending invoices cannot be emailed as issued invoices.");
+  // Render current settlement status; the issued PDF remains an audit snapshot.
+  return renderInvoicePdf(invoice);
 }

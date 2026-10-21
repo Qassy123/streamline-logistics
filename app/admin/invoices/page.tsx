@@ -1,4 +1,5 @@
 "use client";
+import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -220,18 +221,14 @@ function date(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) return "Not recorded";
 
   return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",
   }).format(parsed);
 }
 
-function formatStatus(status: string) {
-  return status
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+function formatStatus(status: string) { return invoiceDisplayStatus(status); }
 
 function accountKey(invoice: Invoice) {
   const manual = manualInvoiceDetails(invoice);
@@ -761,7 +758,7 @@ function AdminInvoicesContent() {
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/reopen`,
+        `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/unfinalise`,
         {
           method: "POST",
           headers: {
@@ -798,14 +795,14 @@ function AdminInvoicesContent() {
   }
 
   async function downloadInvoicePdf(invoice: Invoice) {
-    if (!invoice.pdfUrl) return;
+
 
     setInvoiceWorking(true);
     setError("");
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(invoice.pdfUrl);
+      const response = await fetch(`${API_BASE}/api/invoices/admin/${invoice.id}/pdf`, { headers: { "x-admin-key": adminKey }, cache: "no-store" });
 
       if (!response.ok) {
         throw new Error("Unable to download the issued invoice PDF.");
@@ -1903,12 +1900,12 @@ function AdminInvoicesContent() {
                 <div className="rounded-2xl border border-slate-200 p-5"><h3 className="font-bold text-slate-950">Credit Notes</h3>{selectedInvoice.creditNotes.map((note) => <div key={note.id} className="mt-3 flex justify-between gap-4 text-sm"><span>{note.creditNoteNumber} · {note.reason || "Credit"}</span><strong>{money(note.amount)}</strong></div>)}</div>
               ) : null}
 
-              {selectedInvoice.pdfUrl ? (
+              {selectedInvoice ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-bold text-slate-950">Issued Invoice PDF</p>
+                    <p className="font-bold text-slate-950">Invoice PDF</p>
                     <p className="mt-1 text-sm text-slate-500">
-                      The stored issued copy of {selectedInvoice.invoiceNumber}.
+                      Current status and payment details for {selectedInvoice.invoiceNumber}.
                     </p>
                   </div>
                   <button
@@ -1994,7 +1991,7 @@ function AdminInvoicesContent() {
               {["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && amountPaid(selectedInvoice) === 0 && creditTotal(selectedInvoice) === 0 ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-bold text-slate-950">Edit invoice</p>
+                    <p className="font-bold text-slate-950">Return to Pending</p>
                     <p className="mt-1 text-sm text-slate-500">
                       Reopen this invoice to correct charges or discounts, then finalise and resend the corrected PDF.
                     </p>
@@ -2007,7 +2004,7 @@ function AdminInvoicesContent() {
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FileText size={17} />
-                    Edit Invoice
+                    Unfinalise
                   </button>
                 </div>
               ) : null}

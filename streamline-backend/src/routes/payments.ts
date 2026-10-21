@@ -266,7 +266,7 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     },
   });
 
-  if (!quote) {
+  if (!quote || quote.archivedCustomerId) {
     throw new Error("Quote not found.");
   }
 
@@ -747,7 +747,7 @@ router.get("/checkout-options/:quoteId", async (req, res) => {
       },
     });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({ error: "Quote not found." });
     }
 
@@ -1292,7 +1292,7 @@ router.post("/create-checkout-session", async (req, res) => {
       },
     });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({
         error: "Quote not found",
       });
@@ -1394,7 +1394,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
           },
         });
 
-    if (!quote) {
+    if (!quote || quote.archivedCustomerId) {
       return res.status(404).json({
         error: "Quote not found.",
       });

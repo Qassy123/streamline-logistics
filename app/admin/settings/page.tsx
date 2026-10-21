@@ -311,7 +311,7 @@ export default function AdminSettingsPage() {
             Enable website maintenance mode
           </label>
           <p className="mt-3 text-sm text-slate-600">
-            Customers can browse the website, but cannot create quotes while enabled. Admin quote creation remains available. Click Save Settings to apply.
+            Customers can browse the website, but all online quote creation and calculation, including admin quotes, is disabled while enabled. Click Save Settings to apply.
           </p>
         </Section>
         <Section title="Business" icon={Building2}>
