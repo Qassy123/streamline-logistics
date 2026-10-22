@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TRADE_PAYMENT_NOTICE, TRADE_PAYMENT_EXAMPLE } from "@/lib/billingPolicy";
 import { Building2, Save, User } from "lucide-react";
 
 const API_URL =
@@ -21,6 +22,8 @@ type ProfileData = {
 };
 
 export default function ProfilePage() {
+  const [accountType, setAccountType] = useState<string>("");
+  const [accountsEmail, setAccountsEmail] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -53,7 +56,10 @@ export default function ProfilePage() {
 
       const data = await response.json();
 
+      if (!response.ok) throw new Error("Unable to load profile");
       if (data.user) {
+        setAccountType(data.user.accountType || "");
+        setAccountsEmail(data.user.accountsEmail || data.user.email || "");
         setFormData({
           legalEntity: data.user.legalEntity || "",
           tradingName: data.user.tradingName || "",
@@ -225,6 +231,20 @@ export default function ProfilePage() {
               )}
             </div>
           </form>
+          {accountType ? <section className="mx-6 mb-6 rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 text-[#071D49]">
+            <h2 className="text-xl font-bold">Billing &amp; payment terms</h2>
+            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+              <div><dt className="text-slate-500">Account type</dt><dd className="font-semibold">{accountType === "TRADE" ? "Trade Account" : accountType === "BUSINESS" ? "Business Account" : "Private Account"}</dd></div>
+              <div><dt className="text-slate-500">Accounts email</dt><dd className="break-words font-semibold">{accountsEmail || "Not provided"}</dd></div>
+              <div><dt className="text-slate-500">Payment mode</dt><dd className="font-semibold">{accountType === "TRADE" ? "Pay Later / Trade Credit" : "Pay Now"}</dd></div>
+              <div><dt className="text-slate-500">Invoice mode</dt><dd className="font-semibold">{accountType === "TRADE" ? "Consolidated - monthly, day 1" : "Per booking"}</dd></div>
+            </dl>
+            <div className="mt-5 rounded-xl border border-blue-200 bg-white p-4">
+              <h3 className="font-bold">{accountType === "TRADE" ? "Trade account payment terms" : "Payment terms"}</h3>
+              <p className="mt-2 text-sm leading-6">{accountType === "TRADE" ? TRADE_PAYMENT_NOTICE : "Due immediately"}</p>
+              {accountType === "TRADE" ? <p className="mt-2 text-sm leading-6">{TRADE_PAYMENT_EXAMPLE}</p> : null}
+            </div>
+          </section> : null}
         </section>
       </div>
     </main>

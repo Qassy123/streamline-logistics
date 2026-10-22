@@ -1267,7 +1267,7 @@ router.get("/", async (_, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: true,
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
         pod: true,
         reservation: true,
       },
@@ -1304,7 +1304,7 @@ router.get("/me", async (req, res) => {
         quote: true,
         vehicle: true,
         payments: true,
-        invoices: true,
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
         pod: true,
         reservation: true,
         trackingEvents: {
@@ -1383,6 +1383,8 @@ router.get("/me/invoices", async (req, res) => {
     const invoices = await prisma.invoice.findMany({
       where: {
         userId: user.id,
+        archivedCustomerId: null,
+        status: { not: "DRAFT" },
       },
       orderBy: {
         createdAt: "desc",
@@ -1477,6 +1479,7 @@ router.get("/me/invoices", async (req, res) => {
       };
     });
 
+    res.setHeader("Cache-Control", "no-store");
     res.json({
       invoices: customerInvoices,
     });
@@ -1501,7 +1504,7 @@ router.get("/:id", async (req, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: true,
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
         pod: true,
         reservation: true,
         trackingEvents: {

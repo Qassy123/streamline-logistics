@@ -169,6 +169,7 @@ function formatDate(value?: string | null) {
   }
 
   return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -1501,7 +1502,7 @@ function InvoiceSection({
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Created {formatDate(invoice.createdAt)}
+                    Issued {formatDate(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)}
                   </p>
 
                   {invoice.dueDate ? (

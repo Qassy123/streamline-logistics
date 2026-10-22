@@ -1,3 +1,4 @@
+import { reserveInvoiceNumber } from "../lib/invoiceNumber";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import { BookingStatus, PaymentStatus, Prisma, ReservationStatus } from "@prisma/client";
 import { Router } from "express";
@@ -153,14 +154,8 @@ async function createInvoiceIfMissing(booking: {
       );
     }
 
-    const reservedSettings = await transaction.companySettings.update({
-      where: { id: settings.id },
-      data: { nextInvoiceNumber: { increment: 1 } },
-    });
-
-    const invoiceNumber = `${reservedSettings.invoicePrefix}-${String(
-      reservedSettings.nextInvoiceNumber - 1,
-    ).padStart(6, "0")}`;
+    const reservedSettings = settings;
+    const invoiceNumber = await reserveInvoiceNumber(transaction, settings.id);
 
     const total = new Prisma.Decimal(
       booking.quote?.totalPrice || booking.totalPrice,
@@ -613,22 +608,7 @@ async function createTradeDraftInvoice(booking: {
           );
         }
 
-        let candidateNumber = settings.nextInvoiceNumber;
-        let invoiceNumber = `${settings.invoicePrefix}-${String(
-          candidateNumber,
-        ).padStart(6, "0")}`;
-
-        while (
-          await transaction.invoice.findUnique({
-            where: { invoiceNumber },
-            select: { id: true },
-          })
-        ) {
-          candidateNumber += 1;
-          invoiceNumber = `${settings.invoicePrefix}-${String(
-            candidateNumber,
-          ).padStart(6, "0")}`;
-        }
+        const invoiceNumber = await reserveInvoiceNumber(transaction, settings.id);
 
         const total = new Prisma.Decimal(
           booking.quote?.totalPrice || booking.totalPrice,
@@ -707,13 +687,6 @@ async function createTradeDraftInvoice(booking: {
             invoiceId: invoice.id,
             eventType: "TRADE_DRAFT_INVOICE_CREATED",
             description: `Trade draft invoice ${invoiceNumber} created for booking ${booking.reference}.`,
-          },
-        });
-
-        await transaction.companySettings.update({
-          where: { id: settings.id },
-          data: {
-            nextInvoiceNumber: candidateNumber + 1,
           },
         });
 

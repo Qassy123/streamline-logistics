@@ -1,3 +1,4 @@
+import { reserveInvoiceNumber } from "./invoiceNumber";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { tradeMonth, ukParts, ukMidnight, TRADE_PAYMENT_TERMS } from "./billingPolicy";
@@ -18,9 +19,7 @@ export async function processMonthlyTradeBilling(now = new Date()) {
         if (user.billingProfile?.poRequired && bookings.some(b => !b.purchaseOrderNumber)) throw new Error("Required PO reference missing; correct the booking and retry monthly billing.");
         const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" } });
         if (!settings) throw new Error("Configure company settings first.");
-        let number = settings.nextInvoiceNumber;
-        let invoiceNumber = `${settings.invoicePrefix}-${String(number).padStart(6, "0")}`;
-        while (await tx.invoice.findUnique({ where: { invoiceNumber }, select: { id: true } })) { number++; invoiceNumber = `${settings.invoicePrefix}-${String(number).padStart(6, "0")}`; }
+        const invoiceNumber = await reserveInvoiceNumber(tx, settings.id);
         const vatRate = new Prisma.Decimal(settings.vatRate);
         const items = bookings.map(booking => { const gross = new Prisma.Decimal(booking.totalPrice).toDecimalPlaces(2); const net = vatRate.greaterThan(0) ? gross.div(new Prisma.Decimal(1).add(vatRate.div(100))).toDecimalPlaces(2) : gross; return { booking, gross, net, vat: gross.sub(net) }; });
         const sum = (key: "gross" | "net" | "vat") => items.reduce((n, item) => n.add(item[key]), new Prisma.Decimal(0));
@@ -30,7 +29,6 @@ export async function processMonthlyTradeBilling(now = new Date()) {
           await tx.invoiceLine.create({ data: { invoiceId: invoice.id, bookingId: b.id, chargeType: "BASE_SERVICE", description: `Courier service · ${b.reference}`, quantity: new Prisma.Decimal(1), unitPrice: net, netAmount: net, vatRate, vatAmount: vat, grossAmount: gross, bookingReference: b.reference, sourceType: "BOOKING", sourceId: b.id } });
         }
         await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "DRAFT_CREATED", description: `Monthly trade invoice for bookings made in ${month.key}; issued on the 1st, due on the 15th.`, metadata: { bookingMonth: month.key, automaticBillingCycle: true, bookingCount: bookings.length } } });
-        await tx.companySettings.update({ where: { id: settings.id }, data: { nextInvoiceNumber: number + 1 } });
         return { invoiceId: invoice.id, invoiceNumber, userId, bookingCount: bookings.length, month: month.key };
       }, { timeout: 60000 });
       if (result) created.push(result);

@@ -115,6 +115,7 @@ function formatMoney(value: MoneyValue | null | undefined) {
 function formatDate(value?: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -279,7 +280,7 @@ export default function InvoicesPage() {
         throw new Error(data.error || "Failed to load invoices.");
       }
 
-      setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+      setInvoices(Array.isArray(data.invoices) ? data.invoices.filter((invoice: Invoice) => invoice.status !== "DRAFT") : []);
     } catch (requestError) {
       setError(
         requestError instanceof Error

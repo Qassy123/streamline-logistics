@@ -1287,7 +1287,7 @@ function AdminInvoicesContent() {
                   Create Draft Invoice
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
-                  Only bookings without an existing invoice are available. Trade accounts automatically consolidate multiple completed bookings from the same 30-day cycle.
+                  Only bookings without an existing invoice are available. Trade bookings from the previous calendar month are invoiced together on the 1st, payable by the 15th of the same month.
                 </p>
               </div>
 
@@ -1691,7 +1691,7 @@ function AdminInvoicesContent() {
                 <InfoCard label="Outstanding" value={money(outstanding(selectedInvoice))} />
                 <InfoCard
                   label="Invoice Date"
-                  value={date(selectedInvoice.createdAt)}
+                  value={date(selectedInvoice.issuedAt || selectedInvoice.finalisedAt || selectedInvoice.createdAt)}
                 />
                 <InfoCard
                   label="Due Date"
@@ -1720,13 +1720,20 @@ function AdminInvoicesContent() {
                   Journey
                 </p>
 
-                <p className="mt-3 font-bold text-slate-950">
-                  {selectedInvoice.booking?.collectionAddress || selectedInvoice.invoiceBookings?.[0]?.routeDescription || "Multiple bookings"}
-                </p>
-                <p className="my-2 text-sm text-slate-400">to</p>
-                <p className="font-bold text-slate-950">
-                  {selectedInvoice.booking?.deliveryAddress || (selectedInvoice.invoiceBookings?.length ? "See booking breakdown below" : "Not recorded")}
-                </p>
+                <div className="mt-3 space-y-3">
+                  {selectedInvoice.invoiceBookings?.length ? selectedInvoice.invoiceBookings.map((booking) => (
+                    <div key={booking.id} className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-sm font-bold">{booking.bookingReference}</p>
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{booking.routeDescription?.replace(/→/g, " → ") || "Route not recorded"}</p>
+                      {booking.poReference ? <p className="mt-1 text-xs">PO: {booking.poReference}</p> : null}
+                    </div>
+                  )) : selectedInvoice.booking ? (
+                    <div className="space-y-2 text-sm">
+                      <p><strong>Collection:</strong> {selectedInvoice.booking.collectionAddress}</p>
+                      <p><strong>Delivery:</strong> {selectedInvoice.booking.deliveryAddress}</p>
+                    </div>
+                  ) : <p className="text-sm text-slate-500">Manual invoice - no booking route.</p>}
+                </div>
               </div>
 
               {selectedInvoice.status === "DRAFT" ? (

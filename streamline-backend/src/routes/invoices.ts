@@ -1,3 +1,4 @@
+import { reserveInvoiceNumber } from "../lib/invoiceNumber";
 import { invoiceTerms, tradeMonth } from "../lib/billingPolicy";
 import { processMonthlyTradeBilling } from "../lib/monthlyTradeBilling";
 import { Prisma } from "@prisma/client";
@@ -566,8 +567,7 @@ router.post("/admin/manual", async (req, res) => {
       if (previousRequest) return tx.invoice.findUniqueOrThrow({ where: { id: previousRequest.invoiceId }, include: invoiceInclude() });
       const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" } });
       if (!settings) throw new Error("Configure Company Settings before creating invoices.");
-      const counter = await tx.companySettings.update({ where: { id: settings.id }, data: { nextInvoiceNumber: { increment: 1 } }, select: { invoicePrefix: true, nextInvoiceNumber: true } });
-      const invoiceNumber = `${counter.invoicePrefix}-${String(counter.nextInvoiceNumber - 1).padStart(6, "0")}`;
+      const invoiceNumber = await reserveInvoiceNumber(tx, settings.id);
       const saved = await tx.invoice.create({
         data: {
           invoiceNumber, userId: input.userId, status: "DRAFT", invoiceType: "SINGLE",
@@ -703,9 +703,7 @@ router.post("/admin/draft", async (req, res) => {
       }
 
       const vatRate = new Prisma.Decimal(settings.vatRate);
-      const invoiceNumber = `${settings.invoicePrefix}-${String(
-        settings.nextInvoiceNumber,
-      ).padStart(6, "0")}`;
+      const invoiceNumber = await reserveInvoiceNumber(transaction, settings.id);
 
       const { paymentTerms, dueDate } = invoiceTerms(booking.user?.accountType, new Date(), { paymentTerms: `${settings.paymentTermsDays} days`, dueDate: new Date(Date.now() + settings.paymentTermsDays * 86400000) });
 
@@ -790,11 +788,6 @@ router.post("/admin/draft", async (req, res) => {
           },
         });
 
-        await transaction.companySettings.update({
-          where: { id: settings.id },
-          data: { nextInvoiceNumber: { increment: 1 } },
-        });
-
         return transaction.invoice.findUnique({
           where: { id: invoice.id },
           include: invoiceInclude(),
@@ -866,11 +859,6 @@ router.post("/admin/draft", async (req, res) => {
           eventType: "DRAFT_CREATED",
           description: `Draft invoice ${invoiceNumber} created from booking ${booking.reference}.`,
         },
-      });
-
-      await transaction.companySettings.update({
-        where: { id: settings.id },
-        data: { nextInvoiceNumber: { increment: 1 } },
       });
 
       return transaction.invoice.findUnique({
@@ -1860,7 +1848,7 @@ router.post("/admin/consolidated-draft", async (req, res) => {
       const settings = await tx.companySettings.findFirst();
       if (!settings) throw new Error("Company settings must be configured before invoices can be created.");
       const vatRate = new Prisma.Decimal(settings.vatRate);
-      const invoiceNumber = `${settings.invoicePrefix}-${String(settings.nextInvoiceNumber).padStart(6, "0")}`;
+      const invoiceNumber = await reserveInvoiceNumber(tx, settings.id);
       let subtotal = new Prisma.Decimal(0), vatAmount = new Prisma.Decimal(0), total = new Prisma.Decimal(0);
       const amounts = bookings.map((booking) => {
         const gross = roundMoney(new Prisma.Decimal(booking.totalPrice));
@@ -1876,7 +1864,6 @@ router.post("/admin/consolidated-draft", async (req, res) => {
         await tx.invoiceLine.create({ data: { invoiceId: invoice.id, bookingId: item.booking.id, chargeType: "BASE_SERVICE", description: `Courier service · ${item.booking.reference}`, quantity: 1, unitPrice: item.net, netAmount: item.net, vatRate, vatAmount: item.vat, grossAmount: item.gross, bookingReference: item.booking.reference, sourceType: "BOOKING", sourceId: item.booking.id } });
       }
       await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "DRAFT_CREATED", description: `Consolidated draft created for ${bookings.length} bookings.` } });
-      await tx.companySettings.update({ where: { id: settings.id }, data: { nextInvoiceNumber: { increment: 1 } } });
       return tx.invoice.findUnique({ where: { id: invoice.id }, include: invoiceInclude() });
     });
     res.status(201).json({ success: true, invoice: result });
