@@ -81,6 +81,7 @@ export default function LoginPage() {
             </p>
           </div>
 
+          <a className="m-8 block underline" href="/account-recovery">Forgot password or username?</a>
           <form onSubmit={handleSubmit} className="grid gap-6 p-8">
             {error && (
               <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">

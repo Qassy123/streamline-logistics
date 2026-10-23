@@ -22,8 +22,8 @@ export function QuoteNavigationGuard({ children }: { children: ReactNode }) {
         if (!available) window.alert(QUOTE_MAINTENANCE_MESSAGE);
         else window.location.assign(link.href);
       }).catch(() => {
-        if (!request.signal.aborted) window.alert("Unable to check quote availability. Please try again or call 0333 344 0703.");
-        else if (controller === request) window.alert("Quote availability could not be checked. Please try again or call 0333 344 0703.");
+        if (!request.signal.aborted) window.alert("Unable to check quote availability. Please try again or call 07301827224.");
+        else if (controller === request) window.alert("Quote availability could not be checked. Please try again or call 07301827224.");
       }).finally(() => { window.clearTimeout(timeout); if (controller === request) controller = null; });
     }
     document.addEventListener("click", click, true);
@@ -61,7 +61,7 @@ export function QuoteAvailabilityGate({ children }: { children: ReactNode }) {
       {status !== "CHECKING" && <>
         <p className="mt-4 leading-7">{status === "ERROR" ? "Please try again or call our team for a quote." : QUOTE_MAINTENANCE_MESSAGE}</p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <a className="inline-flex min-h-11 items-center rounded-full bg-[#006CFF] px-6 py-3 font-bold text-white" href="tel:03333440703">Call 0333 344 0703</a>
+          <a className="inline-flex min-h-11 items-center rounded-full bg-[#006CFF] px-6 py-3 font-bold text-white" href="tel:07301827224">Call 07301827224</a>
           <a className="inline-flex min-h-11 items-center rounded-full border px-6 py-3 font-semibold" href="/">Back to website</a>
           <button type="button" className="min-h-11 px-3 font-semibold underline" onClick={() => { setStatus("CHECKING"); setRetry(value => value + 1); }}>Check again</button>
         </div>

@@ -1,5 +1,5 @@
 import { reserveInvoiceNumber } from "../lib/invoiceNumber";
-import { invoiceTerms, tradeMonth } from "../lib/billingPolicy";
+import { TRADE_PAYMENT_TERMS, invoiceTerms, tradeMonth } from "../lib/billingPolicy";
 import { processMonthlyTradeBilling } from "../lib/monthlyTradeBilling";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
@@ -339,6 +339,29 @@ async function sendInvoiceReminderEmail(input: {
   return payload.id || null;
 }
 
+router.get("/admin/review-queue", async (req,res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const invoices = await prisma.invoice.findMany({ where: { status: "DRAFT", checkedAt: null, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}}] }, orderBy: { createdAt: "asc" }, select: { id: true, invoiceNumber: true, total: true, issuedAt: true, userId: true, user: { select: { companyName: true, name: true, accountNumber: true } } } });
+    res.setHeader("Cache-Control", "no-store"); res.json({ invoices,count: invoices.length });
+  } catch { res.status(500).json({ error: "Unable to load invoice notifications." }); }
+});
+router.post("/admin/:id/check", async (req,res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const invoice = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${getString(req.params.id)} FOR UPDATE`;
+      const row = await tx.invoice.findUnique({ where: { id: getString(req.params.id) } });
+      if (!row || row.status !== "DRAFT") throw new Error("Only a pending invoice can be checked.");
+      if (row.checkedAt) return row;
+      const updated = await tx.invoice.update({ where: { id: row.id }, data: { checkedAt: new Date() } });
+      await tx.invoiceAuditEvent.create({ data: { invoiceId: row.id, eventType: "INVOICE_CHECKED", description: "Invoice checked by the administration team; ready for finalisation." } });
+      return updated;
+    });
+    res.json({ invoice });
+  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to check invoice." }); }
+});
+
 router.get("/admin/:id/pdf", async (req, res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
@@ -523,6 +546,7 @@ router.get("/admin/manual-options", async (req, res) => {
   try {
     const [customers, settings] = await Promise.all([
       prisma.user.findMany({
+        where: { accountType: { not: "BUSINESS" } },
         orderBy: [{ companyName: "asc" }, { name: "asc" }],
         select: {
           id: true, accountType: true, name: true, companyName: true, email: true, accountsEmail: true,
@@ -552,8 +576,14 @@ router.post("/admin/manual", async (req, res) => {
   try {
     const selectedCustomerId = getString(req.body.userId);
     const billingCustomer = selectedCustomerId ? await prisma.user.findUnique({ where: { id: selectedCustomerId }, select: { accountType: true } }) : null;
+    if (billingCustomer?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated as paid receipts after payment. Use the booking checkout payment flow." });
     const input = parseManualInvoiceInput(req.body, billingCustomer?.accountType === "TRADE");
-    if (billingCustomer && ["BUSINESS", "TRADE"].includes(billingCustomer.accountType)) Object.assign(input, invoiceTerms(billingCustomer.accountType, input.invoiceDate));
+    if (billingCustomer?.accountType === "TRADE") {
+      const month=tradeMonth(input.supplyDate);
+      input.invoiceDate=month.issueDate; input.dueDate=month.dueDate;
+      input.paymentTerms=TRADE_PAYMENT_TERMS;
+      input.recipient.invoiceDate=month.issueDate.toLocaleDateString("en-CA",{timeZone:"Europe/London"});
+    }
     const requestId = getString(req.body.requestId);
     if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) return res.status(400).json({ error: "Manual invoice request ID is missing. Reopen the form and try again." });
     const existingRequest = await prisma.invoiceAuditEvent.findFirst({ where: { eventType: "MANUAL_INVOICE_CREATED", metadata: { path: ["requestId"], equals: requestId } } });
@@ -571,7 +601,7 @@ router.post("/admin/manual", async (req, res) => {
       const saved = await tx.invoice.create({
         data: {
           invoiceNumber, userId: input.userId, status: "DRAFT", invoiceType: "SINGLE",
-          subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
+          checkedAt: null, subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
           issuedAt: input.invoiceDate, dueDate: input.dueDate, supplyDate: input.supplyDate,
           paymentTerms: input.paymentTerms, customerReference: input.customerReference, purchaseOrderNumber: input.purchaseOrderNumber, notes: input.notes,
           lines: { create: input.lines },
@@ -594,8 +624,14 @@ router.patch("/admin/:id/manual", async (req, res) => {
   try {
     const selectedCustomerId = getString(req.body.userId);
     const billingCustomer = selectedCustomerId ? await prisma.user.findUnique({ where: { id: selectedCustomerId }, select: { accountType: true } }) : null;
+    if (billingCustomer?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated as paid receipts after payment. Use the booking checkout payment flow." });
     const input = parseManualInvoiceInput(req.body, billingCustomer?.accountType === "TRADE");
-    if (billingCustomer && ["BUSINESS", "TRADE"].includes(billingCustomer.accountType)) Object.assign(input, invoiceTerms(billingCustomer.accountType, input.invoiceDate));
+    if (billingCustomer?.accountType === "TRADE") {
+      const month=tradeMonth(input.supplyDate);
+      input.invoiceDate=month.issueDate; input.dueDate=month.dueDate;
+      input.paymentTerms=TRADE_PAYMENT_TERMS;
+      input.recipient.invoiceDate=month.issueDate.toLocaleDateString("en-CA",{timeZone:"Europe/London"});
+    }
     if (input.userId && !(await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true } }))) return res.status(400).json({ error: "Customer account does not exist." });
     const invoice = await prisma.$transaction(async (tx) => {
       const existing = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
@@ -604,7 +640,7 @@ router.patch("/admin/:id/manual", async (req, res) => {
       if (existing.adjustments.length) throw new Error("Remove additional charges and discounts before editing manual lines, then reapply them afterwards.");
       await tx.invoiceLine.deleteMany({ where: { invoiceId: existing.id, sourceType: "MANUAL" } });
       return tx.invoice.update({ where: { id: existing.id }, data: {
-        userId: input.userId, subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
+        userId: input.userId, checkedAt: null, subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
         issuedAt: input.invoiceDate, dueDate: input.dueDate, supplyDate: input.supplyDate,
         paymentTerms: input.paymentTerms, customerReference: input.customerReference, purchaseOrderNumber: input.purchaseOrderNumber, notes: input.notes,
         lines: { create: input.lines },
@@ -657,6 +693,7 @@ router.post("/admin/draft", async (req, res) => {
       },
     });
 
+    if (booking?.user?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated as paid receipts from confirmed checkout payments." });
     if (!booking) {
       return res.status(404).json({ error: "Booking not found." });
     }
@@ -1193,6 +1230,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
       return transaction.invoice.update({
         where: { id: invoice.id },
         data: {
+          checkedAt: null,
           subtotal: nextSubtotal,
           vatAmount: nextVat,
           total: nextTotal,
@@ -1294,6 +1332,7 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
       return transaction.invoice.update({
         where: { id: invoice.id },
         data: {
+          checkedAt: null,
           subtotal: nextSubtotal,
           vatAmount: nextVat,
           total: nextTotal,
@@ -1329,6 +1368,7 @@ router.post("/admin/:id/send", async (req, res) => {
       return res.status(404).json({ error: "Invoice not found." });
     }
 
+    if(invoice.user?.accountType === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
     if (invoice.status === "DRAFT") {
       if (!invoice.lines.length) {
         return res.status(400).json({
@@ -1603,6 +1643,7 @@ router.patch("/admin/:id", async (req, res) => {
     const invoice = await prisma.invoice.update({
       where: { id: req.params.id },
       data: {
+        checkedAt: financialEditRequested ? null : undefined,
         status: nextStatus,
         subtotal:
           req.body.subtotal !== undefined ? (subtotal as number) : undefined,
@@ -1618,6 +1659,7 @@ router.patch("/admin/:id", async (req, res) => {
               : null
             : undefined,
         ...(account?.accountType === "BUSINESS" && financialEditRequested ? invoiceTerms("BUSINESS", existingInvoice.issuedAt || new Date()) : {}),
+        ...(account?.accountType === "TRADE" && financialEditRequested ? invoiceTerms("TRADE", existingInvoice.issuedAt || new Date()) : {}),
         paidAt:
           nextStatus === "PAID"
             ? existingInvoice.paidAt || new Date()
@@ -1646,6 +1688,8 @@ router.post("/admin", async (req, res) => {
     const bookingId = getString(req.body.bookingId);
     const userId = getOptionalString(req.body.userId);
     const invoiceNumber = getString(req.body.invoiceNumber);
+    const receiptOwner = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { accountType: true } }) : null;
+    if (receiptOwner?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated only after payment through checkout." });
     const subtotal = getNumber(req.body.subtotal);
     const vatAmount = getNumber(req.body.vatAmount);
     const total = getNumber(req.body.total);
@@ -1883,7 +1927,7 @@ router.post(["/admin/:id/reopen", "/admin/:id/unfinalise"], async (req, res) => 
       if (row.status === "DRAFT") return row;
       if (!["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(row.status) || row.paidAt || row.allocations.some(a => a.amount.greaterThan(0)) || row.payments.some(p => p.status === "PAID") || row.creditNotes.some(n => n.status === "ISSUED")) throw new Error("Only an unpaid invoice without payments or issued credit notes can be unfinalised.");
       await tx.invoiceAuditEvent.create({ data: { invoiceId: row.id, eventType: "UNFINALISED", description: "Invoice returned to Pending for correction. Finalise and resend after editing.", metadata: { previousStatus: row.status, previousPdfStorageKey: row.pdfStorageKey, previouslySentAt: row.sentAt?.toISOString() || null } } });
-      return tx.invoice.update({ where: { id: row.id }, data: { status: "DRAFT", finalisedAt: null, sentAt: null, pdfUrl: null, pdfStorageKey: null }, include: invoiceInclude() });
+      return tx.invoice.update({ where: { id: row.id }, data: { status: "DRAFT", checkedAt: null, finalisedAt: null, sentAt: null, pdfUrl: null, pdfStorageKey: null }, include: invoiceInclude() });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     res.json({ success: true, invoice, message: "Invoice unfinalised and returned to Pending." });
   } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to unfinalise invoice." }); }
@@ -1895,6 +1939,7 @@ router.post("/admin/:id/finalise", async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
     if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+    if(invoice.user?.accountType === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
     if (invoice.status !== "DRAFT") return res.status(400).json({ error: "Only draft invoices can be finalised." });
     if (!invoice.lines.length) return res.status(400).json({ error: "Invoice must contain at least one financial charge line." });
     const finalisedAt = new Date();

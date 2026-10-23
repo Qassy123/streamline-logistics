@@ -705,10 +705,10 @@ const sections = [
           </a>
 
           <a
-            href="tel:03333440703"
+            href="tel:07301827224"
             className="mt-2 block font-semibold text-[#006CFF] transition hover:text-[#2D8CFF]"
           >
-            0333 344 0703
+            07301827224
           </a>
         </div>
       </>

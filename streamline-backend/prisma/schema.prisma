@@ -583,6 +583,7 @@ model Invoice {
   pdfStorageKey           String?
   supplyDate              DateTime?
   sentAt                  DateTime?
+  checkedAt               DateTime?
   lastReminderSentAt      DateTime?
   accountingProvider      String?
   externalAccountingId    String?
@@ -1698,4 +1699,17 @@ model TradeDecisionEmail {
   createdAt DateTime @default(now())
   @@index([sentAt, createdAt])
   @@index([tradeAccountId])
+}
+
+// Recovery credentials are isolated from login sessions and stored only as hashes.
+model AccountRecoveryToken {
+  id String @id @default(cuid())
+  kind String
+  subjectId String
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([kind, subjectId])
+  @@index([expiresAt])
 }

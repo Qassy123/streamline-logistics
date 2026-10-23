@@ -1,4 +1,5 @@
 "use client";
+import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
 import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -1080,21 +1081,14 @@ function AdminInvoicesContent() {
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
             Invoices
           </h1>
+<InvoiceReviewNotifications />
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => { setManualInvoiceToEdit(null); setShowManualInvoice(true); }} disabled={loading || !adminKey} className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:opacity-50">
             <Plus size={17} />Manual Invoice
           </button>
-          <button
-            type="button"
-            onClick={() => void openCreateDraft()}
-            disabled={loading || !adminKey}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus size={17} />
-            Create Draft Invoice
-          </button>
+          
 
           <button
             type="button"

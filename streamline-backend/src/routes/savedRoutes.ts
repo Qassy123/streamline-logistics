@@ -1,3 +1,4 @@
+import { requireStaff } from "../lib/adminAccess";
 import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
@@ -53,7 +54,7 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
     return null;
   }
 
-  return session.user;
+  return session.user.accountStatus === "ACTIVE" ? session.user : null;
 }
 
 router.get("/me", async (req, res) => {
@@ -85,6 +86,29 @@ router.get("/me", async (req, res) => {
       error: "Failed to fetch saved routes.",
     });
   }
+});
+
+router.get("/admin/:userId", async (req,res) => {
+  try {
+    const key = process.env.ADMIN_API_KEY?.trim();
+    if (!key || req.headers["x-admin-key"] !== key) await requireStaff(req, ["SUPER_ADMIN", "OFFICE_MANAGER", "DISPATCHER", "ACCOUNTS"]);
+    const userId = getString(req.params.userId);
+    const owner = await prisma.user.findUnique({ where: { id: userId } });
+    if (!owner || owner.accountStatus !== "ACTIVE") return res.status(404).json({error:"Active customer not found."});
+    res.setHeader("Cache-Control", "no-store");
+    res.json({savedRoutes:await prisma.savedRoute.findMany({where:{userId},orderBy:{name:"asc"}})});
+  } catch { res.status(403).json({error:"Sign in with an authorised staff account."}); }
+});
+router.patch("/:id", async (req,res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) return res.status(401).json({error:"Not authenticated."});
+    const name=getString(req.body?.name);
+    if (!name || name.length>120) return res.status(400).json({error:"Enter a route name of 1 to 120 characters."});
+    const result=await prisma.savedRoute.updateMany({where:{id:getString(req.params.id),userId:user.id},data:{name}});
+    if (!result.count) return res.status(404).json({error:"Saved route not found."});
+    res.json({success:true});
+  } catch { res.status(500).json({error:"Unable to rename the saved route."}); }
 });
 
 router.post("/", async (req, res) => {

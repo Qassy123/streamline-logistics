@@ -633,7 +633,7 @@ router.post("/logout", async (req, res) => {
 router.get("/me/invoices/:id/pdf", async (req, res) => {
   const user = await getAuthenticatedUser(req);
   if (!user || user.accountStatus !== "ACTIVE") return res.status(401).json({ error: "Please log in." });
-  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, userId: user.id, archivedCustomerId: null, status: { not: "DRAFT" } }, include: { user: true, adjustments: true, lines: true, invoiceBookings: true, allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true, booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } });
+  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, userId: user.id, archivedCustomerId: null, status: user.accountType === "BUSINESS" ? "PAID" : { not: "DRAFT" } }, include: { user: true, adjustments: true, lines: true, invoiceBookings: true, allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true, booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } });
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
   try { const buffer = await renderInvoicePdf(invoice); res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer); }
   catch { res.status(500).json({ error: "Unable to render invoice PDF." }); }

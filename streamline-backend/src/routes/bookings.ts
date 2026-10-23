@@ -1,3 +1,4 @@
+import { reviewJob } from "../lib/completedJobs";
 import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import {
@@ -360,6 +361,22 @@ async function findAvailableVehicleForWindow(params: {
 /* ---------------------------------
    Admin Booking Management
 ---------------------------------- */
+
+router.get("/admin/completed-jobs", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const page = Math.min(100000, Math.max(1, Math.floor(Number(req.query.page)) || 1)), q = getString(req.query.search).slice(0,120), filter = getString(req.query.status);
+    const where: Prisma.BookingWhereInput = { archivedCustomerId: null, status: filter === "COMPLETED" ? "COMPLETED" : filter === "CANCELLED" ? "CANCELLED" : filter === "OPEN" ? { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] } : { not: "PENDING_PAYMENT" }, ...(q ? { OR: [{ reference: { contains: q, mode: "insensitive" } }, { user: { is: { companyName: { contains: q, mode: "insensitive" } } } }] } : {}) };
+    const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } } } }), prisma.booking.count({ where })]);
+    res.setHeader("Cache-Control", "no-store"); res.json({ jobs,total,page,pages: Math.max(1,Math.ceil(total/50)) });
+  } catch { res.status(500).json({ error: "Unable to load completed jobs." }); }
+});
+router.post("/admin/completed-jobs/:id/review", async (req,res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  if (!["COMPLETE","CANCEL"].includes(req.body.action)) return res.status(400).json({ error: "Choose Complete or Cancel." });
+  try { res.json({ booking: await reviewJob(getString(req.params.id), req.body.action, getString(req.body.reason)) }); }
+  catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to review job." }); }
+});
 
 router.get("/admin/list", async (req, res) => {
   const admin = requireAdmin(req);
@@ -766,6 +783,10 @@ router.patch("/admin/:id", async (req, res) => {
       });
     }
 
+    if (["COMPLETED","CANCELLED"].includes(statusValue)) {
+      try { return res.json({ success: true, booking: await reviewJob(getString(req.params.id), statusValue === "COMPLETED" ? "COMPLETE" : "CANCEL", getString(req.body.reason)) }); }
+      catch (error) { return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to review job." }); }
+    }
     const nextStatus = statusValue
       ? (statusValue as BookingStatus)
       : undefined;
@@ -1267,7 +1288,7 @@ router.get("/", async (_, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
       },
@@ -1304,7 +1325,7 @@ router.get("/me", async (req, res) => {
         quote: true,
         vehicle: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
         trackingEvents: {
@@ -1384,7 +1405,7 @@ router.get("/me/invoices", async (req, res) => {
       where: {
         userId: user.id,
         archivedCustomerId: null,
-        status: { not: "DRAFT" },
+        status: user.accountType === "BUSINESS" ? "PAID" : { not: "DRAFT" },
       },
       orderBy: {
         createdAt: "desc",
@@ -1504,7 +1525,7 @@ router.get("/:id", async (req, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
         trackingEvents: {
@@ -1815,42 +1836,10 @@ router.post("/:id/confirm-payment", async (req, res) => {
 });
 
 router.patch("/:id/status", async (req, res) => {
-  try {
-    const status = req.body.status as BookingStatus;
-
-    const booking = await prisma.booking.update({
-      where: {
-        id: req.params.id,
-      },
-      data: {
-        status,
-        trackingEvents: {
-          create: {
-            status,
-            title: `Booking ${String(status)
-              .replace(/_/g, " ")
-              .toLowerCase()}`,
-            description: "Your booking status has been updated.",
-          },
-        },
-      },
-      include: {
-        trackingEvents: {
-          orderBy: {
-            createdAt: "asc",
-          },
-        },
-      },
-    });
-
-    res.json(booking);
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      error: "Failed to update booking status",
-    });
-  }
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  if (!["COMPLETED", "CANCELLED"].includes(req.body.status)) return res.status(400).json({ error: "Use the planning controls for non-final job statuses." });
+  try { res.json(await reviewJob(getString(req.params.id), req.body.status === "COMPLETED" ? "COMPLETE" : "CANCEL", getString(req.body.reason))); }
+  catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to update job." }); }
 });
 
 export default router;

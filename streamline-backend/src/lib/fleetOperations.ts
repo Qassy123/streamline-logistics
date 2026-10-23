@@ -1,3 +1,4 @@
+import { vehicleComplianceBlocks } from "./vehicleCompliance";
 import { capacityEnd, readFleetAvailability } from "./fleetAvailability";
 import { BookingStatus, Prisma, type AdminUser } from "@prisma/client";
 import { prisma } from "./prisma";
@@ -38,6 +39,8 @@ export async function operationalVan(tx: Tx, id: string, at: Date, until: Date) 
   const van = await tx.vehicle.findUnique({ where: { id } });
   if (!van) throw new DriverPortalError(404, "Van not found.");
   if (!vanCategories.includes(van.vehicleType as typeof vanCategories[number]) || !van.active || ["INACTIVE", "MAINTENANCE"].includes(van.status)) throw new DriverPortalError(409, "This van is inactive, outside the supported categories or under maintenance.");
+  const compliance = vehicleComplianceBlocks(van, until);
+  if (compliance.length) throw new DriverPortalError(409, compliance.join(" "));
   if (await tx.driverVehicleCheck.findFirst({ where: { vehicleId: id, unsafeToDrive: true, resolvedAt: null } })) throw new DriverPortalError(409, "This van has an unresolved unsafe defect.");
   if (await tx.vehicleMaintenanceRecord.findFirst({ where: { vehicleId: id, cancelledAt: null, completedAt: null, startsAt: { lt: until }, endsAt: { gt: at } } })) throw new DriverPortalError(409, "This van has maintenance in this time window.");
   return van;
@@ -108,4 +111,3 @@ export async function createAllocation(tx: Tx, data: { driverId: string; vehicle
   if (data.startsAt <= new Date()) await assertVanChange(tx, data.driverId, data.vehicleId);
   return tx.driverVehicleAllocation.create({ data });
 }
-

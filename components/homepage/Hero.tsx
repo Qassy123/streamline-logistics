@@ -65,8 +65,8 @@ export default function Hero() {
                   {showPhoneNumber ? "Hide number" : "Call for a quote"}
                 </button>
                 <div id="homepage-maintenance-phone" hidden={!showPhoneNumber}>
-                  <a href="tel:03333440703" className="text-xl font-bold text-[#071D49] underline underline-offset-4">
-                    0333 344 0703
+                  <a href="tel:07301827224" className="text-xl font-bold text-[#071D49] underline underline-offset-4">
+                    07301827224
                   </a>
                   <p className="mt-1 text-sm text-[#071D49]/80">Tap the number to call.</p>
                 </div>

@@ -1391,7 +1391,8 @@ export default function CustomerAccountPage() {
           </section>
 
           <aside className="space-y-6">
-            <InvoiceSection
+            {customer.accountType !== "BUSINESS" && <>
+<InvoiceSection
               title="Pending Invoices"
               invoices={pendingInvoices}
               customerId={customer.id}
@@ -1412,8 +1413,9 @@ export default function CustomerAccountPage() {
               }}
             />
 
-            <InvoiceSection
-              title="Paid/Cleared Invoices"
+            </>}
+<InvoiceSection
+              title={customer.accountType === "BUSINESS" ? "Paid Invoices" : "Paid/Cleared Invoices"}
               invoices={paidClearedInvoices}
               customerId={customer.id}
               emptyMessage="No paid or cleared invoices."

@@ -1,4 +1,5 @@
 "use client";
+import SavedRoutePicker from "@/components/SavedRoutePicker";
 import { QuoteAvailabilityGate } from "@/components/QuoteAvailability";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
@@ -357,6 +358,7 @@ function QuotePageLoading() {
 function QuotePageForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [savedRouteVersion, setSavedRouteVersion] = useState(0);
   const isEditingSavedRoute = searchParams.get("edit") === "true";
   const formRef = useRef<HTMLFormElement | null>(null);
 
@@ -562,7 +564,7 @@ function QuotePageForm() {
     } finally {
       setDraftLoaded(true);
     }
-  }, [isEditingSavedRoute]);
+  }, [isEditingSavedRoute, savedRouteVersion]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -1198,7 +1200,7 @@ function QuotePageForm() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              {["Same day", "Multi-drop", "Full load"].map((item) => (
+              {["Same day", "Next day", "Multi-drop"].map((item) => (
                 <div
                   key={item}
                   className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4"
@@ -1313,6 +1315,7 @@ function QuotePageForm() {
           </div>
         )}
 
+        <SavedRoutePicker  onSelect={route=>{localStorage.setItem(SAVED_ROUTE_STORAGE_KEY,JSON.stringify(route));setSavedRouteVersion(value=>value+1);}} />
         <form
           ref={formRef}
           onSubmit={handleSubmit}

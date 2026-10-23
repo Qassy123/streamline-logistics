@@ -1,4 +1,5 @@
 "use client";
+import SavedRoutePicker from "@/components/SavedRoutePicker";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
 import VehicleDetailsModal from "@/components/VehicleDetailsModal";
@@ -335,6 +336,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
   apiBase: string; accountId: string; customer: AdminQuoteCustomer | null;
   onCalculate: (payload: AdminQuotePayload) => Promise<void>; onOpenBoard: () => void;
 }) {
+  const [savedRouteVersion, setSavedRouteVersion] = useState(0);
   const isEditingSavedRoute = false;
   const QUOTE_FORM_STORAGE_KEY = "streamline_admin_quote_form_draft_" + accountId;
   const SAVED_ROUTE_STORAGE_KEY = "streamline_admin_saved_route_prefill_" + accountId;
@@ -495,7 +497,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
     } finally {
       setDraftLoaded(true);
     }
-  }, [isEditingSavedRoute, QUOTE_FORM_STORAGE_KEY, SAVED_ROUTE_STORAGE_KEY]);
+  }, [isEditingSavedRoute, QUOTE_FORM_STORAGE_KEY, SAVED_ROUTE_STORAGE_KEY, savedRouteVersion]);
 
   useEffect(() => {
     if (!draftLoaded || !customer) return;
@@ -1052,7 +1054,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              {["Same day", "Multi-drop", "Full load"].map((item) => (
+              {["Same day", "Next day", "Multi-drop"].map((item) => (
                 <div
                   key={item}
                   className="rounded-2xl border border-white/10 bg-white/[0.08] px-5 py-4"
@@ -1167,6 +1169,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
           </div>
         )}
 
+        <SavedRoutePicker accountId={accountId} apiBase={apiBase.replace(/\/$/, "") + "/api"} onSelect={route=>{localStorage.setItem(SAVED_ROUTE_STORAGE_KEY,JSON.stringify(route));setSavedRouteVersion(value=>value+1);}} />
         <form
           ref={formRef}
           onSubmit={handleSubmit}

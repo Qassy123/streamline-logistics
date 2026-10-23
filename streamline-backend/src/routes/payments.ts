@@ -137,6 +137,8 @@ async function createInvoiceIfMissing(booking: {
     totalPrice: Prisma.Decimal | null;
   } | null;
 }) {
+  const paid = await prisma.payment.aggregate({ where: { bookingId: booking.id, status: "PAID" }, _sum: { amount: true } });
+  if (new Prisma.Decimal(paid._sum.amount || 0).lessThan(booking.totalPrice)) throw new Error("A paid invoice is generated only after confirmed full payment.");
   const existingInvoice = await prisma.invoice.findFirst({
     where: { bookingId: booking.id },
   });
@@ -144,6 +146,9 @@ async function createInvoiceIfMissing(booking: {
   if (existingInvoice) return existingInvoice;
 
   return prisma.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT id FROM "Booking" WHERE id = ${booking.id} FOR UPDATE`;
+    const existing = await transaction.invoice.findFirst({where:{bookingId:booking.id}});
+    if(existing)return existing;
     const settings = await transaction.companySettings.findFirst({
       orderBy: { createdAt: "asc" },
     });
@@ -178,7 +183,8 @@ async function createInvoiceIfMissing(booking: {
         invoiceNumber,
         bookingId: booking.id,
         userId: booking.userId,
-        status: "FINALISED",
+        status: "PAID",
+        paidAt: now,
         invoiceType: "SINGLE",
         subtotal,
         vatAmount,
@@ -187,7 +193,7 @@ async function createInvoiceIfMissing(booking: {
         issuedAt: now,
         finalisedAt: now,
         supplyDate: booking.collectionDate,
-        paymentTerms: "Pay now",
+        paymentTerms: "Paid in full",
         customerReference: booking.customerReference || null,
         purchaseOrderNumber: booking.purchaseOrderNumber || null,
       },
@@ -225,6 +231,19 @@ async function createInvoiceIfMissing(booking: {
         sourceId: booking.id,
       },
     });
+
+    // The paid receipt and its ledger allocation commit together.
+    const payments=await transaction.payment.findMany({where:{bookingId:booking.id,status:"PAID"},orderBy:{createdAt:"asc"}});
+    let remaining=total;
+    for(const payment of payments){
+      if(remaining.lessThanOrEqualTo(0))break;
+      const amount=Prisma.Decimal.min(remaining,payment.amount);
+      if(amount.lessThanOrEqualTo(0))continue;
+      await transaction.paymentAllocation.create({data:{paymentId:payment.id,invoiceId:invoice.id,amount,notes:"Confirmed booking payment allocated to its paid receipt."}});
+      if(!payment.invoiceId)await transaction.payment.update({where:{id:payment.id},data:{invoiceId:invoice.id}});
+      remaining=remaining.sub(amount);
+    }
+    if(remaining.greaterThan(0))throw new Error("Confirmed payment no longer covers this invoice.");
 
     await transaction.invoiceAuditEvent.create({
       data: {
@@ -379,7 +398,6 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
       },
     });
 
-    await createInvoiceIfMissing(booking);
 
     return booking;
   }
@@ -457,7 +475,6 @@ async function createConfirmedBookingFromQuote(quoteId: string, userId?: string)
     },
   });
 
-  await createInvoiceIfMissing(booking);
 
   return booking;
 }
@@ -1375,7 +1392,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
 
     const booking = await createConfirmedBookingFromQuote(quote.id, user?.id);
 
-    const invoice = await prisma.invoice.findFirst({
+    const priorInvoice = await prisma.invoice.findFirst({
       where: { bookingId: booking.id },
       orderBy: { createdAt: "asc" },
     });
@@ -1392,7 +1409,7 @@ router.post("/confirm-checkout-session", async (req, res) => {
       (await prisma.payment.create({
         data: {
           bookingId: booking.id,
-          invoiceId: invoice?.id || null,
+          invoiceId: priorInvoice?.id || null,
           userId: user?.id || booking.userId || null,
           provider: "stripe",
           providerPaymentId: session.id,
@@ -1402,6 +1419,8 @@ router.post("/confirm-checkout-session", async (req, res) => {
           paidAt: new Date(),
         },
       }));
+
+    const invoice = await createInvoiceIfMissing(booking);
 
     if (invoice) {
       const existingAllocation = await prisma.paymentAllocation.findUnique({
@@ -1454,6 +1473,8 @@ router.post("/confirm-checkout-session", async (req, res) => {
             },
           });
         });
+      } else {
+        await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "PAID", paidAt: payment.paidAt || new Date(), finalisedAt: invoice.finalisedAt || new Date() } });
       }
     }
 

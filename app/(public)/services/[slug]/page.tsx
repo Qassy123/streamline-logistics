@@ -53,7 +53,7 @@ export default function ServicePage({ params }: ServicePageProps) {
               </Link>
 
               <a
-                href="tel:03333440703"
+                href="tel:07301827224"
                 className="inline-flex items-center justify-center gap-3 rounded-full border border-white px-8 py-4 font-semibold text-white transition hover:bg-white hover:text-[#0b1f3a]"
               >
                 <Phone size={20} />

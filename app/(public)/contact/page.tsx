@@ -83,11 +83,11 @@ export default function ContactPage() {
 
               <div className="mt-10 flex flex-col gap-4 sm:flex-row">
                 <a
-                  href="tel:03333440703"
+                  href="tel:07301827224"
                   className="inline-flex items-center justify-center gap-3 rounded-full bg-[#006CFF] px-8 py-4 font-semibold text-white transition hover:-translate-y-1 hover:bg-[#2D8CFF]"
                 >
                   <Phone size={20} />
-                  0333 344 0703
+                  07301827224
                 </a>
 
                 <a
@@ -122,7 +122,7 @@ export default function ContactPage() {
 
             <div className="grid gap-6 lg:grid-cols-3">
               <a
-                href="tel:03333440703"
+                href="tel:07301827224"
                 className="group rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-8 transition duration-300 hover:-translate-y-1 hover:border-[#006CFF] hover:shadow-xl"
               >
                 <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm">
@@ -134,7 +134,7 @@ export default function ContactPage() {
                 </p>
 
                 <h3 className="text-2xl font-bold text-[#071D49]">
-                  0333 344 0703
+                  07301827224
                 </h3>
 
                 <p className="mt-4 leading-7 text-[#4B5D7A]">

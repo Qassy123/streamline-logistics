@@ -1,3 +1,4 @@
+import accountRecoveryRoutes from "./routes/accountRecovery";
 import { processTradeDecisionEmails } from "./lib/tradeDecisionEmail";
 import { driverVehicleRecords, adminVehicleRecords } from "./routes/vehicleRecords";
 import { evidenceLinks } from "./lib/operationalEvidence";
@@ -82,6 +83,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/driver/shifts", driverShiftRoutes);
 app.use("/api/admin/fleet-operations", fleetOperationsRoutes);
 app.use("/api/admin/driver-hours", adminHoursRoutes);
+app.use("/api/recovery", accountRecoveryRoutes);
 app.use("/api/admin/auth", staffAuthRoutes);
 app.use("/api/driver/auth", driverAuthRoutes);
 app.use("/api/driver/jobs", driverJobsRoutes);

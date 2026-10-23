@@ -79,12 +79,12 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
             </Link>
 
             <a
-              href="tel:03333440703"
+              href="tel:07301827224"
               onClick={onClose}
               className="flex items-center justify-center gap-3 rounded-full border border-white/15 bg-white/[0.06] px-6 py-5 text-lg font-bold text-white"
             >
               <Phone size={20} className="text-[#2D8CFF]" />
-              0333 344 0703
+              07301827224
             </a>
           </div>
 

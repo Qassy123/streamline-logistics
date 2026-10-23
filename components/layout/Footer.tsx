@@ -98,10 +98,10 @@ export default function Footer() {
 
           <div className="flex flex-col gap-3 text-base text-white/80">
             <a
-              href="tel:03333440703"
+              href="tel:07301827224"
               className="transition hover:text-[#2D8CFF]"
             >
-              0333 344 0703
+              07301827224
             </a>
 
             <a

@@ -1,3 +1,4 @@
+import { vehicleComplianceBlocks } from "./vehicleCompliance";
 import { Prisma } from "@prisma/client";
 import { DriverPortalError } from "./driverPortal";
 import { getReservationWindow } from "./reservationWindow";
@@ -40,6 +41,7 @@ export async function readFleetAvailability(db: Reader, options: AvailabilityOpt
   for (const van of vehicles) {
     if (!van.active || van.status === "INACTIVE") add(van.id, "Inactive", null, "INACTIVE");
     if (van.status === "MAINTENANCE") add(van.id, "Maintenance", null, "MAINTENANCE");
+    for (const reason of vehicleComplianceBlocks(van, endsAt, now)) add(van.id, reason, null, "COMPLIANCE_EXPIRED");
     // BOOKED/OUT_ON_JOB are cached legacy statuses. Existing timed bookings and
     // live delivery records determine capacity; compliance review stays separate.
   }
@@ -95,5 +97,9 @@ export async function findFleetVehicle(db: Reader, params: { vehicleType: string
     ownQuote = booking?.quoteId || undefined; ownDriver = booking?.driverId || undefined;
   }
   const rows = await readFleetAvailability(db, { startsAt: params.reservedFrom, endsAt: params.reservedUntil, vehicleType: params.vehicleType, bookingId: params.excludeBookingId, quoteId: ownQuote, driverId: ownDriver, purpose: ownDriver ? "BOOKING" : "QUOTE" });
-  return rows.find(row => row.available && row.vehicle.active)?.vehicle || null;
+  const found = rows.find(row => row.available && row.vehicle.active)?.vehicle;
+  if (found) return found;
+  const compliance = rows.flatMap(row => row.reasons.filter(reason => /tax|MOT/.test(reason)).map(reason => `${row.vehicle.registration || row.vehicle.name}: ${reason}`));
+  if (compliance.length) throw new DriverPortalError(409, compliance.join(" "));
+  return null;
 }

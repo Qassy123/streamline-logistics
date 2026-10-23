@@ -22,6 +22,6 @@ export const faqs = [
   {
     question: "What can you transport?",
     answer:
-      "We transport parcels, business goods, multi-drop loads, full-load consignments and urgent commercial deliveries.",
+      "We transport parcels, business goods and urgent commercial deliveries through our same-day, next-day and multi-drop services.",
   },
 ];

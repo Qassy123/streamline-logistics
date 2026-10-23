@@ -138,11 +138,11 @@ export default function Header() {
 
           <div className="hidden w-[460px] shrink-0 items-center justify-end gap-5 lg:flex">
             <a
-              href="tel:03333440703"
+              href="tel:07301827224"
               className="flex items-center gap-2 whitespace-nowrap font-medium text-white"
             >
               <Phone size={18} className="text-[#006CFF]" />
-              0333 344 0703
+              07301827224
             </a>
 
             {user ? (

@@ -1,4 +1,5 @@
 "use client";
+import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,6 +17,7 @@ type NavigationItem = {
 };
 
 const navigationItems: NavigationItem[] = [
+  {label:"Completed Jobs",href:"/admin/completed-jobs"},
   { label: "Vehicle records & evidence", href: "/admin/vehicle-records" },
   { label: "Driver hours", href: "/admin/driver-hours" },
   { label: "Staff & Permissions", href: "/admin/permissions" },
@@ -154,7 +156,7 @@ export default function AdminLayout({
                         : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-950",
                     ].join(" ")}
                   >
-                    {item.label}
+                    {item.label}{item.href === "/admin/invoices" && <InvoiceReviewNotifications badge /> }
                   </Link>
                 );
               })}

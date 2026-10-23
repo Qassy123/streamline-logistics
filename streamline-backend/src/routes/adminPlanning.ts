@@ -1,3 +1,4 @@
+import { vehicleComplianceBlocks } from "../lib/vehicleCompliance";
 import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability } from "../lib/fleetAvailability";
 import {
@@ -581,6 +582,8 @@ router.patch(
             });
           }
 
+          const expiryBlocks = vehicleComplianceBlocks(exactVehicle, booking.estimatedEndTime || booking.collectionDate);
+          if (expiryBlocks.length) return res.status(409).json({ error: expiryBlocks.join(" "), code: "VEHICLE_COMPLIANCE_EXPIRED", canOverride: false });
           const complianceWarnings =
             vehicleComplianceWarnings(
               exactVehicle,

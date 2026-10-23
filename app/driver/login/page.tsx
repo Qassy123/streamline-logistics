@@ -127,7 +127,7 @@ export default function DriverLoginPage() {
           </form>
           {screen === "LOGIN" ? <div className="mt-5 flex flex-wrap justify-between gap-2"><button type="button" disabled={loading || !ready} onClick={() => changeScreen("USERNAME")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Forgot username?</button><button type="button" disabled={loading || !ready} onClick={() => changeScreen("PASSWORD")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Forgot password?</button></div> : <div className="mt-5 flex flex-wrap justify-between gap-3"><button type="button" disabled={loading} onClick={() => changeScreen("LOGIN")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Back to sign in</button>{screen === "RESET" ? <button type="button" disabled={loading} onClick={() => changeScreen("PASSWORD")} className="min-h-11 text-sm font-semibold text-blue-700 underline underline-offset-4">Request a new reset link</button> : null}</div>}
         </div>
-        <a href="tel:03333440703" className="mt-6 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-[#071D49]"><Phone size={17} />Call dispatch · 0333 344 0703</a>
+        <a href="tel:07301827224" className="mt-6 flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-[#071D49]"><Phone size={17} />Call dispatch · 07301827224</a>
         <p className="mt-5 text-center text-xs leading-5 text-slate-500">Driver access only. Your van and jobs are assigned by dispatch.</p>
       </section>
     </main>

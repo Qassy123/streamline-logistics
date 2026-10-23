@@ -109,10 +109,10 @@ export default async function IndustryPage({ params }: PageProps) {
                 </Link>
 
                 <a
-                  href="tel:03333440703"
+                  href="tel:07301827224"
                   className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white/10 px-8 py-4 font-semibold text-white backdrop-blur-sm transition hover:bg-white/15"
                 >
-                  0333 344 0703
+                  07301827224
                 </a>
               </div>
             </div>

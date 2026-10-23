@@ -1,4 +1,5 @@
 "use client";
+import SavedRoutePicker from "@/components/SavedRoutePicker";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -42,6 +43,7 @@ function formatDate(value: string) {
 }
 
 export default function SavedRoutesPage() {
+  const [routeVersion,setRouteVersion]=useState(0);
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,6 +69,7 @@ export default function SavedRoutesPage() {
       }
 
       setRoutes(Array.isArray(data.savedRoutes) ? data.savedRoutes : []);
+      setRouteVersion(value=>value+1);
     } catch (error) {
       setError(
         error instanceof Error
@@ -78,6 +81,15 @@ export default function SavedRoutesPage() {
     }
   }
 
+  async function renameRoute(id:string,currentName:string) {
+    const name=window.prompt("Saved route name",currentName);
+    if(name===null)return;
+    try {
+      const response=await fetch(`${DELETE_API_URL}/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json",Authorization:`Bearer ${localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)}`},body:JSON.stringify({name})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to rename route.");
+      await loadRoutes();
+    } catch(error){setError(error instanceof Error?error.message:"Unable to rename route.");}
+  }
   async function deleteRoute(id: string) {
     const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 
@@ -97,6 +109,7 @@ export default function SavedRoutesPage() {
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
+      <SavedRoutePicker refresh={routeVersion} onSelect={route=>{localStorage.setItem(SAVED_ROUTE_STORAGE_KEY,JSON.stringify(route));window.location.href="/quote";}} />
       <div className="mx-auto max-w-7xl">
         <section className="overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
           <div className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-8 text-white sm:p-10">
@@ -168,7 +181,7 @@ export default function SavedRoutesPage() {
                           </p>
 
                           <h2 className="mt-2 text-2xl font-bold text-[#071D49]">
-                            {route.name || "Repeat delivery route"}
+                            {route.name || "Repeat delivery route"} <button type="button" className="ml-3 text-sm text-blue-600 underline" onClick={()=>renameRoute(route.id,route.name||"")}>Rename</button>
                           </h2>
 
                           <p className="mt-2 text-sm font-semibold text-slate-500">

@@ -46,11 +46,11 @@ export default function SameDayDeliveryPage() {
               </Link>
 
               <a
-                href="tel:03333440703"
+                href="tel:07301827224"
                 className="inline-flex items-center justify-center gap-3 rounded-full border border-white/30 bg-white/10 px-8 py-4 font-semibold text-white transition hover:bg-white hover:text-[#071D49]"
               >
                 <Phone size={20} />
-                0333 344 0703
+                07301827224
               </a>
             </div>
           </div>

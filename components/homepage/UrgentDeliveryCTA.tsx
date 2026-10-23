@@ -22,11 +22,11 @@ export default function UrgentDeliveryCTA() {
 
         <div className="flex flex-col gap-4 sm:flex-row">
           <a
-            href="tel:03333440703"
+            href="tel:07301827224"
             className="flex items-center justify-center gap-2 rounded-full bg-white px-8 py-4 font-semibold text-[#071D49] transition hover:bg-[#EAF2FF]"
           >
             <Phone size={20} />
-            0333 344 0703
+            07301827224
           </a>
 
           <Link

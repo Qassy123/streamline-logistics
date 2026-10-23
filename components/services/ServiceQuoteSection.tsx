@@ -45,7 +45,7 @@ export default function ServiceQuoteSection({
 
             <div className="grid gap-4">
               <a
-                href="tel:03333440703"
+                href="tel:07301827224"
                 className="flex min-w-0 items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4 font-semibold text-white"
               >
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ef1c24]">
@@ -53,7 +53,7 @@ export default function ServiceQuoteSection({
                 </span>
 
                 <div className="min-w-0">
-                  <span className="block">0333 344 0703</span>
+                  <span className="block">07301827224</span>
                 </div>
               </a>
 

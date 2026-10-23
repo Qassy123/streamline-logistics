@@ -103,7 +103,7 @@ export default async function PaymentsPage({
 }) {
   const { quoteId } = await searchParams;
 
-  if (!quoteId) notFound();
+  if (!quoteId) return <main className="mx-auto max-w-4xl px-6 py-12 text-[#071D49]"><h1 className="text-4xl font-bold">Payments</h1><section className="my-8 space-y-4"><h2 className="text-2xl font-bold">Business bookings</h2><p>Pay securely through the checkout attached to your quote before your booking is confirmed. A paid invoice is generated after successful payment and is available in your account.</p><h2 className="text-2xl font-bold">Approved Trade accounts</h2><p>Eligible completed bookings from the previous calendar month are invoiced on the 1st, with payment due by the 15th of the same month. Use the bank details and invoice reference shown on your invoice.</p><p>For payment queries, <a className="underline" href="/contact">contact our team</a>. View your invoices in your <a className="underline" href="/dashboard/invoices">customer account</a>.</p></section></main>;
 
   const quote = await getQuote(quoteId);
 
