@@ -34,7 +34,7 @@ function validCoordinates(value: GoogleCoordinates): boolean {
     Math.abs(value[0]) <= 180 && Math.abs(value[1]) <= 90;
 }
 
-async function geocodeAddressQuery(address: string, parentSite = false): Promise<{
+async function geocodeAddressQuery(address: string, parentSite = false, businessSite = false): Promise<{
   coordinates: GoogleCoordinates;
   coordinateSource: "google-geocoding";
 }> {
@@ -63,7 +63,13 @@ async function geocodeAddressQuery(address: string, parentSite = false): Promise
     const postcodeMatches = !!expectedPostcode && typeof postcode?.long_name === "string" &&
       compactPostcode(postcode.long_name) === compactPostcode(expectedPostcode);
     if (country?.short_name !== "GB" || (expectedPostcode && !postcodeMatches)) return false;
-    if (parentSite) {
+    if (businessSite) {
+      // Require an exact named business, not a nearby street or postcode result.
+      if (!Array.isArray(item.types) || !item.types.some((type: string) =>
+        ["establishment", "point_of_interest"].includes(type)) ||
+        item.types.some((type: string) => ["postal_code", "route", "locality"].includes(type))) return false;
+    }
+    if (parentSite || businessSite) {
       // A parent site must be an exact match at the original postcode. Never
       // substitute an approximate postcode/street centre for a named premises.
       if (item.partial_match) return false;
@@ -100,16 +106,41 @@ function parentPremisesAddress(address: string): string | null {
   return parent.join(", ");
 }
 
+function businessPremisesAddress(address: string): string | null {
+  const parts = address.split(",").map(part => part.trim()).filter(Boolean);
+  if (parts.length < 4) return null;
+  const name = parts[0];
+  // Only a separate business name before a premises/street line is eligible.
+  // Never reinterpret a numbered street or an unnamed unit as a business.
+  const subpremises = /^(?:kiosk|unit|shop|suite|flat|apartment|apt)\b/i;
+  const streetEnding = /\b(?:road|rd|street|st|lane|ln|avenue|ave|drive|close|crescent|way|square|sq|court|terrace|place|postcode)\.?$/i;
+  if (!/[a-z]/i.test(name) || /^\d/.test(name) || subpremises.test(name) || streetEnding.test(name)) return null;
+  if (!/^\d/.test(parts[1]) && !subpremises.test(parts[1]) && !streetEnding.test(parts[1])) return null;
+  const postcode = address.match(/\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i)?.[0];
+  return postcode ? `${name}, ${postcode.toUpperCase()}` : null;
+}
+
 export async function geocodeGoogleAddress(address: string, stopLabel?: string): Promise<{
   coordinates: GoogleCoordinates;
   coordinateSource: "google-geocoding";
-  addressMatch: "full-address" | "parent-site";
+  addressMatch: "full-address" | "parent-site" | "business-site";
   geocodedAddress: string;
 }> {
+  if (!address.trim() || address.length > 1500) throw new GoogleMapsError("Enter a valid collection or delivery address.", 400);
   try {
     return { ...await geocodeAddressQuery(address), addressMatch: "full-address", geocodedAddress: address };
   } catch (error) {
     if (!(error instanceof GoogleMapsError) || error.status !== 400) throw error;
+    const business = businessPremisesAddress(address);
+    if (business) {
+      try {
+        // The full delivery address stays on the quote/booking. Only the map
+        // query changes, and the exact original postcode remains mandatory.
+        return { ...await geocodeAddressQuery(business, false, true), addressMatch: "business-site", geocodedAddress: business };
+      } catch (retryError) {
+        if (!(retryError instanceof GoogleMapsError) || retryError.status !== 400) throw retryError;
+      }
+    }
     const parent = parentPremisesAddress(address);
     if (parent) {
       try {
