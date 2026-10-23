@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -28,7 +28,8 @@ const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
 const PAGE_SIZE = 25;
 
 type TradeStatus =
-  "PENDING" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
+  "PENDING" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED"
+  | "DOWNGRADED";
 
 type TradeAccount = {
   id: string;
@@ -318,6 +319,8 @@ export default function TradeAccountsPage() {
     setMessage("");
   }
 
+  const decisionFeedback = useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(selected && (error || message))decisionFeedback.current?.scrollIntoView({block:"nearest",behavior:"smooth"});},[selected,error,message]);
   async function updateAccount(nextStatus?: TradeStatus) {
     if (!selected || !adminKey) return;
     const reason = form.reason.trim();
@@ -354,7 +357,7 @@ export default function TradeAccountsPage() {
             "x-admin-key": adminKey,
           },
           body: JSON.stringify({
-            ...form,
+            ...(nextStatus && nextStatus!=="APPROVED" ? {} : form),
             status: nextStatus,
             rejectionReason: nextStatus === "REJECTED" ? reason : undefined,
             suspensionReason: nextStatus === "SUSPENDED" ? reason : undefined,
@@ -364,7 +367,7 @@ export default function TradeAccountsPage() {
       const payload = (await response.json()) as Payload;
       if (!response.ok)
         throw new Error(payload.error || "Unable to update trade account.");
-      if (payload.emailDelivery && !payload.emailDelivery.sent) setError(`Account saved, but the decision email was not sent: ${payload.emailDelivery.error || "Delivery failed"}. Use Retry decision email.`);
+
       if (payload.account) {
         setSelected(payload.account);
         setAccounts((items) =>
@@ -374,9 +377,10 @@ export default function TradeAccountsPage() {
         );
         openAccount(payload.account);
       }
+      if (payload.emailDelivery && !payload.emailDelivery.sent) setError(`Account saved, but the decision email was not sent: ${payload.emailDelivery.error || "Delivery failed"}. Use Retry decision email.`);
       setMessage(
         nextStatus
-          ? `Trade account ${action}d successfully.`
+          ? nextStatus === "DOWNGRADED" ? "Account downgraded to Business. New bookings are pay-now; existing Trade billing is retained." : `Trade account status updated to ${nextStatus.replace(/_/g," ").toLowerCase()}.`
           : "Trade account details saved successfully.",
       );
       await loadAccounts(true);
@@ -480,6 +484,7 @@ export default function TradeAccountsPage() {
             <option value="APPROVED">Approved</option>
             <option value="SUSPENDED">Suspended</option>
             <option value="REJECTED">Rejected</option>
+            <option value="DOWNGRADED">Downgraded to Business</option>
           </select>
           {activeFilters > 0 && (
             <button
@@ -899,6 +904,10 @@ export default function TradeAccountsPage() {
                   </div>
                 )}
               </Section>
+              <div ref={decisionFeedback} aria-live="polite">
+                {error && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-red-800">{error}</p>}
+                {message && <p role="status" className="rounded-xl border border-green-300 bg-green-50 p-4 text-green-800">{message}</p>}
+              </div>
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-700">
                   Reason required for rejection or suspension
@@ -927,6 +936,7 @@ export default function TradeAccountsPage() {
                   <ArrowRight size={17} />
                 </Link>
               </div>
+              <button type="button" disabled={saving || selected.status === "DOWNGRADED"} onClick={()=>void updateAccount("DOWNGRADED")} className="rounded-xl border border-slate-400 bg-white px-4 py-3 font-bold disabled:opacity-50">Downgrade to Business</button>
               <div className="border-t border-slate-200 pt-6">
                 <p className="text-sm font-bold">Account decision</p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

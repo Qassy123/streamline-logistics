@@ -1,3 +1,4 @@
+import {randomUUID} from "crypto";
 import fs = require("node:fs");
 import path = require("node:path");
 import { invoiceServiceDetails } from "./invoicePresentation";
@@ -258,7 +259,7 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
 async function uploadPdf(buffer: Buffer, invoiceNumber: string) {
   ensureCloudinaryConfigured();
 
-  const publicId = `streamline-logistics/invoices/${invoiceNumber}`;
+  const publicId = `streamline-logistics/invoices/${invoiceNumber}/${randomUUID()}`;
 
   const result = await new Promise<{ secure_url: string; public_id: string }>(
     (resolve, reject) => {

@@ -80,7 +80,9 @@ type Vehicle = {
   motExpiry?: string | null;
 };
 
+type BookingRefund = {id:string;amount:string|number;method:string;status:string;lastError?:string|null;manualReference?:string|null};
 type Booking = {
+  refundRequests?: BookingRefund[];
   id: string;
   reference: string;
   status: string;
@@ -428,6 +430,13 @@ export default function AdminPlanningBoardPage() {
   const [editDeliveryAddress, setEditDeliveryAddress] = useState("");
   const [editVehicleId, setEditVehicleId] = useState("");
   const [editTotalPrice, setEditTotalPrice] = useState("");
+  const [editManualPrice,setEditManualPrice]=useState(false);
+  const [editRecalculate,setEditRecalculate]=useState(false);
+  const [editAdjustment,setEditAdjustment]=useState("");
+  const [editAdjustmentReason,setEditAdjustmentReason]=useState("");
+  const [editExtraDrops,setEditExtraDrops]=useState<Array<Record<string,unknown>&{address:string}>>([]);
+  const [refundBusy,setRefundBusy]=useState(false);
+  const [refundReferences,setRefundReferences]=useState<Record<string,string>>({});
   const [editReturnAddress, setEditReturnAddress] = useState("");
   const [editCustomerReference, setEditCustomerReference] = useState("");
   const [editPurchaseOrderNumber, setEditPurchaseOrderNumber] = useState("");
@@ -956,6 +965,9 @@ export default function AdminPlanningBoardPage() {
     setEditReturnAddress(booking.returnAddress || "");
     setEditVehicleId(booking.vehicleId || "");
     setEditTotalPrice(String(booking.totalPrice ?? ""));
+    setEditManualPrice(false);setEditRecalculate(false);setEditAdjustment("");setEditAdjustmentReason("");
+    let drops=booking.extraDrops; if(typeof drops==="string"){try{drops=JSON.parse(drops);}catch{drops=[];}}
+    setEditExtraDrops(Array.isArray(drops)?drops.map(drop=>typeof drop==="object"&&drop?{...drop,address:String(drop.address||"")}:{address:String(drop)}):[]);
     setEditCustomerReference(booking.customerReference || "");
     setEditPurchaseOrderNumber(booking.purchaseOrderNumber || "");
     setEditInternalNotes(booking.internalNotes || "");
@@ -1000,7 +1012,7 @@ export default function AdminPlanningBoardPage() {
   }
 
   function closeBookingEditor() {
-    if (savingBooking) return;
+    if (savingBooking||refundBusy) return;
     setEditingBooking(null);
   }
 
@@ -1028,8 +1040,9 @@ export default function AdminPlanningBoardPage() {
       return;
     }
 
+    if(editAdjustment && !editAdjustmentReason.trim()){setError("Enter a reason for the charge or reduction.");return;}
     setSavingBooking(true);
-    setError("");
+    setError("");setMessage("");
 
     try {
       const response = await fetch(
@@ -1048,6 +1061,10 @@ export default function AdminPlanningBoardPage() {
             returnAddress: editReturnAddress.trim() || null,
             vehicleId: editVehicleId || null,
             totalPrice: parsedTotal,
+            manualPrice:editManualPrice,recalculatePrice:editRecalculate,
+            adjustmentAmount:editAdjustment||"0",adjustmentReason:editAdjustmentReason.trim(),
+            expectedUpdatedAt:editingBooking.updatedAt,
+            extraDrops:editExtraDrops,
             customerReference: editCustomerReference.trim() || null,
             purchaseOrderNumber: editPurchaseOrderNumber.trim() || null,
             internalNotes: editInternalNotes.trim() || null,
@@ -1062,9 +1079,9 @@ export default function AdminPlanningBoardPage() {
         throw new Error(payload.error || "Unable to update booking.");
       }
 
-      setEditingBooking(null);
       await loadPlanningBoard(false);
-      setMessage(`${editingBooking.reference} updated.`);
+      if(payload.booking)populateBookingEditor(payload.booking);
+      setMessage(`${editingBooking.reference} updated. Mileage, price and planning details are saved.`);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -1074,6 +1091,18 @@ export default function AdminPlanningBoardPage() {
     } finally {
       setSavingBooking(false);
     }
+  }
+
+  async function processBookingRefund(refund:BookingRefund,manual=false){
+    if(!editingBooking||refundBusy||savingBooking)return;
+    if(!window.confirm(manual?`Confirm ${money(refund.amount)} has been returned manually by ${refund.method}?`:`Approve / check ${money(refund.amount)} refund through the original ${refund.method} payment?`))return;
+    setRefundBusy(true);setError("");setMessage("");
+    try{
+      const response=await fetch(`${API_BASE}/api/bookings/admin/${editingBooking.id}/refunds/${refund.id}/${manual?"record-manual":"approve"}`,{method:"POST",headers:{"Content-Type":"application/json","x-admin-key":adminKey},body:JSON.stringify({reference:refundReferences[refund.id]||""})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to update the refund.");
+      await loadPlanningBoard(false);if(data.booking)populateBookingEditor(data.booking);
+      setMessage("Refund record updated. Check its status below.");
+    }catch(error){setError(error instanceof Error?error.message:"Unable to update the refund.");}finally{setRefundBusy(false);}
   }
 
   async function cancelBooking() {
@@ -1098,7 +1127,7 @@ export default function AdminPlanningBoardPage() {
             "x-admin-key": adminKey,
           },
           body: JSON.stringify({
-            status: "CANCELLED",
+            status: "CANCELLED", reason: "Admin cancelled this booking from the booking editor.",
           }),
         },
       );
@@ -1864,7 +1893,7 @@ export default function AdminPlanningBoardPage() {
                         label="Find collection address"
                         className="mb-3"
                         accent="orange"
-                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        disabled={refundBusy || savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                         onSelect={address => setEditCollectionAddress(formatPostcodeAddress(address))}
                       />
                       <FieldLabel label="Collection Address">
@@ -1878,7 +1907,7 @@ export default function AdminPlanningBoardPage() {
                         label="Find delivery address"
                         className="mb-3"
                         accent="orange"
-                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        disabled={refundBusy || savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                         onSelect={address => setEditDeliveryAddress(formatPostcodeAddress(address))}
                       />
                       <FieldLabel label="Delivery Address">
@@ -1892,7 +1921,7 @@ export default function AdminPlanningBoardPage() {
                         label="Find return address"
                         className="mb-3"
                         accent="orange"
-                        disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                        disabled={refundBusy || savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                         onSelect={address => setEditReturnAddress(formatPostcodeAddress(address))}
                       />
                       <FieldLabel label="Return Address">
@@ -1910,8 +1939,17 @@ export default function AdminPlanningBoardPage() {
                       </select>
                     </FieldLabel>
                     <FieldLabel label="Booking Charge">
-                      <input type="number" min="0" step="0.01" value={editTotalPrice} onChange={(event) => setEditTotalPrice(event.target.value)} className="manual-input" />
+                      <input type="number" min="0" step="0.01" value={editTotalPrice} onChange={(event) => {setEditTotalPrice(event.target.value);setEditManualPrice(true);}} className="manual-input" />
                     </FieldLabel>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <p className="text-sm text-slate-600">Address, stop or vehicle changes recalculate mileage and the booking price when saved. Editing Booking Charge sets a manual total.</p>
+                    <label className="flex gap-2 text-sm"><input type="checkbox" checked={editRecalculate} onChange={event=>{setEditRecalculate(event.target.checked);setEditManualPrice(false);}} />Recalculate route and price on save</label>
+                    <h4 className="font-bold">Additional stops</h4>
+                    {editExtraDrops.map((drop,index)=><div key={index} className="flex gap-2"><input aria-label={`Stop ${index+1} address`} className="manual-input" value={drop.address} onChange={event=>setEditExtraDrops(rows=>rows.map((row,i)=>i===index?{...row,address:event.target.value}:row))}/><button type="button" onClick={()=>setEditExtraDrops(rows=>rows.filter((_,i)=>i!==index))}>Remove</button></div>)}
+                    <button type="button" onClick={()=>setEditExtraDrops(rows=>[...rows,{address:""}])} className="rounded-lg border px-3 py-2">Add stop</button>
+                    <div className="grid gap-3 sm:grid-cols-2"><FieldLabel label="Additional charge / reduction (£, including VAT)"><input type="number" step="0.01" value={editAdjustment} onChange={event=>setEditAdjustment(event.target.value)} placeholder="Positive charge or negative reduction" className="manual-input" /></FieldLabel><FieldLabel label="Reason for price adjustment"><input value={editAdjustmentReason} onChange={event=>setEditAdjustmentReason(event.target.value)} className="manual-input" /></FieldLabel></div>
                   </div>
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1975,6 +2013,8 @@ export default function AdminPlanningBoardPage() {
                   </div>
                 </section>
 
+                {editingBooking.refundRequests?.some(row=>row.status!=="CANCELLED")?<section className="rounded-3xl border border-slate-200 bg-white p-5"><h3 className="text-lg font-bold">Booking refunds</h3><p className="mt-2 text-sm">Business reductions require approval. Stripe returns to the original payment; bank transfers are refunded manually.</p>{editingBooking.refundRequests.filter(row=>row.status!=="CANCELLED").map(refund=><div key={refund.id} className="mt-3 space-y-2 rounded-xl border p-4"><p className="font-semibold">{money(refund.amount)} · {refund.method} · {refund.status.replaceAll("_"," ")}</p>{refund.lastError?<p role="alert" className="text-sm text-red-700">{refund.lastError}</p>:null}{["PENDING_APPROVAL","FAILED","PROCESSING"].includes(refund.status)?<button type="button" disabled={refundBusy||savingBooking} onClick={()=>void processBookingRefund(refund)} className="rounded-lg bg-slate-950 px-4 py-2 text-white disabled:opacity-50">{refundBusy?"Checking…":refund.status==="PROCESSING"?"Check / retry":"Approve refund"}</button>:null}{refund.status==="APPROVED_MANUAL"?<><p>Approved. Return the money through the original bank/payment method, then record the reference.</p><input aria-label="Manual refund reference" value={refundReferences[refund.id]||""} onChange={event=>setRefundReferences(rows=>({...rows,[refund.id]:event.target.value}))} className="manual-input"/><button type="button" disabled={refundBusy||savingBooking} onClick={()=>void processBookingRefund(refund,true)} className="rounded-lg border px-3 py-2">Record completed refund</button></>:null}{refund.manualReference?<p>Refund reference: {refund.manualReference}</p>:null}</div>)}</section>:null}
+                {message?<p role="status" className="rounded-xl bg-green-50 p-3 text-green-800">{message}</p>:null}
                 {error ? <ErrorBox text={error} /> : null}
               </div>
             )}
@@ -1983,7 +2023,7 @@ export default function AdminPlanningBoardPage() {
               <button
                 type="button"
                 onClick={() => void cancelBooking()}
-                disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                disabled={refundBusy || savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                 className="rounded-xl border border-red-300 bg-white px-5 py-3 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
               >
                 {editingBooking.status === "CANCELLED" ? "Booking Cancelled" : "Cancel Booking"}
@@ -1996,7 +2036,7 @@ export default function AdminPlanningBoardPage() {
                 <button
                   type="button"
                   onClick={() => void saveBookingChanges()}
-                  disabled={savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
+                  disabled={refundBusy || savingBooking || loadingBookingDetails || editingBooking.status === "CANCELLED"}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#FF6A00] px-5 py-3 text-sm font-bold text-white hover:bg-[#E55300] disabled:opacity-50"
                 >
                   {savingBooking ? <Loader2 size={17} className="animate-spin" /> : null}

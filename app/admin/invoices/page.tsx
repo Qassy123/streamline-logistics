@@ -2068,9 +2068,11 @@ function AdminInvoicesContent() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                  {selectedInvoice.status === "DRAFT" ? (
-                    <button type="button" onClick={() => void finaliseInvoice()} disabled={invoiceWorking} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 disabled:opacity-50">Finalise</button>
-                  ) : null}
+                  {selectedInvoice.status === "DRAFT" ? (<>
+                    {error && <p role="alert" className="w-full rounded-lg border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
+                    {invoiceMessage && <p role="status" className="w-full rounded-lg border border-green-300 bg-green-50 p-3 text-green-800">{invoiceMessage}</p>}
+                    <button type="button" onClick={() => void finaliseInvoice()} disabled={invoiceWorking} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 disabled:opacity-50">{invoiceWorking ? "Finalising…" : "Finalise"}</button>
+                  </>) : null}
                   <button
                     type="button"
                     onClick={() => void sendInvoice()}

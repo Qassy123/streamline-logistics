@@ -349,6 +349,9 @@ model Quote {
 }
 
 model Booking {
+  priceAdjustment Decimal @default(0)
+  refundRequests BookingRefund[]
+  billingAccountType AccountType?
   archivedCustomerId String?
   @@index([archivedCustomerId])
   handovers VehicleHandover[]
@@ -533,6 +536,7 @@ model DriverLocation {
 }
 
 model Payment {
+  refundRequests BookingRefund[]
   archivedCustomerId String?
   @@index([archivedCustomerId])
   id                String        @id @default(cuid())
@@ -564,6 +568,7 @@ model Payment {
 }
 
 model Invoice {
+  billingAccountType AccountType?
   archivedCustomerId String?
   @@index([archivedCustomerId])
   id                      String        @id @default(cuid())
@@ -1021,6 +1026,7 @@ enum AccountStatus {
 }
 
 enum TradeAccountStatus {
+  DOWNGRADED
   PENDING
   UNDER_REVIEW
   APPROVED
@@ -1712,4 +1718,26 @@ model AccountRecoveryToken {
   createdAt DateTime @default(now())
   @@index([kind, subjectId])
   @@index([expiresAt])
+}
+
+model BookingRefund {
+  id String @id @default(cuid())
+  bookingId String
+  paymentId String
+  amount Decimal
+  currency String @default("GBP")
+  method String
+  status String @default("PENDING_APPROVAL")
+  reason String
+  approvedAt DateTime?
+  completedAt DateTime?
+  providerRefundId String? @unique
+  manualReference String?
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  booking Booking @relation(fields:[bookingId],references:[id])
+  payment Payment @relation(fields:[paymentId],references:[id])
+  @@index([bookingId,status])
+  @@index([paymentId])
 }

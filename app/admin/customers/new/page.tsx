@@ -266,7 +266,7 @@ export default function AddNewCustomerPage() {
 
       setMessage("Customer account created successfully.");
 
-      router.push(`/admin/customers/${result.customer.id}`);
+      router.push(`/admin/customers/${result.customer.id}?passwordInvitation=${result.passwordInvitation?.sent ? "sent" : "failed"}`);
       router.refresh();
     } catch (requestError) {
       setError(

@@ -36,6 +36,7 @@ type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
 
 type Invoice = {
+  billingAccountType?: string | null;
   id: string;
   invoiceNumber: string;
   status: string;
@@ -314,6 +315,9 @@ export default function CustomerAccountPage() {
   const router = useRouter();
   const customerId = params.id;
 
+  const [invitationBusy,setInvitationBusy]=useState(false);
+  const [invitationResult,setInvitationResult]=useState("");
+  useEffect(()=>{const status=new URLSearchParams(window.location.search).get("passwordInvitation");if(status)setInvitationResult(status==="sent"?"Password setup link emailed to the customer.":"Customer created, but the password setup email was not sent. Use Send password setup link to retry.");},[]);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
   const [loading, setLoading] = useState(true);
@@ -733,8 +737,13 @@ export default function CustomerAccountPage() {
     }
   }
 
+    async function sendPasswordSetupLink(){
+    if(!customer)return;const adminKey=window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim()||"";setInvitationBusy(true);setInvitationResult("");
+    try{const response=await fetch(`${API_BASE}/api/admin/customers/${customer.id}/password-invitation`,{method:"POST",headers:{"x-admin-key":adminKey}});const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to send password setup link.");setInvitationResult("Password setup link emailed to the customer's account email.");}catch(error){setInvitationResult(error instanceof Error?error.message:"Unable to send password setup link.");}finally{setInvitationBusy(false);}
+  }
+
   if (loading) {
-    return (
+  return (
       <div className="flex min-h-[520px] items-center justify-center">
         <div className="text-center">
           <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#FF6A00]" />
@@ -791,7 +800,8 @@ export default function CustomerAccountPage() {
           ) : null}
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          <button type="button" disabled={invitationBusy} onClick={sendPasswordSetupLink} className="rounded-lg border border-slate-300 bg-white px-4 py-3 font-semibold disabled:opacity-50">{invitationBusy?"Sending…":"Send password setup link"}</button>
           <button
             type="button"
             onClick={() => void loadCustomer(true)}
@@ -820,6 +830,7 @@ export default function CustomerAccountPage() {
         </div>
       </div>
 
+      {invitationResult && <p role="status" className="mb-5 rounded border border-blue-200 bg-blue-50 p-4">{invitationResult}</p>}
       {message ? (
         <div className="mt-6 flex items-center gap-3 border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700">
           <CheckCircle2 size={18} />
@@ -840,7 +851,7 @@ export default function CustomerAccountPage() {
           className="mt-7 border border-slate-300 bg-white"
         >
           <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
-            <EditRow label="Account Name">
+            <EditRow label="Account/business name">
               <TextInput
                 value={form.companyName}
                 onChange={(value) => update("companyName", value)}
@@ -1172,7 +1183,7 @@ export default function CustomerAccountPage() {
             </div>
 
             <DetailRow
-              label="Account Name"
+              label="Account/business name"
               value={customerDisplayName(customer)}
             />
 
@@ -1391,7 +1402,7 @@ export default function CustomerAccountPage() {
           </section>
 
           <aside className="space-y-6">
-            {customer.accountType !== "BUSINESS" && <>
+            {(customer.accountType !== "BUSINESS" || customer.invoices?.some(invoice => invoice.billingAccountType === "TRADE")) && <>
 <InvoiceSection
               title="Pending Invoices"
               invoices={pendingInvoices}
@@ -1401,6 +1412,7 @@ export default function CustomerAccountPage() {
 
             <InvoiceSection
               title="Finalised & Issued Invoices"
+              collapsible
               invoices={finalisedIssuedInvoices}
               customerId={customer.id}
               emptyMessage="No finalised or issued invoices."
@@ -1416,6 +1428,7 @@ export default function CustomerAccountPage() {
             </>}
 <InvoiceSection
               title={customer.accountType === "BUSINESS" ? "Paid Invoices" : "Paid/Cleared Invoices"}
+              collapsible
               invoices={paidClearedInvoices}
               customerId={customer.id}
               emptyMessage="No paid or cleared invoices."
@@ -1455,6 +1468,7 @@ function DetailRow({
 }
 
 function InvoiceSection({
+  collapsible = false,
   title,
   invoices,
   customerId,
@@ -1462,16 +1476,19 @@ function InvoiceSection({
   onUnfinalise,
 }: {
   onUnfinalise?: (invoice: Invoice) => Promise<void>;
+  collapsible?: boolean;
   title: string;
   invoices: Invoice[];
   customerId: string;
   emptyMessage: string;
 }) {
+  const Container = collapsible ? "details" : "section";
+  const Heading = collapsible ? "summary" : "div";
   return (
-    <section className="border border-slate-300 bg-white">
-      <div className="flex items-center justify-between gap-4 border-b border-slate-300 bg-slate-50 px-5 py-4">
+    <Container className="border border-slate-300 bg-white">
+      <Heading className="flex cursor-pointer items-center justify-between gap-4 border-b border-slate-300 bg-slate-50 px-5 py-4">
         <h2 className="font-bold text-slate-950">
-          {title}
+          {title}{collapsible ? ` (${invoices.length}) ▾` : ""}
         </h2>
 
         <Link
@@ -1480,7 +1497,7 @@ function InvoiceSection({
         >
           View All
         </Link>
-      </div>
+      </Heading>
 
       {invoices.length === 0 ? (
         <div className="px-5 py-8 text-sm text-slate-500">
@@ -1539,7 +1556,7 @@ function InvoiceSection({
           ))}
         </div>
       )}
-    </section>
+    </Container>
   );
 }
 

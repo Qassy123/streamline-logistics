@@ -1,3 +1,5 @@
+import {approveBookingRefund,completeManualBookingRefund} from "../lib/bookingRefunds";
+import {editBooking,bookingEditInclude} from "../lib/bookingChanges";
 import { reviewJob } from "../lib/completedJobs";
 import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
@@ -220,6 +222,7 @@ async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
 
 function adminBookingInclude() {
   return {
+    refundRequests: true,
     quote: true,
     user: true,
     vehicle: true,
@@ -743,176 +746,24 @@ router.post("/admin/:id/cancel", async (req, res) => {
   }
 });
 
-router.patch("/admin/:id", async (req, res) => {
-  const admin = requireAdmin(req);
-
-  if (!admin.authorised) {
-    return res.status(admin.status).json({
-      error: admin.error,
-    });
-  }
-
-  try {
-    const current = await prisma.booking.findUnique({
-      where: {
-        id: req.params.id,
-      },
-    });
-
-    if (!current) {
-      return res.status(404).json({
-        error: "Booking not found.",
-      });
-    }
-
-    if (req.body.driverId !== undefined && (getOptionalString(req.body.driverId) || null) !== current.driverId) {
-      return res.status(409).json({ error: "Assign or remove drivers through Admin â†’ Drivers." });
-    }
-    if (current.driverId && req.body.vehicleId !== undefined && (getOptionalString(req.body.vehicleId) || null) !== current.vehicleId) {
-      return res.status(409).json({ error: "Change an assigned jobâ€™s van through Admin â†’ Drivers." });
-    }
-
-    const statusValue = getString(req.body.status).toUpperCase();
-
-    if (
-      statusValue &&
-      !Object.values(BookingStatus).includes(statusValue as BookingStatus)
-    ) {
-      return res.status(400).json({
-        error: "Invalid booking status.",
-      });
-    }
-
-    if (["COMPLETED","CANCELLED"].includes(statusValue)) {
-      try { return res.json({ success: true, booking: await reviewJob(getString(req.params.id), statusValue === "COMPLETED" ? "COMPLETE" : "CANCEL", getString(req.body.reason)) }); }
-      catch (error) { return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to review job." }); }
-    }
-    const nextStatus = statusValue
-      ? (statusValue as BookingStatus)
-      : undefined;
-
-    const booking = await prisma.$transaction(async (transaction) => {
-      const updated = await transaction.booking.update({
-        where: {
-          id: req.params.id,
-        },
-        data: {
-          status: nextStatus,
-          vehicleId:
-            req.body.vehicleId !== undefined
-              ? getOptionalString(req.body.vehicleId)
-              : undefined,
-          driverId:
-            req.body.driverId !== undefined
-              ? getOptionalString(req.body.driverId)
-              : undefined,
-          collectionDate:
-            req.body.collectionDate !== undefined
-              ? new Date(req.body.collectionDate)
-              : undefined,
-          collectionWindow:
-            req.body.collectionWindow !== undefined
-              ? getString(req.body.collectionWindow)
-              : undefined,
-          collectionAddress:
-            req.body.collectionAddress !== undefined
-              ? getString(req.body.collectionAddress)
-              : undefined,
-          deliveryAddress:
-            req.body.deliveryAddress !== undefined
-              ? getString(req.body.deliveryAddress)
-              : undefined,
-          returnAddress:
-            req.body.returnAddress !== undefined
-              ? getOptionalString(req.body.returnAddress)
-              : undefined,
-          customerReference:
-            req.body.customerReference !== undefined
-              ? getOptionalString(req.body.customerReference)
-              : undefined,
-          purchaseOrderNumber:
-            req.body.purchaseOrderNumber !== undefined
-              ? getOptionalString(req.body.purchaseOrderNumber)
-              : undefined,
-          internalNotes:
-            req.body.internalNotes !== undefined
-              ? getOptionalString(req.body.internalNotes)
-              : undefined,
-          dispatchNotes:
-            req.body.dispatchNotes !== undefined
-              ? getOptionalString(req.body.dispatchNotes)
-              : undefined,
-          totalPrice:
-            req.body.totalPrice !== undefined
-              ? req.body.totalPrice
-              : undefined,
-          vehicleAssignedAt:
-            req.body.vehicleId !== undefined
-              ? new Date()
-              : undefined,
-          driverAssignedAt:
-            req.body.driverId !== undefined && (getOptionalString(req.body.driverId) || null) !== current.driverId
-              ? new Date()
-              : undefined,
-          trackingEvents:
-            nextStatus && nextStatus !== current.status
-              ? {
-                  create: {
-                    status: nextStatus,
-                    title: `Booking ${String(nextStatus)
-                      .replace(/_/g, " ")
-                      .toLowerCase()}`,
-                    description:
-                      "Booking status updated by the administration team.",
-                  },
-                }
-              : undefined,
-        },
-        include: adminBookingInclude(),
-      });
-
-      if (
-        req.body.driverId !== undefined &&
-        getOptionalString(req.body.driverId)
-      ) {
-        await transaction.driver.update({
-          where: {
-            id: getString(req.body.driverId),
-          },
-          data: {
-            availability: "BUSY",
-          },
-        });
-      }
-
-      if (
-        req.body.vehicleId !== undefined &&
-        getOptionalString(req.body.vehicleId)
-      ) {
-        await transaction.vehicle.update({
-          where: {
-            id: getString(req.body.vehicleId),
-          },
-          data: {
-            status: "BOOKED",
-          },
-        });
-      }
-
-      return updated;
-    });
-
-    res.json({
-      success: true,
-      booking,
-    });
-  } catch (error) {
-    console.error("Admin booking update error:", error);
-
-    res.status(500).json({
-      error: "Unable to update booking.",
-    });
-  }
+router.post("/admin/:id/refunds/:refundId/approve",async(req,res)=>{
+ const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});
+ try{const refund=await approveBookingRefund(getString(req.params.id),getString(req.params.refundId));res.json({success:true,refund,booking:await prisma.booking.findUnique({where:{id:getString(req.params.id)},include:bookingEditInclude})});}
+ catch(error){res.status(409).json({error:error instanceof Error?error.message:"Unable to approve refund."});}
+});
+router.post("/admin/:id/refunds/:refundId/record-manual",async(req,res)=>{
+ const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});
+ try{const refund=await completeManualBookingRefund(getString(req.params.id),getString(req.params.refundId),getString(req.body.reference));res.json({success:true,refund,booking:await prisma.booking.findUnique({where:{id:getString(req.params.id)},include:bookingEditInclude})});}
+ catch(error){res.status(409).json({error:error instanceof Error?error.message:"Unable to record refund."});}
+});
+router.patch("/admin/:id", async(req,res)=>{
+ const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});
+ const status=getString(req.body?.status).toUpperCase();
+ if(status && !["COMPLETED","CANCELLED"].includes(status))return res.status(400).json({error:"Change booking status using the planning or completed-jobs controls."});
+ try{
+  if(status){const id=getString(req.params.id);await reviewJob(id,status==="COMPLETED"?"COMPLETE":"CANCEL",getString(req.body.reason));return res.json({success:true,booking:await prisma.booking.findUnique({where:{id},include:bookingEditInclude})});}
+  const booking=await editBooking(getString(req.params.id),req.body||{});res.json({success:true,booking});
+ }catch(error){res.status(409).json({error:error instanceof Error?error.message:"Unable to update booking."});}
 });
 
 /*
@@ -1288,7 +1139,7 @@ router.get("/", async (_, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
       },
@@ -1325,7 +1176,7 @@ router.get("/me", async (req, res) => {
         quote: true,
         vehicle: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
         trackingEvents: {
@@ -1405,7 +1256,7 @@ router.get("/me/invoices", async (req, res) => {
       where: {
         userId: user.id,
         archivedCustomerId: null,
-        status: user.accountType === "BUSINESS" ? "PAID" : { not: "DRAFT" },
+        status: {not:"DRAFT"}, ...(user.accountType === "BUSINESS" ? {OR:[{status:"PAID" as const},{billingAccountType:"TRADE" as const}]} : {}),
       },
       orderBy: {
         createdAt: "desc",
@@ -1525,7 +1376,7 @@ router.get("/:id", async (req, res) => {
         vehicle: true,
         driver: true,
         payments: true,
-        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
+        invoices: { where: { status: { not: "DRAFT" }, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}},{status:"PAID"}] } },
         pod: true,
         reservation: true,
         trackingEvents: {

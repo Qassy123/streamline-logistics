@@ -146,6 +146,7 @@ function vehicleComplianceWarnings(vehicle: {
 
 function planningBookingInclude() {
   return {
+    refundRequests: true,
     user: true,
     quote: true,
     vehicle: true,

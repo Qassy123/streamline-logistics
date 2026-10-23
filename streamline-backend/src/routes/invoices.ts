@@ -342,7 +342,7 @@ async function sendInvoiceReminderEmail(input: {
 router.get("/admin/review-queue", async (req,res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoices = await prisma.invoice.findMany({ where: { status: "DRAFT", checkedAt: null, archivedCustomerId: null, OR: [{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}}] }, orderBy: { createdAt: "asc" }, select: { id: true, invoiceNumber: true, total: true, issuedAt: true, userId: true, user: { select: { companyName: true, name: true, accountNumber: true } } } });
+    const invoices = await prisma.invoice.findMany({ where: { status: "DRAFT", checkedAt: null, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}}] }, orderBy: { createdAt: "asc" }, select: { id: true, invoiceNumber: true, total: true, issuedAt: true, userId: true, user: { select: { companyName: true, name: true, accountNumber: true } } } });
     res.setHeader("Cache-Control", "no-store"); res.json({ invoices,count: invoices.length });
   } catch { res.status(500).json({ error: "Unable to load invoice notifications." }); }
 });
@@ -600,7 +600,7 @@ router.post("/admin/manual", async (req, res) => {
       const invoiceNumber = await reserveInvoiceNumber(tx, settings.id);
       const saved = await tx.invoice.create({
         data: {
-          invoiceNumber, userId: input.userId, status: "DRAFT", invoiceType: "SINGLE",
+          invoiceNumber, userId: input.userId, billingAccountType:billingCustomer?.accountType, status: "DRAFT", invoiceType: "SINGLE",
           checkedAt: null, subtotal: input.subtotal, vatAmount: input.vatAmount, total: input.total,
           issuedAt: input.invoiceDate, dueDate: input.dueDate, supplyDate: input.supplyDate,
           paymentTerms: input.paymentTerms, customerReference: input.customerReference, purchaseOrderNumber: input.purchaseOrderNumber, notes: input.notes,
@@ -1368,7 +1368,7 @@ router.post("/admin/:id/send", async (req, res) => {
       return res.status(404).json({ error: "Invoice not found." });
     }
 
-    if(invoice.user?.accountType === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
+    if((invoice.billingAccountType || invoice.user?.accountType) === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
     if (invoice.status === "DRAFT") {
       if (!invoice.lines.length) {
         return res.status(400).json({
@@ -1378,7 +1378,7 @@ router.post("/admin/:id/send", async (req, res) => {
 
       const finalisedAt = new Date();
       const issuedAt = invoice.issuedAt || finalisedAt;
-      const terms = invoiceTerms(invoice.user?.accountType, issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
+      const terms = invoiceTerms((invoice.billingAccountType || invoice.user?.accountType), issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
       const supplyDate =
         invoice.supplyDate ||
         invoice.booking?.collectionDate ||
@@ -1937,14 +1937,17 @@ router.post("/admin/:id/finalise", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
-    if (!invoice) return res.status(404).json({ error: "Invoice not found." });
-    if(invoice.user?.accountType === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
-    if (invoice.status !== "DRAFT") return res.status(400).json({ error: "Only draft invoices can be finalised." });
-    if (!invoice.lines.length) return res.status(400).json({ error: "Invoice must contain at least one financial charge line." });
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
+    const invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
+    if (!invoice) throw new Error("Invoice not found.");
+    if((invoice.billingAccountType || invoice.user?.accountType) === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) throw new Error("This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month.");
+    if (invoice.status !== "DRAFT") { if(invoice.pdfStorageKey && ["FINALISED","SENT","ISSUED","OVERDUE","PAID","PARTIALLY_PAID"].includes(invoice.status))return invoice; throw new Error("Only draft invoices can be finalised."); }
+    if (!invoice.lines.length) throw new Error("Invoice must contain at least one financial charge line.");
     const finalisedAt = new Date();
     const issuedAt = invoice.issuedAt || finalisedAt;
-    const terms = invoiceTerms(invoice.user?.accountType, issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
+    const terms = invoiceTerms((invoice.billingAccountType || invoice.user?.accountType), issuedAt, { paymentTerms: invoice.paymentTerms, dueDate: invoice.dueDate });
     const supplyDate = invoice.supplyDate || invoice.booking?.collectionDate || invoice.invoiceBookings[0]?.bookingDate || finalisedAt;
 
     const pdf = await generateAndStoreInvoicePdf({
@@ -1958,7 +1961,6 @@ router.post("/admin/:id/finalise", async (req, res) => {
       },
     });
 
-    const updated = await prisma.$transaction(async (tx) => {
       await tx.invoiceAuditEvent.create({
         data: {
           invoiceId: invoice.id,
@@ -1986,11 +1988,11 @@ router.post("/admin/:id/finalise", async (req, res) => {
         },
         include: invoiceInclude(),
       });
-    });
+    }, {timeout:60000});
     res.json({ success: true, invoice: updated });
   } catch (error) {
     console.error("Invoice finalise error:", error);
-    res.status(500).json({ error: "Unable to finalise invoice." });
+    res.status(409).json({ error: error instanceof Error && /Cloudinary|scheduled issue date|financial charge line|draft invoice|not found/.test(error.message) ? error.message : "Unable to store the finalised invoice PDF. Check invoice storage configuration and try again; the draft has been retained." });
   }
 });
 

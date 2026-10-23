@@ -1,3 +1,4 @@
+import { downgradeCustomer } from "../lib/customerDowngrade";
 import { TRADE_PAYMENT_TERMS } from "../lib/billingPolicy";
 import { sendTradeDecisionEmail, processTradeDecisionEmails } from "../lib/tradeDecisionEmail";
 import { Router } from "express";
@@ -850,23 +851,9 @@ router.patch("/admin/:id", async (req, res) => {
             holdReason: suspensionReason,
           },
         });
-      } else if (nextStatus === TradeAccountStatus.REJECTED) {
-        await transaction.user.update({
-          where: { id: existing.userId },
-          data: {
-            ...commonUserData,
-            accountType: AccountType.BUSINESS,
-            accountStatus: AccountStatus.ACTIVE,
-          },
-        });
-        await transaction.billingProfile.updateMany({
-          where: { userId: existing.userId },
-          data: {
-            paymentMode: BillingPaymentMode.PAY_NOW,
-            creditFacilityOnHold: false,
-            holdReason: null,
-          },
-        });
+      } else if (nextStatus === TradeAccountStatus.REJECTED || nextStatus === TradeAccountStatus.DOWNGRADED) {
+        await downgradeCustomer(transaction,existing.userId,nextStatus===TradeAccountStatus.REJECTED?rejectionReason:"Admin downgraded the Trade account to Business.");
+        await transaction.user.update({where:{id:existing.userId},data:commonUserData});
       } else {
         await transaction.user.update({
           where: { id: existing.userId },

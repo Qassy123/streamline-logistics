@@ -186,6 +186,7 @@ async function createInvoiceIfMissing(booking: {
         status: "PAID",
         paidAt: now,
         invoiceType: "SINGLE",
+        billingAccountType:"BUSINESS",
         subtotal,
         vatAmount,
         total,

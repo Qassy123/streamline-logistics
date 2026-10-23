@@ -1,3 +1,4 @@
+import { sendCustomerPasswordInvite } from "../lib/customerPasswordInvite";
 import { archiveAndDeleteCustomer } from "../lib/customerArchive";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
@@ -694,9 +695,11 @@ router.post("/", async (req, res) => {
       select: customerSelect(),
     });
 
+    const passwordInvitation = await sendCustomerPasswordInvite(customer.id);
     res.status(201).json({
       success: true,
       customer,
+      passwordInvitation,
     });
   } catch (error) {
     console.error("Admin customer creation error:", error);
@@ -949,6 +952,14 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+router.post("/:id/password-invitation", async(req,res)=>{
+  const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});
+  try {
+    const result=await sendCustomerPasswordInvite(getString(req.params.id));
+    res.status(result.sent?200:503).json({passwordInvitation:result,...(!result.sent?{error:result.error}:{})});
+  }catch{res.status(500).json({error:"Unable to send the password setup link."});}
+});
+
 router.post("/:id/status", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -1148,6 +1159,8 @@ router.patch("/:id", async (req, res) => {
     const nextAccountType = accountTypeValue
       ? (accountTypeValue as AccountType)
       : existingCustomer.accountType;
+
+    if(existingCustomer.accountType === "TRADE" && nextAccountType === "BUSINESS")return res.status(409).json({error:"Use Downgrade to Business in Trade Accounts so existing bookings and invoices retain their original Trade terms."});
 
     const nextCompanyName =
       req.body.companyName !== undefined

@@ -430,7 +430,7 @@ function applyAdminDiscount(
   };
 }
 
-async function calculateAdminQuote(reqBody: Record<string, unknown>) {
+export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
   const collectionAddress = getString(reqBody.collectionAddress);
   const deliveryAddress = getString(reqBody.deliveryAddress);
   const vehicleSize = getString(reqBody.vehicleSize);
