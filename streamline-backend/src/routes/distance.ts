@@ -157,8 +157,9 @@ async function buildRouteStops(
   ];
 
   return Promise.all(
-    stopsToGeocode.map(async (stop) => {
-      const result = await geocodeGoogleAddress(stop.address);
+    stopsToGeocode.map(async (stop, index) => {
+      const label = stop.type === "collection" ? "Collection address" : stop.type === "delivery" ? "Delivery address" : `Additional stop ${index}`;
+      const result = await geocodeGoogleAddress(stop.address, label);
 
       return {
         ...stop,

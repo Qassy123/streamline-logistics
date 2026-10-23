@@ -34,7 +34,7 @@ function validCoordinates(value: GoogleCoordinates): boolean {
     Math.abs(value[0]) <= 180 && Math.abs(value[1]) <= 90;
 }
 
-export async function geocodeGoogleAddress(address: string): Promise<{
+async function geocodeAddressQuery(address: string, parentSite = false): Promise<{
   coordinates: GoogleCoordinates;
   coordinateSource: "google-geocoding";
 }> {
@@ -63,6 +63,17 @@ export async function geocodeGoogleAddress(address: string): Promise<{
     const postcodeMatches = !!expectedPostcode && typeof postcode?.long_name === "string" &&
       compactPostcode(postcode.long_name) === compactPostcode(expectedPostcode);
     if (country?.short_name !== "GB" || (expectedPostcode && !postcodeMatches)) return false;
+    if (parentSite) {
+      // A parent site must be an exact match at the original postcode. Never
+      // substitute an approximate postcode/street centre for a named premises.
+      if (item.partial_match) return false;
+      const precision = item.geometry?.location_type;
+      const precise = ["ROOFTOP", "RANGE_INTERPOLATED"].includes(precision);
+      const namedSite = precision === "GEOMETRIC_CENTER" && Array.isArray(item.types) &&
+        item.types.some((type: string) => ["establishment", "point_of_interest"].includes(type)) &&
+        !item.types.some((type: string) => ["postal_code", "route"].includes(type));
+      if (!precise && !namedSite) return false;
+    }
     // Google may partially match a flat, business name or county while still
     // locating the building. Accept that only with the exact postcode and a
     // building-level result; never silently price from a street/postcode centre.
@@ -78,6 +89,37 @@ export async function geocodeGoogleAddress(address: string): Promise<{
     throw new GoogleMapsError("An address could not be matched. Please check the full address and postcode.", 400);
   }
   return { coordinates, coordinateSource: "google-geocoding" };
+}
+
+function parentPremisesAddress(address: string): string | null {
+  const parts = address.split(",").map(part => part.trim()).filter(Boolean);
+  // Remove only a separate subpremises line, never a street/building number.
+  if (parts.length < 4 || !/^(?:kiosk|unit|shop|suite|flat|apartment|apt)\s+(?:[a-z]?\d+[a-z]?(?:[-/]\d+[a-z]?)?|[a-z])$/i.test(parts[0])) return null;
+  const parent = parts.slice(1);
+  if (!/[a-z]/i.test(parent[0]) || !/\b(GIR\s?0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(parent.join(", "))) return null;
+  return parent.join(", ");
+}
+
+export async function geocodeGoogleAddress(address: string, stopLabel?: string): Promise<{
+  coordinates: GoogleCoordinates;
+  coordinateSource: "google-geocoding";
+  addressMatch: "full-address" | "parent-site";
+  geocodedAddress: string;
+}> {
+  try {
+    return { ...await geocodeAddressQuery(address), addressMatch: "full-address", geocodedAddress: address };
+  } catch (error) {
+    if (!(error instanceof GoogleMapsError) || error.status !== 400) throw error;
+    const parent = parentPremisesAddress(address);
+    if (parent) {
+      try {
+        return { ...await geocodeAddressQuery(parent, true), addressMatch: "parent-site", geocodedAddress: parent };
+      } catch (retryError) {
+        if (!(retryError instanceof GoogleMapsError) || retryError.status !== 400) throw retryError;
+      }
+    }
+    throw new GoogleMapsError(`${stopLabel || "Address"} could not be matched on the map: "${address}". Check this address or contact us for a quote.`, 400);
+  }
 }
 
 export async function calculateGoogleRoute(coordinates: GoogleCoordinates[]): Promise<{
