@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import CustomerCompletedJobs from "@/components/admin/CustomerCompletedJobs";
 import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
 import { useParams, useRouter } from "next/navigation";
@@ -844,6 +845,8 @@ export default function CustomerAccountPage() {
           {error}
         </div>
       ) : null}
+
+      <CustomerCompletedJobs key={customer.id} customerId={customer.id} apiBase={API_BASE} />
 
       {editing ? (
         <form

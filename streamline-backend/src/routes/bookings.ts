@@ -369,7 +369,10 @@ router.get("/admin/completed-jobs", async (req, res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
     const page = Math.min(100000, Math.max(1, Math.floor(Number(req.query.page)) || 1)), q = getString(req.query.search).slice(0,120), filter = getString(req.query.status);
-    const where: Prisma.BookingWhereInput = { archivedCustomerId: null, status: filter === "COMPLETED" ? "COMPLETED" : filter === "CANCELLED" ? "CANCELLED" : filter === "OPEN" ? { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] } : { not: "PENDING_PAYMENT" }, ...(q ? { OR: [{ reference: { contains: q, mode: "insensitive" } }, { user: { is: { companyName: { contains: q, mode: "insensitive" } } } }] } : {}) };
+    const customerId = getString(req.query.customerId);
+    if (req.query.customerId !== undefined && (!customerId || customerId.length > 128)) return res.status(400).json({ error: "Choose a valid customer account." });
+    if (customerId && !await prisma.user.findUnique({ where: { id: customerId }, select: { id: true } })) return res.status(404).json({ error: "Customer account not found." });
+    const where: Prisma.BookingWhereInput = { archivedCustomerId: null, ...(customerId ? { userId: customerId } : {}), status: filter === "COMPLETED" ? "COMPLETED" : filter === "CANCELLED" ? "CANCELLED" : filter === "OPEN" ? { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] } : { not: "PENDING_PAYMENT" }, ...(q ? { OR: [{ reference: { contains: q, mode: "insensitive" } }, { user: { is: { companyName: { contains: q, mode: "insensitive" } } } }] } : {}) };
     const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } } } }), prisma.booking.count({ where })]);
     res.setHeader("Cache-Control", "no-store"); res.json({ jobs,total,page,pages: Math.max(1,Math.ceil(total/50)) });
   } catch { res.status(500).json({ error: "Unable to load completed jobs." }); }
@@ -377,7 +380,11 @@ router.get("/admin/completed-jobs", async (req, res) => {
 router.post("/admin/completed-jobs/:id/review", async (req,res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   if (!["COMPLETE","CANCEL"].includes(req.body.action)) return res.status(400).json({ error: "Choose Complete or Cancel." });
-  try { res.json({ booking: await reviewJob(getString(req.params.id), req.body.action, getString(req.body.reason)) }); }
+  const customerId = getString(req.body.customerId);
+  if (req.body.customerId !== undefined && (!customerId || customerId.length > 128)) return res.status(400).json({ error: "Choose a valid customer account." });
+  try {
+    if (customerId && !await prisma.booking.findFirst({ where: { id: getString(req.params.id), userId: customerId, archivedCustomerId: null }, select: { id: true } })) return res.status(404).json({ error: "Job not found in this customer account." });
+    res.json({ booking: await reviewJob(getString(req.params.id), req.body.action, getString(req.body.reason)) }); }
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to review job." }); }
 });
 
