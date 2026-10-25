@@ -7,9 +7,17 @@ export async function sendTradeDecisionEmail(id: string) {
   if (!mail || mail.sentAt) return { sent: true };
   try {
     if (!process.env.RESEND_API_KEY?.trim()) throw new Error("RESEND_API_KEY is not configured.");
-    const approved = mail.decision === "APPROVED", subject = `Trade account ${approved ? "approved" : "application rejected"} - Streamline Logistics Group`;
-    const body = approved ? `<p>Your application for a Streamline Logistics Group trade account has been approved.</p><p>${TRADE_PAYMENT_NOTICE}</p><p>${TRADE_PAYMENT_EXAMPLE}</p><p>You can log in to use your approved trade account.</p>` : `<p>Your application for a Streamline Logistics Group trade account has been rejected.</p><p>Reason: ${escape(mail.reason || "Please contact our team for details.")}</p><p>Contact us if you would like to discuss the decision.</p>`;
-    const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY.trim()}`, "Content-Type": "application/json", "Idempotency-Key": `trade-decision-${mail.id}` }, body: JSON.stringify({ from: departmentSender("accounts"), reply_to: departmentEmail("accounts"), to: [mail.recipient], subject, html: emailLayout(approved ? "Trade account approved" : "Trade account application rejected", `<p>Dear ${escape(mail.companyName)},</p>${body}`, "accounts") }) });
+    const messages: Record<string, { title: string; body: string }> = {
+      APPROVED: { title: "Trade account approved", body: `<p>Your application for a Streamline Logistics Group trade account has been approved.</p><p>${TRADE_PAYMENT_NOTICE}</p><p>${TRADE_PAYMENT_EXAMPLE}</p><p>You can log in to use your approved trade account.</p>` },
+      REJECTED: { title: "Trade account application rejected", body: `<p>Your application for a Streamline Logistics Group trade account has been rejected.</p><p>Reason: ${escape(mail.reason || "Please contact our team for details.")}</p><p>Contact us if you would like to discuss the decision.</p>` },
+      SUSPENDED: { title: "Trade account suspended", body: `<p>Your Trade account has been suspended. Online booking and Trade credit are unavailable while the account is suspended.</p><p>Reason: ${escape(mail.reason || "Please contact our team for details.")}</p><p>Please contact our team on 07301827224 to discuss your account.</p>` },
+      REACTIVATED: { title: "Trade account reactivated", body: `<p>Your Trade account has been reactivated. You can log in and book using your approved Trade credit, subject to your available credit.</p><p>${TRADE_PAYMENT_NOTICE}</p><p>${TRADE_PAYMENT_EXAMPLE}</p>` },
+    };
+    const message = messages[mail.decision];
+    if (!message) throw new Error("Unrecognised Trade email decision.");
+    const subject = `${message.title} - Streamline Logistics Group`;
+    const body = message.body;
+    const response = await fetch("https://api.resend.com/emails", { method: "POST", signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY.trim()}`, "Content-Type": "application/json", "Idempotency-Key": `trade-decision-${mail.id}` }, body: JSON.stringify({ from: departmentSender("accounts"), reply_to: departmentEmail("accounts"), to: [mail.recipient], subject, html: emailLayout(message.title, `<p>Dear ${escape(mail.companyName)},</p>${body}`, "accounts") }) });
     const payload = await response.json() as { id?: string; message?: string };
     if (!response.ok) throw new Error(payload.message || "Email provider rejected the decision email.");
     await prisma.tradeDecisionEmail.update({ where: { id }, data: { sentAt: new Date(), providerMessageId: payload.id || null, attempts: { increment: 1 }, lastError: null } });

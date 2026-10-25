@@ -1,4 +1,5 @@
 "use client";
+import CustomerQuoteGate from "@/components/CustomerQuoteGate";
 import SavedRoutePicker from "@/components/SavedRoutePicker";
 import { QuoteAvailabilityGate } from "@/components/QuoteAvailability";
 
@@ -333,11 +334,11 @@ function setFormField(
 
 export default function QuotePage() {
   return (
-    <QuoteAvailabilityGate>
+    <QuoteAvailabilityGate><CustomerQuoteGate>
       <Suspense fallback={<QuotePageLoading />}>
         <QuotePageForm />
       </Suspense>
-    </QuoteAvailabilityGate>
+    </CustomerQuoteGate></QuoteAvailabilityGate>
   );
 }
 

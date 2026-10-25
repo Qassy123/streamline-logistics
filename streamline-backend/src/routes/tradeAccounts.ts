@@ -436,9 +436,27 @@ router.post("/admin/process-decision-emails", async (req, res) => {
 });
 router.post("/admin/:id/retry-decision-email", async (req, res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
-  const pending = await prisma.tradeDecisionEmail.findMany({ where: { tradeAccountId: req.params.id, sentAt: null }, orderBy: { createdAt: "asc" } });
-  const results = []; for (const mail of pending) results.push(await sendTradeDecisionEmail(mail.id));
-  res.json({ success: results.every(r => r.sent), results });
+  try {
+    const pending = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "TradeAccount" WHERE id = ${req.params.id} FOR UPDATE`;
+      const account = await tx.tradeAccount.findUnique({ where: { id: req.params.id }, include: { user: true } });
+      if (!account) throw new Error("Trade account not found.");
+      const queued = await tx.tradeDecisionEmail.findMany({ where: { tradeAccountId: account.id, sentAt: null }, orderBy: { createdAt: "asc" } });
+      if (queued.length) return queued;
+      // Older decisions may predate the outbox. Explicit admin retry can create
+      // that missing notification once, without changing the account's status.
+      if (!["APPROVED", "REJECTED", "SUSPENDED"].includes(account.status)) return [];
+      const decision = account.status === "APPROVED" && account.reactivatedAt ? "REACTIVATED" : account.status;
+      const previous = await tx.tradeDecisionEmail.findFirst({ where: { tradeAccountId: account.id, decision } });
+      if (previous) return [];
+      return [await tx.tradeDecisionEmail.create({ data: { tradeAccountId: account.id, userId: account.userId, decision, recipient: account.user.email, companyName: account.companyName, reason: account.status === "REJECTED" ? account.rejectionReason : account.status === "SUSPENDED" ? account.suspensionReason : null } })];
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const results = []; for (const mail of pending) results.push(await sendTradeDecisionEmail(mail.id));
+    const failed = results.find(result => !result.sent);
+    res.json({ success: !failed, results, error: failed?.error, message: !results.length ? "No pending decision emails. An existing sent notification will not be sent twice." : failed ? "The decision email could not be sent. Check the email configuration and retry." : "Decision email accepted for delivery. Check the recipient inbox and spam folder." });
+  } catch {
+    res.status(500).json({ error: "Unable to retry the decision email. Please try again." });
+  }
 });
 
 router.get("/admin", async (req, res) => {
@@ -860,8 +878,9 @@ router.patch("/admin/:id", async (req, res) => {
           data: commonUserData,
         });
       }
-      if (nextStatus && ["APPROVED", "REJECTED"].includes(nextStatus) && current.status !== nextStatus) {
-        return transaction.tradeDecisionEmail.create({ data: { tradeAccountId: existing.id, userId: existing.userId, decision: nextStatus, recipient: existing.user.email, companyName: existing.companyName, reason: nextStatus === "REJECTED" ? rejectionReason : null } });
+      if (nextStatus && ["APPROVED", "REJECTED", "SUSPENDED"].includes(nextStatus) && current.status !== nextStatus) {
+        const decision = nextStatus === "APPROVED" && current.status === "SUSPENDED" ? "REACTIVATED" : nextStatus;
+        return transaction.tradeDecisionEmail.create({ data: { tradeAccountId: existing.id, userId: existing.userId, decision, recipient: existing.user.email, companyName: existing.companyName, reason: nextStatus === "REJECTED" ? rejectionReason : nextStatus === "SUSPENDED" ? suspensionReason : null } });
       }
       return null;
     });

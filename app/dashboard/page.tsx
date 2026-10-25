@@ -27,6 +27,9 @@ type AccountUser = {
   name?: string | null;
   email?: string | null;
   accountType?: "BUSINESS" | "TRADE";
+  accountStatus?: string;
+  creditFacilityOnHold?: boolean;
+  holdReason?: string | null;
   companyName?: string | null;
   legalEntity?: string | null;
   tradeAccount?: {
@@ -133,6 +136,18 @@ export default function DashboardPage() {
 
   const hasTradeApplication = Boolean(user?.tradeAccount);
   const showUpgrade = !isTradeAccount && !hasTradeApplication;
+  const tradeStatus = user?.tradeAccount?.status;
+  const statusNotice = user?.accountStatus === "SUSPENDED" || tradeStatus === "SUSPENDED"
+    ? { title: "Your account is suspended", text: "Please contact our team for more information. Online booking is unavailable while your account is suspended." }
+    : tradeStatus === "DOWNGRADED"
+    ? { title: "Your account has been changed to a Business account", text: "New bookings must be paid before confirmation. Your previous Trade bookings and invoices remain available in your account." }
+    : tradeStatus === "REJECTED"
+    ? { title: "Your Trade application was not approved", text: "You can continue using your Business account and pay before booking confirmation. Contact our team to discuss your application." }
+    : user?.creditFacilityOnHold
+    ? { title: "Your Trade credit is on hold", text: `Pay Later is unavailable. ${user.holdReason || "Please contact our team for more information."}` }
+    : hasTradeApplication && !isTradeAccount
+    ? { title: "Trade application under review", text: "Your trade account application has been received. The upgrade option is hidden while your application is being reviewed." }
+    : null;
 
   const cards = useMemo(() => {
     if (!showUpgrade) return baseCards;
@@ -144,7 +159,7 @@ export default function DashboardPage() {
     user?.legalEntity || user?.companyName || user?.name || "Your account";
 
   const tradeStatusValue = isTradeAccount
-    ? "Approved"
+    ? (tradeStatus === "SUSPENDED" ? "Suspended" : "Approved")
     : hasTradeApplication
     ? formatStatus(user?.tradeAccount?.status)
     : "Not applied";
@@ -225,7 +240,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-6 p-5 sm:p-8">
-            {hasTradeApplication && !isTradeAccount && (
+            {statusNotice && (
               <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-lg shadow-black/5">
                 <div className="flex items-start gap-4">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
@@ -234,11 +249,11 @@ export default function DashboardPage() {
 
                   <div>
                     <h2 className="text-lg font-bold text-amber-950">
-                      Trade application under review
+                      {statusNotice.title}
                     </h2>
 
                     <p className="mt-2 text-sm font-semibold leading-6 text-amber-900">
-                      Your trade account application has been received. The upgrade option is hidden while your application is being reviewed.
+                      {statusNotice.text} <Link href="/contact" className="underline">Contact us</Link> or call <a className="underline" href="tel:07301827224">07301827224</a>.
                     </p>
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 "use client";
-import { calendarInterval, dropCollectionWindow } from "@/lib/bookingCalendar";
+import { calendarInterval, calendarTimeText, dropCollectionWindow } from "@/lib/bookingCalendar";
 import FleetAllocationBoard from "@/components/admin/FleetAllocationBoard";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -538,7 +538,7 @@ export default function AdminPlanningBoardPage() {
           throw new Error(payload.error || "Unable to load planning board.");
         }
 
-        setBookings(payload.bookings || []);
+        setBookings((payload.bookings || []).filter(booking => booking.collectionDate.slice(0, 10) === planningDate || calendarInterval(booking, planningDate)));
         const fleet = new Map((payload.vehicles || []).map(vehicle => [vehicle.id, vehicle]));
         for (const booking of payload.bookings || []) if (booking.vehicle) fleet.set(booking.vehicle.id, booking.vehicle);
         setVehicles([...fleet.values()]);
@@ -1771,8 +1771,7 @@ export default function AdminPlanningBoardPage() {
                                     </span>
                                   </div>
                                   <p className="mt-1 truncate text-[11px] text-slate-500">
-                                    {displayTime(booking.estimatedStartTime)}â€“
-                                    {displayTime(booking.estimatedEndTime)}
+                                    {calendarTimeText(booking)}
                                   </p>
                                 </button>
                               );

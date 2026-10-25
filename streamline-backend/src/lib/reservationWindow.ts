@@ -71,10 +71,8 @@ export function getReservationWindow(
   }
 
   const resolvedVehicleBlockHours = resolveVehicleBlockHours(vehicleBlockHours);
-  const reservedUntil = new Date(reservedFrom);
-  reservedUntil.setHours(
-    reservedUntil.getHours() + resolvedVehicleBlockHours,
-  );
+  // Elapsed hours must not depend on the host timezone or a clock change.
+  const reservedUntil = new Date(+reservedFrom + resolvedVehicleBlockHours * 3600000);
 
   return {
     reservedFrom,

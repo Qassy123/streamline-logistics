@@ -18,6 +18,7 @@ type AuthUser = {
   name: string;
   email: string;
   accountType: "BUSINESS" | "TRADE";
+  accountStatus?: string;
 };
 
 export default function Header() {
@@ -195,7 +196,8 @@ export default function Header() {
         </div>
       </header>
 
-      <MobileMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
+      {user?.accountStatus === "SUSPENDED" && <div role="alert" className="border-b border-amber-300 bg-amber-50 px-5 py-4 text-center font-semibold text-amber-950">Your account is suspended. Please <Link className="underline" href="/contact">contact our team</Link> or call <a className="underline" href="tel:07301827224">07301827224</a> for more information.</div>}
+      <MobileMenu isOpen={isMenuOpen} signedIn={Boolean(user)} onLogout={handleLogout} onClose={() => setIsMenuOpen(false)} />
     </>
   );
 }

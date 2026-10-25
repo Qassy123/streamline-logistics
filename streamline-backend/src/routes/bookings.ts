@@ -1,6 +1,7 @@
 import {approveBookingRefund,completeManualBookingRefund} from "../lib/bookingRefunds";
 import {editBooking,bookingEditInclude} from "../lib/bookingChanges";
 import { reviewJob } from "../lib/completedJobs";
+import { calendarBookingRange } from "../lib/calendarBookingRange";
 import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import {
@@ -493,10 +494,7 @@ router.get("/admin/list", async (req, res) => {
       const next = new Date(dateTo + "T00:00:00Z"); next.setUTCDate(next.getUTCDate() + 1);
       const rangeEnd = ukMidnight(next.toISOString().slice(0, 10));
       if (+rangeEnd <= +rangeStart) return res.status(400).json({ error: "Choose a valid calendar range." });
-      where.AND = [{ OR: [
-        { collectionDate: { gte: new Date(dateFrom + "T00:00:00Z"), lt: next } },
-        { estimatedStartTime: { lt: rangeEnd }, estimatedEndTime: { gt: rangeStart } },
-      ] }];
+      where.AND = [calendarBookingRange(rangeStart, rangeEnd, new Date(dateFrom + "T00:00:00Z"), next)];
     } else {
     if (dateFrom || dateTo) {
       where.collectionDate = {};

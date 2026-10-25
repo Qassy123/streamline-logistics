@@ -103,7 +103,36 @@ export default async function PaymentsPage({
 }) {
   const { quoteId } = await searchParams;
 
-  if (!quoteId) return <main className="mx-auto max-w-4xl px-6 py-12 text-[#071D49]"><h1 className="text-4xl font-bold">Payments</h1><section className="my-8 space-y-4"><h2 className="text-2xl font-bold">Business bookings</h2><p>Pay securely through the checkout attached to your quote before your booking is confirmed. A paid invoice is generated after successful payment and is available in your account.</p><h2 className="text-2xl font-bold">Approved Trade accounts</h2><p>Eligible completed bookings from the previous calendar month are invoiced on the 1st, with payment due by the 15th of the same month. Use the bank details and invoice reference shown on your invoice.</p><p>For payment queries, <a className="underline" href="/contact">contact our team</a>. View your invoices in your <a className="underline" href="/dashboard/invoices">customer account</a>.</p></section></main>;
+  if (!quoteId) return (
+    <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
+      <div className="mx-auto max-w-5xl overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-xl shadow-black/5">
+        <header className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-6 text-white sm:p-10">
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#7FB5FF]">Payments</p>
+          <h1 className="mt-3 text-3xl font-bold sm:text-5xl">Paying for your delivery</h1>
+          <p className="mt-4 max-w-2xl leading-7 text-white/85">Find out when to pay, where to find your invoice and how to contact us about a payment.</p>
+        </header>
+        <div className="grid gap-6 p-6 sm:p-10">
+          <div className="grid gap-5 md:grid-cols-2">
+            <section className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
+              <h2 className="text-xl font-bold">Business bookings</h2>
+              <p className="mt-3 leading-7">Pay securely through the checkout attached to your quote before your booking is confirmed. A paid invoice is generated after successful payment and is available in your account.</p>
+              <a className="mt-5 inline-block rounded-full bg-[#006CFF] px-5 py-3 font-bold text-white" href="/quote">Get a quote</a>
+            </section>
+            <section className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-6">
+              <h2 className="text-xl font-bold">Approved Trade accounts</h2>
+              <p className="mt-3 leading-7">Eligible completed bookings from the previous calendar month are invoiced on the 1st, with payment due by the 15th of the same month.</p>
+              <p className="mt-3 leading-7">For example, November bookings are invoiced on 1 December and payable by 15 December. Use the bank details and invoice reference shown on your invoice.</p>
+            </section>
+          </div>
+          <section className="rounded-2xl border border-[#D7E6FF] p-6">
+            <h2 className="text-xl font-bold">Invoices and payment queries</h2>
+            <p className="mt-3 leading-7">View invoices and recorded payments in your <a className="font-bold text-[#006CFF] underline" href="/dashboard/invoices">customer account</a>. Check the invoice reference and amount before making a bank transfer.</p>
+            <p className="mt-3 leading-7">For help with payments or refunds, <a className="font-bold text-[#006CFF] underline" href="/contact">contact our team</a> or call <a className="font-bold text-[#006CFF] underline" href="tel:07301827224">07301827224</a>. Have your booking or invoice reference ready.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+  );
 
   const quote = await getQuote(quoteId);
 

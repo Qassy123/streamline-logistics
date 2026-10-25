@@ -7,6 +7,8 @@ import { Phone, X } from "lucide-react";
 type MobileMenuProps = {
   isOpen: boolean;
   onClose: () => void;
+  signedIn?: boolean;
+  onLogout?: () => void;
 };
 
 const menuLinks = [
@@ -16,7 +18,7 @@ const menuLinks = [
   { label: "Contact", href: "/contact" },
 ];
 
-export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
+export default function MobileMenu({ isOpen, onClose, signedIn = false, onLogout }: MobileMenuProps) {
   if (!isOpen) {
     return null;
   }
@@ -67,6 +69,13 @@ export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
                 {item.label}
               </Link>
             ))}
+            {signedIn ? <>
+              <Link href="/dashboard" onClick={onClose} className="rounded-2xl border border-[#2D8CFF] bg-[#006CFF]/20 px-5 py-5 text-2xl font-bold">Dashboard</Link>
+              <button type="button" onClick={() => { onClose(); onLogout?.(); }} className="rounded-2xl border border-white/10 px-5 py-5 text-left text-2xl font-bold">Logout</button>
+            </> : <>
+              <Link href="/login" onClick={onClose} className="rounded-2xl border border-white/10 px-5 py-5 text-2xl font-bold">Login</Link>
+              <Link href="/register-business" onClick={onClose} className="rounded-2xl border border-white/10 px-5 py-5 text-2xl font-bold">Create Account</Link>
+            </>}
           </nav>
 
           <div className="mt-8 grid gap-4">

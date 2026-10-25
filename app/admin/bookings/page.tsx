@@ -1,5 +1,5 @@
 "use client";
-import { calendarInterval } from "@/lib/bookingCalendar";
+import { calendarInterval, calendarTimeText } from "@/lib/bookingCalendar";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -169,18 +169,7 @@ function bookingCustomerName(booking: Booking) {
 }
 
 function bookingTimeText(booking: Booking) {
-  const start = displayTime(booking.estimatedStartTime);
-  const end = displayTime(booking.estimatedEndTime);
-
-  if (start && end) {
-    return `${start} - ${end}`;
-  }
-
-  if (start) {
-    return start;
-  }
-
-  return booking.collectionWindow || "Time not set";
+  return calendarTimeText(booking);
 }
 
 function minutesFromStartOfDay(value?: string | null) {
@@ -341,7 +330,7 @@ export default function AdminBookingsPage() {
           totalPages = payload.pagination?.totalPages || 1;
           page++;
         } while (page <= totalPages);
-        const unique = [...new Map(allBookings.map(booking => [booking.id, booking])).values()];
+        const unique = [...new Map(allBookings.map(booking => [booking.id, booking])).values()].filter(booking => booking.collectionDate.slice(0, 10) === selectedDate || calendarInterval(booking, selectedDate));
         const rows = new Map(fleet.map(vehicle => [vehicle.id, vehicle]));
         for (const booking of unique) if (booking.vehicle) rows.set(booking.vehicle.id, booking.vehicle);
         setBookings(unique); setVehicles([...rows.values()]); setDrivers(availableDrivers);

@@ -77,6 +77,7 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
 function publicUser(user: {
   id: string;
   accountType: "PRIVATE" | "BUSINESS" | "TRADE";
+  accountStatus?: string;
   companyName: string | null;
   name: string;
   email: string;
@@ -108,12 +109,16 @@ function publicUser(user: {
   tradingPostcode: string | null;
   tradingCountry: string | null;
   tradeAccount?: {
+    creditFacilityOnHold?: boolean;
+    suspensionReason?: string | null;
     status: string;
     creditLimit: unknown;
     currentBalance: unknown;
     paymentTermsDays: number;
   } | null;
   billingProfile?: {
+    creditFacilityOnHold?: boolean;
+    holdReason?: string | null;
     creditLimit: unknown;
     paymentTermsDays: number;
   } | null;
@@ -125,6 +130,9 @@ function publicUser(user: {
   return {
     id: user.id,
     accountType: user.accountType,
+    accountStatus: user.accountStatus,
+    creditFacilityOnHold: user.billingProfile?.creditFacilityOnHold ?? user.tradeAccount?.creditFacilityOnHold ?? false,
+    holdReason: user.billingProfile?.holdReason ?? user.tradeAccount?.suspensionReason ?? null,
     companyName: user.companyName,
     name: user.name,
     email: user.email,
@@ -582,6 +590,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    if (user.accountStatus !== "ACTIVE") {
+      return res.status(403).json({ error: user.accountStatus === "SUSPENDED"
+        ? "Your account is suspended. Please contact our team on 07301827224 for more information."
+        : "This account is unavailable. Please contact our team on 07301827224." });
+    }
     const token = createSessionToken();
 
     await prisma.userSession.create({

@@ -842,8 +842,15 @@ export default function TradeAccountsPage() {
                   <Info label="Trade account payment terms" value="Monthly: issued 1st, due 15th" />
                 </div>
                 <button type="button" disabled={saving} className="mt-3 min-h-11 rounded-xl border px-4 font-semibold" onClick={async () => {
-                  const response = await fetch(`${API_BASE}/api/trade-accounts/admin/${selected.id}/retry-decision-email`, { method: "POST", headers: { "x-admin-key": adminKey } });
-                  const result = await response.json(); if (!response.ok || !result.success) setError(result.error || "Decision email retry failed; check email configuration."); else { setError(""); setMessage("Pending decision emails sent."); }
+                  if (saving) return;
+                  setSaving(true); setError(""); setMessage("");
+                  try {
+                    const response = await fetch(`${API_BASE}/api/trade-accounts/admin/${selected.id}/retry-decision-email`, { method: "POST", headers: { "x-admin-key": adminKey } });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) throw new Error(result.error || "Decision email retry failed; check email configuration.");
+                    setMessage(result.message || "Decision email accepted for delivery. Check the recipient inbox and spam folder.");
+                  } catch (failure) { setError(failure instanceof Error ? failure.message : "Decision email retry failed. Please try again."); }
+                  finally { setSaving(false); }
                 }}>Retry decision email</button>
                 <p className="mt-3 text-sm text-slate-500">
                   Requested credit limit: {money(selected.requestedCreditLimit)}

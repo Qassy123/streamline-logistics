@@ -1,4 +1,5 @@
 import { vehicleComplianceBlocks } from "../lib/vehicleCompliance";
+import { calendarBookingRange } from "../lib/calendarBookingRange";
 import { ukMidnight } from "../lib/driverPayroll";
 import { readFleetAvailability } from "../lib/fleetAvailability";
 import {
@@ -248,10 +249,7 @@ router.get("/", async (req, res) => {
     );
 
     const where: Prisma.BookingWhereInput = {
-      AND: [{ OR: [
-        { collectionDate: { gte: startDate, lt: endDate } },
-        { estimatedStartTime: { lt: ukMidnight(endDate.toISOString().slice(0, 10)) }, estimatedEndTime: { gt: ukMidnight(startDate.toISOString().slice(0, 10)) } },
-      ] }],
+      AND: [calendarBookingRange(ukMidnight(startDate.toISOString().slice(0, 10)), ukMidnight(endDate.toISOString().slice(0, 10)), startDate, endDate)],
     };
 
     if (status && status !== "ALL") {

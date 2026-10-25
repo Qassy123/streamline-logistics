@@ -256,8 +256,9 @@ export default function PaymentActions({
                 </>
               ) : (
                 <p className="mt-1 text-sm leading-6 text-amber-700">
-                  {options.reason ||
-                    "Pay Later is currently unavailable for this Trade Account."}
+                  {options.creditFacilityOnHold && <strong className="block">Your Trade credit is on hold</strong>}
+                  {options.creditFacilityOnHold ? (options.holdReason || "Please contact our team for more information.") : (options.reason || "Pay Later is currently unavailable for this Trade Account.")}
+                  {options.creditFacilityOnHold && <> Pay Later is unavailable. <a className="font-bold underline" href="/contact">Contact our team</a> or call <a className="font-bold underline" href="tel:07301827224">07301827224</a>.</>}
                 </p>
               )}
             </div>

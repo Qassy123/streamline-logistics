@@ -44,6 +44,25 @@ router.post("/:kind/request",async(req,res)=>{
   res.json({message:"If that email matches an active account, recovery instructions will arrive shortly. Check your spam folder or contact the office if needed."});
  }catch{res.status(500).json({error:"Unable to request recovery. Please try again."});}
 });
+router.post("/:kind/validate", async (req, res) => {
+ res.setHeader("Cache-Control", "no-store");
+ try {
+  const kind = String(req.params.kind);
+  if (!["customer", "staff"].includes(kind)) return res.status(404).json({ error: "Account type not found." });
+  if (!limit(req, res, `validate:${kind}`)) return;
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!/^[a-f0-9]{64}$/i.test(token)) throw new Error("Invalid link");
+  const row = await prisma.accountRecoveryToken.findUnique({ where: { tokenHash: hash(token) } });
+  if (!row || row.kind !== kind || row.usedAt || row.expiresAt <= new Date()) throw new Error("Invalid link");
+  const active = kind === "customer"
+   ? (await prisma.user.findUnique({ where: { id: row.subjectId }, select: { accountStatus: true } }))?.accountStatus === "ACTIVE"
+   : (await prisma.adminUser.findUnique({ where: { id: row.subjectId }, select: { active: true } }))?.active;
+  if (!active) throw new Error("Invalid link");
+  return res.json({ valid: true });
+ } catch {
+  return res.status(400).json({ error: "This reset link is invalid, expired or already used. Request a new link." });
+ }
+});
 router.post("/:kind/reset",async(req,res)=>{
  try{
   const kind=String(req.params.kind);if(!["customer","staff"].includes(kind))return res.status(404).json({error:"Account type not found."});
