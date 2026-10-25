@@ -112,12 +112,14 @@ export default function BaseFaresPage() {
   }, [loadTariffs]);
 
   function openCreate() {
+    setError("");
     setEditing(null);
     setForm(emptyForm);
     setModalOpen(true);
   }
 
   function openEdit(tariff: Tariff) {
+    setError("");
     setEditing(tariff);
     setForm({
       name: tariff.name,
@@ -135,6 +137,7 @@ export default function BaseFaresPage() {
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     setSaving(true);
     setError("");
     setSuccessMessage("");
@@ -401,6 +404,7 @@ export default function BaseFaresPage() {
             </div>
 
             <form onSubmit={save} className="space-y-5 p-5">
+              {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Tariff Name">
                   <input

@@ -1,4 +1,5 @@
 "use client";
+import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
 import VehicleDetailsModal from "@/components/VehicleDetailsModal";
@@ -110,6 +111,7 @@ type Quote = {
 type Calculation = {
   distanceMiles: number;
   durationMinutes: number | null;
+  pricingBreakdown?: unknown;
   basePrice: number;
   fuelSurcharge: number;
   adminPrice: number;
@@ -1035,11 +1037,12 @@ export default function CustomerQuotesPage() {
                   value={formatMoney(calculation.basePrice)}
                 />
                 <PriceRow
-                  label="Fuel surcharge"
-                  value={formatMoney(calculation.fuelSurcharge)}
+                  label="Mileage"
+                  value={formatMoney(quotePriceBreakdown(calculation).mileagePrice)}
                 />
                 <PriceRow
-                  label="Extra/admin charges"
+                  label="Extra stops" value={formatMoney(quotePriceBreakdown(calculation).extraStopsPrice)} />
+                <PriceRow label="Subtotal before VAT"
                   value={formatMoney(calculation.adminPrice)}
                 />
                 <PriceRow

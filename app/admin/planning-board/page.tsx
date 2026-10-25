@@ -1,4 +1,5 @@
 "use client";
+import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import { calendarInterval, calendarTimeText, dropCollectionWindow } from "@/lib/bookingCalendar";
 import FleetAllocationBoard from "@/components/admin/FleetAllocationBoard";
 
@@ -184,6 +185,7 @@ type Booking = {
 type Calculation = {
   distanceMiles: number;
   durationMinutes: number | null;
+  pricingBreakdown?: unknown;
   basePrice: string | number;
   fuelSurcharge: string | number;
   adminPrice: string | number;
@@ -332,22 +334,8 @@ function money(value: unknown) {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
-function mileageRate(calculation: Calculation | null) {
-  if (!calculation || calculation.distanceMiles <= 0) return 0;
-
-  return Number(calculation.fuelSurcharge || 0) / calculation.distanceMiles;
-}
-
-function extraStopsPrice(calculation: Calculation | null) {
-  if (!calculation) return 0;
-
-  return Math.max(
-    Number(calculation.adminPrice || 0) -
-      Number(calculation.basePrice || 0) -
-      Number(calculation.fuelSurcharge || 0),
-    0,
-  );
-}
+function mileageRate(calculation: Calculation | null) { return quotePriceBreakdown(calculation).mileageRate; }
+function extraStopsPrice(calculation: Calculation | null) { return quotePriceBreakdown(calculation).extraStopsPrice; }
 
 function formatMileageRate(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "Â£0.00";
@@ -1414,7 +1402,7 @@ export default function AdminPlanningBoardPage() {
                       label={`Mileage (${calculation?.distanceMiles ?? 0} mi Ã— ${formatMileageRate(
                         mileageRate(calculation),
                       )})`}
-                      value={money(calculation?.fuelSurcharge)}
+                      value={money(quotePriceBreakdown(calculation).mileagePrice)}
                     />
                     <QuotePriceRow
                       icon={<MapPin size={20} />}

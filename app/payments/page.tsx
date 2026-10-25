@@ -1,3 +1,4 @@
+import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import { notFound } from "next/navigation";
 import PaymentActions from "./PaymentActions";
 import {
@@ -21,6 +22,7 @@ type QuoteDetails = {
   legalEntity?: string | null;
   companyName?: string | null;
   distanceMiles: string | number | null;
+  pricingBreakdown?: unknown;
   basePrice: string | number | null;
   fuelSurcharge: string | number | null;
   adminPrice: string | number | null;
@@ -77,22 +79,8 @@ function formatExtraDrops(extraDrops: unknown) {
   return [];
 }
 
-function calculateExtraStopsPrice(quote: QuoteDetails) {
-  const subtotal = Number(quote.adminPrice || 0);
-  const baseFare = Number(quote.basePrice || 0);
-  const mileage = Number(quote.fuelSurcharge || 0);
-
-  return Math.max(subtotal - baseFare - mileage, 0);
-}
-
-function calculateMileageRate(quote: QuoteDetails) {
-  const distanceMiles = Number(quote.distanceMiles || 0);
-  const mileagePrice = Number(quote.fuelSurcharge || 0);
-
-  if (!distanceMiles) return 0;
-
-  return mileagePrice / distanceMiles;
-}
+function calculateExtraStopsPrice(quote: QuoteDetails) { return quotePriceBreakdown(quote).extraStopsPrice; }
+function calculateMileageRate(quote: QuoteDetails) { return quotePriceBreakdown(quote).mileageRate; }
 
 export default async function PaymentsPage({
   searchParams,
@@ -212,7 +200,7 @@ export default async function PaymentsPage({
                   iconClassName="text-[#006CFF]"
                   label="Mileage"
                   detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMoney(mileageRate)})`}
-                  value={formatMoney(quote.fuelSurcharge)}
+                  value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
                 />
 
                 <PriceBreakdownRow

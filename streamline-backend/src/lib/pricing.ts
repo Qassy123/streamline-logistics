@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "./prisma";
 export type QuotePricingInput = {
   deliveryType: string;
   journeyType?: string | null;
@@ -161,6 +163,40 @@ export function calculateQuotePriceWithConfig(
   };
 }
 
-export function calculateQuotePrice(input: QuotePricingInput) {
-  return calculateQuotePriceWithConfig(input, pricingConfig);
+/** Every live quote reads the saved tariff. Additional charges are manual. */
+export async function calculateQuotePrice(input: QuotePricingInput) {
+  const aliases: Record<string,string[]> = {
+    "Small Van": ["Small Van"], "SWB Van": ["SWB Van"],
+    "LWB High Roof Van": ["LWB High Roof Van", "LWB Van"],
+    "XLWB High Roof Van": ["XLWB High Roof Van", "XLWB High Roof"],
+    "Luton Tail Lift Van": ["Luton Tail Lift Van", "Luton Tail Lift", "Luton Tail Lift Curtainsider"],
+  };
+  const names=Object.values(aliases).find(values=>values.includes(input.vehicleSize))||[input.vehicleSize];
+  const tariff=await prisma.tariff.findFirst({
+    where:{active:true,vehicleType:{in:names}},
+    orderBy:[{updatedAt:"desc"},{id:"asc"}],
+    include:{mileageBands:{orderBy:[{minimumMiles:"desc"},{id:"asc"}]}},
+  });
+  if(!tariff)throw new Error(`No active tariff is configured for ${input.vehicleSize}. Update Pricing / Tariff before calculating a quote.`);
+  const distanceMiles=Number(input.distanceMiles);
+  if(input.distanceMiles==null||!Number.isFinite(distanceMiles)||distanceMiles<0)throw new Error("A valid route distance is required to calculate the quote.");
+  const distance=new Prisma.Decimal(distanceMiles).toDecimalPlaces(1);
+  const band=tariff.mileageBands.find(row=>distance.greaterThanOrEqualTo(row.minimumMiles)&&(row.maximumMiles===null||distance.lessThanOrEqualTo(row.maximumMiles)));
+  if(!band)throw new Error(`No mileage band covers ${distance.toString()} miles for ${tariff.vehicleType}. Update Mileage in Pricing / Tariff.`);
+  if(tariff.baseFare.lessThan(0)||band.ratePerMile.lessThan(0))throw new Error("The saved tariff contains an invalid negative price.");
+  const settings=await prisma.companySettings.findFirst({orderBy:{createdAt:"asc"},select:{vatRate:true}});
+  const vatPercent=tariff.vatApplicable?new Prisma.Decimal(settings?.vatRate??20):new Prisma.Decimal(0);
+  if(vatPercent.lessThan(0)||vatPercent.greaterThan(100))throw new Error("The saved VAT rate is invalid.");
+  const base=tariff.baseFare.toDecimalPlaces(2),mileage=distance.mul(band.ratePerMile).toDecimalPlaces(2);
+  const extraDropCount=input.extraDropCount??0;
+  if(!Number.isInteger(extraDropCount)||extraDropCount<0||extraDropCount>100)throw new Error("Enter a valid extra stop count.");
+  const stopCharge=extraDropCount?await prisma.tariffCharge.findFirst({where:{tariffId:null,type:"STOP",active:true},orderBy:[{updatedAt:"desc"},{id:"asc"}]}):null;
+  if(extraDropCount&&(!stopCharge||stopCharge.calculation!=="PER_STOP"))throw new Error("Configure an active per-stop charge in Pricing / Tariff.");
+  const stopRate=stopCharge?.amount??new Prisma.Decimal(0),stops=stopRate.mul(extraDropCount).toDecimalPlaces(2);
+  if(stopRate.lessThan(0))throw new Error("The saved stop price cannot be negative.");
+  const net=base.add(mileage).add(stops);
+  const taxable=base.add(mileage).mul(vatPercent).div(100).add(stopCharge?.vatApplicable?stops.mul(new Prisma.Decimal(settings?.vatRate??20)).div(100):0);
+  const vat=taxable.toDecimalPlaces(2);
+  // Route distance already includes all legs; additional charges other than saved extra stops stay manual.
+  return {distanceMiles:distance.toNumber(),basePrice:base.toNumber(),fuelSurcharge:0,adminPrice:net.toNumber(),vatAmount:vat.toNumber(),totalPrice:net.add(vat).toNumber(),pricingBreakdown:{tariffId:tariff.id,baseFare:base.toNumber(),mileageRate:band.ratePerMile.toNumber(),mileagePrice:mileage.toNumber(),extraDropCount,extraStopRate:stopRate.toNumber(),extraStopsPrice:stops.toNumber()}};
 }

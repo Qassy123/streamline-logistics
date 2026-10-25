@@ -284,6 +284,7 @@ model Vehicle {
 }
 
 model Quote {
+  pricingBreakdown Json?
   archivedCustomerId String?
   @@index([archivedCustomerId])
   id                       String               @id @default(cuid())

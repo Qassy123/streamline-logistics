@@ -1,3 +1,4 @@
+import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -38,6 +39,7 @@ type QuoteDetails = {
   legalEntity?: string | null;
   tradingName?: string | null;
   distanceMiles: string | number | null;
+  pricingBreakdown?: unknown;
   basePrice: string | number | null;
   fuelSurcharge: string | number | null;
   adminPrice: string | number | null;
@@ -162,8 +164,8 @@ export default async function QuoteDetailsPage({
   const basePrice = toNumber(quote.basePrice);
   const fuelSurcharge = toNumber(quote.fuelSurcharge);
   const subtotal = toNumber(quote.adminPrice);
-  const mileageRate = distanceMiles > 0 ? fuelSurcharge / distanceMiles : 0;
-  const extraStopsPrice = Math.max(subtotal - basePrice - fuelSurcharge, 0);
+  const mileageRate = quotePriceBreakdown(quote).mileageRate;
+  const extraStopsPrice = quotePriceBreakdown(quote).extraStopsPrice;
   const baseFareLabel = `Base Fare (${quote.vehicleSize || "Van Size"})`;
   const extraStopsLabel = `Extra Stops (${extraDrops.length})`;
   const returnAddress =
@@ -394,7 +396,7 @@ export default async function QuoteDetailsPage({
                   detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMileageRate(
                     mileageRate,
                   )})`}
-                  value={formatMoney(quote.fuelSurcharge)}
+                  value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
                 />
 
                 <PriceBreakdownRow

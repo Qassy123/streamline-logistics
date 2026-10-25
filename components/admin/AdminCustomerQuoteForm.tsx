@@ -1,4 +1,5 @@
 "use client";
+import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import SavedRoutePicker from "@/components/SavedRoutePicker";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
@@ -12,6 +13,7 @@ type QuoteResponse = {
   id: string;
   status: string;
   distanceMiles: string;
+  pricingBreakdown?: unknown;
   basePrice: string;
   fuelSurcharge: string;
   adminPrice: string;
@@ -86,7 +88,7 @@ type VehicleAvailabilityResponse = {
 };
 
 const API_URL =
-  "https://streamline-logistics-production.up.railway.app/api/quotes";
+  (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || "https://streamline-logistics-production.up.railway.app").replace(/\/$/, "") + "/api/quotes";
 const VEHICLE_AVAILABILITY_API_URL =
   "https://streamline-logistics-production.up.railway.app/api/vehicles/availability";
 const ACCOUNT_API_URL =
@@ -1128,20 +1130,22 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
-                <p className="text-slate-500">Base Price</p>
+                <p className="text-slate-500">Base Fare</p>
                 <p className="mt-2 text-xl font-bold text-[#0F172A]">
                   £{quote.basePrice}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
-                <p className="text-slate-500">Fuel Surcharge</p>
+                <p className="text-slate-500">Mileage</p>
                 <p className="mt-2 text-xl font-bold text-[#0F172A]">
-                  £{quote.fuelSurcharge}
+                  £{quotePriceBreakdown(quote).mileagePrice.toFixed(2)}
                 </p>
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
+                <p className="text-slate-500">Extra Stops</p><p className="mt-2 text-xl font-bold">£{quotePriceBreakdown(quote).extraStopsPrice.toFixed(2)}</p>
+                </div><div className="rounded-2xl border bg-slate-50 p-5">
                 <p className="text-slate-500">Subtotal Before VAT</p>
                 <p className="mt-2 text-xl font-bold text-[#0F172A]">
                   £{quote.adminPrice}

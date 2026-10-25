@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   calculateQuotePriceWithConfig,
+  calculateQuotePrice,
   pricingConfig,
   PricingConfig,
   QuotePricingInput,
@@ -198,7 +199,7 @@ router.get("/", (req, res) => {
   });
 });
 
-router.post("/preview", (req, res) => {
+router.post("/preview", async (req, res) => {
   const admin = requireAdmin(req);
 
   if (!admin.authorised) {
@@ -236,7 +237,7 @@ router.post("/preview", (req, res) => {
     }
 
     res.json({
-      result: calculateQuotePriceWithConfig(input, config),
+      result: req.body.config ? calculateQuotePriceWithConfig(input, config) : await calculateQuotePrice(input),
     });
   } catch (error) {
     console.error("Pricing preview error:", error);

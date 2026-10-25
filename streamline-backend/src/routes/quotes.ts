@@ -250,6 +250,7 @@ function adminQuoteSelect() {
     purchaseOrderNumber: true,
     distanceMiles: true,
     basePrice: true,
+    pricingBreakdown: true,
     fuelSurcharge: true,
     adminPrice: true,
     discountAmount: true,
@@ -388,7 +389,7 @@ async function sendQuoteEmail(
 }
 
 function applyAdminDiscount(
-  price: ReturnType<typeof calculateQuotePrice>,
+  price: Awaited<ReturnType<typeof calculateQuotePrice>>,
   discountType: string,
   discountValue: unknown,
 ) {
@@ -421,6 +422,7 @@ function applyAdminDiscount(
   const totalPrice = Number((discountedSubtotal + vatAmount).toFixed(2));
 
   return {
+    pricingBreakdown: price.pricingBreakdown,
     distanceMiles: price.distanceMiles,
     basePrice: Number(basePrice.toFixed(2)),
     fuelSurcharge: Number(fuelSurcharge.toFixed(2)),
@@ -461,7 +463,7 @@ export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
   const route = await calculateRouteDistance(routeStops);
   const extraDropCount = normaliseExtraDrops(reqBody.extraDrops).length;
 
-  const rawPrice = calculateQuotePrice({
+  const rawPrice = await calculateQuotePrice({
     deliveryType: getString(reqBody.deliveryType) || "Dedicated",
     journeyType: getString(reqBody.journeyType) || "One-way",
     vehicleSize,
@@ -605,6 +607,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         handoverContactPhone: getOptionalString(req.body.handoverContactPhone),
         distanceMiles: calculation.distanceMiles,
         basePrice: calculation.basePrice,
+        pricingBreakdown: calculation.pricingBreakdown,
         fuelSurcharge: calculation.fuelSurcharge,
         adminPrice: calculation.adminPrice,
         discountAmount: calculation.discountAmount,
@@ -780,6 +783,7 @@ router.post("/admin/guest", async (req, res) => {
 
         distanceMiles: calculation.distanceMiles,
         basePrice: calculation.basePrice,
+        pricingBreakdown: calculation.pricingBreakdown,
         fuelSurcharge: calculation.fuelSurcharge,
         adminPrice: calculation.adminPrice,
         discountAmount: calculation.discountAmount,
@@ -1116,6 +1120,7 @@ router.patch("/admin/:id", async (req, res) => {
             ? req.body.distanceMiles
             : undefined,
 
+        pricingBreakdown: ["basePrice","fuelSurcharge","adminPrice","vatAmount","totalPrice"].some(field=>req.body[field]!==undefined) ? Prisma.DbNull : undefined,
         basePrice:
           req.body.basePrice !== undefined
             ? req.body.basePrice
@@ -1284,7 +1289,7 @@ router.post("/", async (req, res) => {
 
     const extraDropCount = normaliseExtraDrops(req.body.extraDrops).length;
 
-    const price = calculateQuotePrice({
+    const price = await calculateQuotePrice({
       deliveryType: req.body.deliveryType,
       journeyType: req.body.journeyType,
       vehicleSize: req.body.vehicleSize,
@@ -1347,6 +1352,7 @@ router.post("/", async (req, res) => {
         purchaseOrderNumber: req.body.purchaseOrderNumber || null,
         distanceMiles: price.distanceMiles,
         basePrice: price.basePrice,
+        pricingBreakdown: price.pricingBreakdown,
         fuelSurcharge: price.fuelSurcharge,
         adminPrice: price.adminPrice,
         vatAmount: price.vatAmount,
@@ -1393,6 +1399,7 @@ router.patch("/:id/price", async (req, res) => {
       },
       data: {
         distanceMiles,
+        pricingBreakdown: Prisma.DbNull,
         basePrice,
         fuelSurcharge,
         adminPrice,

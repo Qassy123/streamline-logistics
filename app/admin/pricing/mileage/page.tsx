@@ -86,6 +86,7 @@ export default function MileagePage() {
   }, [loadTariffs]);
 
   function openCreate(tariffId?: string) {
+    setError("");
     setEditing(null);
     setForm({
       ...emptyForm,
@@ -95,6 +96,7 @@ export default function MileagePage() {
   }
 
   function openEdit(tariffId: string, band: MileageBand) {
+    setError("");
     setEditing(band);
     setForm({
       tariffId,
@@ -107,6 +109,7 @@ export default function MileagePage() {
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     setSaving(true);
     setError("");
     setSuccessMessage("");
@@ -353,6 +356,7 @@ export default function MileagePage() {
             </div>
 
             <form onSubmit={save} className="space-y-5 p-5">
+              {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
               {!editing ? (
                 <Field label="Tariff">
                   <select

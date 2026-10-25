@@ -52,8 +52,8 @@ export default function AdminPricingPage() {
           Pricing / Tariff
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-          Manage the pricing controls used by the admin team. Live quote-engine
-          pricing is not being changed as part of this Tab 10 update.
+          Saved base fares and mileage bands are used across all quote forms.
+          Additional charges are added manually when applicable.
         </p>
       </div>
 
