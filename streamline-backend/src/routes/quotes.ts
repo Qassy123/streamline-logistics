@@ -1,3 +1,4 @@
+import { adminQuoteGrouping } from "../lib/adminQuoteGrouping";
 import { quoteMaintenance } from "../lib/quoteMaintenance";
 import crypto from "crypto";
 import { Router } from "express";
@@ -858,6 +859,12 @@ router.post("/admin/:id/send", async (req, res) => {
   }
 });
 
+router.get("/admin/accounts", async (req, res) => {
+  const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try { const accounts = await prisma.user.findMany({ select: { id: true, name: true, companyName: true, accountNumber: true }, orderBy: { name: "asc" } }); res.setHeader("Cache-Control", "no-store"); res.json({ accounts }); }
+  catch { res.status(500).json({ error: "Unable to load quote accounts." }); }
+});
+
 router.get("/admin/list", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -945,6 +952,13 @@ router.get("/admin/list", async (req, res) => {
       }
     }
 
+    const accountId = getString(req.query.accountId), group = getString(req.query.group);
+    if (group && !["COMPLETED", "CURRENT", "FUTURE"].includes(group)) return res.status(400).json({ error: "Choose a valid quote section." });
+    if (accountId && accountId !== "ALL") where.userId = accountId === "GUEST" ? null : accountId;
+    const baseWhere = { ...where };
+    const now = new Date();
+    if (group) where.AND = [adminQuoteGrouping(group, now)];
+    const groupTotals = group ? Object.fromEntries(await Promise.all(["COMPLETED", "CURRENT", "FUTURE"].map(async name => [name, await prisma.quote.count({ where: { AND: [baseWhere, adminQuoteGrouping(name, now)] } })]))) : undefined;
     const [quotes, total, statusTotals] = await Promise.all([
       prisma.quote.findMany({
         where,
@@ -970,6 +984,7 @@ router.get("/admin/list", async (req, res) => {
 
     res.json({
       quotes,
+      groupTotals,
       pagination: {
         page,
         pageSize,

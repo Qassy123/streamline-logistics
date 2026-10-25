@@ -19,6 +19,7 @@ type NavigationItem = {
 const navigationItems: NavigationItem[] = [
   { label: "Vehicle records & evidence", href: "/admin/vehicle-records" },
   { label: "Driver hours", href: "/admin/driver-hours" },
+  { label: "Quotes", href: "/admin/quotes" },
   { label: "Staff & Permissions", href: "/admin/permissions" },
   {
     label: "Add New Customer",

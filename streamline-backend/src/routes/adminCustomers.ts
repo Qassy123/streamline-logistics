@@ -1,3 +1,4 @@
+import { guestBookingPeriod } from "../lib/guestBookingPeriod";
 import { sendCustomerPasswordInvite } from "../lib/customerPasswordInvite";
 import { archiveAndDeleteCustomer } from "../lib/customerArchive";
 import { Router } from "express";
@@ -741,8 +742,11 @@ router.get("/guests", async (req, res) => {
     );
     const search = getString(req.query.search);
 
+    const period = getString(req.query.period);
+    if (period && !["CURRENT", "PREVIOUS"].includes(period)) return res.status(400).json({ error: "Choose current or previous guest bookings." });
     const where: Prisma.BookingWhereInput = {
       userId: null,
+      ...(period ? { AND: [guestBookingPeriod(period)] } : {}),
     };
 
     if (search) {

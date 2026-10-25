@@ -374,8 +374,8 @@ router.get("/admin/completed-jobs", async (req, res) => {
     if (req.query.customerId !== undefined && (!customerId || customerId.length > 128)) return res.status(400).json({ error: "Choose a valid customer account." });
     if (customerId && !await prisma.user.findUnique({ where: { id: customerId }, select: { id: true } })) return res.status(404).json({ error: "Customer account not found." });
     const where: Prisma.BookingWhereInput = { archivedCustomerId: null, ...(customerId ? { userId: customerId } : {}), status: filter === "COMPLETED" ? "COMPLETED" : filter === "CANCELLED" ? "CANCELLED" : filter === "OPEN" ? { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] } : { not: "PENDING_PAYMENT" }, ...(q ? { OR: [{ reference: { contains: q, mode: "insensitive" } }, { user: { is: { companyName: { contains: q, mode: "insensitive" } } } }] } : {}) };
-    const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } } } }), prisma.booking.count({ where })]);
-    res.setHeader("Cache-Control", "no-store"); res.json({ jobs,total,page,pages: Math.max(1,Math.ceil(total/50)) });
+    const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } }, trackingEvents: { where: { status: "COMPLETED" }, orderBy: { createdAt: "asc" }, take: 1, select: { createdAt: true } }, pod: { select: { deliveredAt: true } } } }), prisma.booking.count({ where })]);
+    res.setHeader("Cache-Control", "no-store"); res.json({ jobs: jobs.map(job => ({ ...job, completedAt: job.status === "COMPLETED" ? job.trackingEvents?.[0]?.createdAt || job.pod?.deliveredAt || null : null })),total,page,pages: Math.max(1,Math.ceil(total/50)) });
   } catch { res.status(500).json({ error: "Unable to load completed jobs." }); }
 });
 router.post("/admin/completed-jobs/:id/review", async (req,res) => {
@@ -812,6 +812,9 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       });
     }
 
+    if ((!quote.userId || !quote.user) && quote.booking) {
+      return res.status(409).json({ error: "Booking already exists for this quote. Refresh Planning before trying again.", code: "BOOKING_ALREADY_EXISTS" });
+    }
     if (!quote.userId || !quote.user) {
       const { reservedFrom, reservedUntil } = getReservationWindow(
         quote.collectionDate,
@@ -1119,12 +1122,10 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
   } catch (error) {
     console.error("Admin booking creation from quote error:", error);
 
-    return res.status(500).json({
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to create planning booking from quote.",
-    });
+    const refusal = error instanceof Error && error.name === "DriverPortalError" && "status" in error && typeof error.status === "number" && error.status >= 400 && error.status < 500;
+    if (refusal) return res.status(error.status as number).json({ error: error.message, code: "BOOKING_UNAVAILABLE" });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return res.status(409).json({ error: "This booking was already created or changed. Refresh Planning before trying again.", code: "BOOKING_CONFLICT" });
+    return res.status(500).json({ error: "Unable to create planning booking. Please try again; if it continues, contact the office with the quote reference." });
   }
 });
 

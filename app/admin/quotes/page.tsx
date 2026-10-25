@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -80,6 +80,7 @@ type Quote = {
 
 type Payload = {
   quotes?: Quote[];
+  groupTotals?: Record<string, number>;
   quote?: Quote;
   pagination?: {
     page: number;
@@ -138,6 +139,12 @@ export default function AdminQuotesPage() {
   const [adminKey, setAdminKey] = useState("");
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [selected, setSelected] = useState<Quote | null>(null);
+  const [accounts, setAccounts] = useState<{ id: string; name: string; companyName: string | null; accountNumber: string | null }[]>([]);
+  const [accountId, setAccountId] = useState("");
+  const [group, setGroup] = useState("CURRENT");
+  const [groupTotals, setGroupTotals] = useState<Record<string, number>>({});
+  const requestVersion = useRef(0);
+  const sectionLabels: Record<string, string> = { COMPLETED: "Completed quotes", CURRENT: "Current quotes", FUTURE: "Future quotes" };
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -186,8 +193,19 @@ export default function AdminQuotesPage() {
     return () => window.clearTimeout(timeout);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (!adminKey) return;
+    const controller = new AbortController();
+    void fetch(`${API_BASE}/api/quotes/admin/accounts`, { cache: "no-store", signal: controller.signal, headers: { "x-admin-key": adminKey } }).then(async response => {
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || "Unable to load accounts."); if (!controller.signal.aborted) setAccounts(data.accounts || []);
+    }).catch(failure => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "Unable to load accounts."); });
+    return () => controller.abort();
+  }, [adminKey]);
+
   const loadQuotes = useCallback(
     async (refresh = false) => {
+      const version = ++requestVersion.current;
+      if (!accountId) { setQuotes([]); setGroupTotals({}); setLoading(false); return; }
       if (!adminKey) {
         setLoading(false);
         setError(
@@ -203,7 +221,7 @@ export default function AdminQuotesPage() {
         const params = new URLSearchParams({
           page: String(page),
           pageSize: String(PAGE_SIZE),
-          status,
+          status, accountId, group,
         });
 
         if (search) params.set("search", search);
@@ -222,6 +240,7 @@ export default function AdminQuotesPage() {
 
         const payload = (await response.json()) as Payload;
 
+        if (version !== requestVersion.current) return;
         if (!response.ok) {
           if (response.status === 401) {
             window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
@@ -232,6 +251,7 @@ export default function AdminQuotesPage() {
         }
 
         setQuotes(payload.quotes || []);
+        setGroupTotals(payload.groupTotals || {});
         setPagination(
           payload.pagination || {
             page,
@@ -242,6 +262,7 @@ export default function AdminQuotesPage() {
         );
         setSummary(payload.summary?.byStatus || {});
       } catch (requestError) {
+        if (version !== requestVersion.current) return;
         setQuotes([]);
         setError(
           requestError instanceof Error
@@ -249,11 +270,10 @@ export default function AdminQuotesPage() {
             : "Unable to load quotes.",
         );
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (version === requestVersion.current) { setLoading(false); setRefreshing(false); }
       }
     },
-    [adminKey, dateFrom, dateTo, page, search, status],
+    [adminKey, accountId, group, dateFrom, dateTo, page, search, status],
   );
 
   useEffect(() => {
@@ -262,6 +282,7 @@ export default function AdminQuotesPage() {
     } else {
       setLoading(false);
     }
+    return () => { requestVersion.current++; };
   }, [adminKey, loadQuotes]);
 
   const activeFilters = useMemo(() => {
@@ -394,12 +415,9 @@ export default function AdminQuotesPage() {
         </button>
       </div>
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard label="All quotes" value={pagination.total} icon={FileClock} />
-        <SummaryCard label="Sent" value={summary.Sent || summary.sent || 0} icon={Send} />
-        <SummaryCard label="Accepted" value={summary.Accepted || summary.accepted || 0} icon={CheckCircle2} />
-        <SummaryCard label="Expired" value={summary.Expired || summary.expired || 0} icon={CircleAlert} />
-        <SummaryCard label="Cancelled" value={summary.Cancelled || summary.cancelled || 0} icon={XCircle} />
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
+        <label className="block text-sm font-bold">Select account<select aria-label="Select quote account" value={accountId} onChange={event => { requestVersion.current++; setAccountId(event.target.value); setPage(1); setQuotes([]); setGroupTotals({}); setSelected(null); }} className="mt-2 min-h-11 w-full rounded-xl border border-slate-300 p-3"><option value="">Choose an account</option><option value="ALL">All accounts</option><option value="GUEST">Guest customers</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.companyName || account.name}{account.accountNumber ? ` · ${account.accountNumber}` : ""}</option>)}</select></label>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">{["COMPLETED", "CURRENT", "FUTURE"].map(value => <button key={value} type="button" disabled={!accountId} aria-pressed={group === value} onClick={() => { setGroup(value); setPage(1); }} className={`min-h-24 rounded-xl border p-4 text-left disabled:opacity-50 ${group === value ? "border-[#FF6A00] bg-orange-50" : "border-slate-200 bg-white"}`}><span className="block font-bold">{sectionLabels[value]}</span><span className="mt-1 block text-2xl font-bold">{accountId ? groupTotals[value] ?? "—" : "—"}</span><span className="mt-1 block text-xs text-slate-600">{value === "COMPLETED" ? "Booked, cancelled or expired" : value === "CURRENT" ? "Open quotes for today or earlier" : "Open quotes for future dates"}</span></button>)}</div>
       </section>
 
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -492,7 +510,7 @@ export default function AdminQuotesPage() {
       <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5 sm:px-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">Quotes</h2>
+            <h2 className="text-lg font-bold text-slate-950">{sectionLabels[group]}</h2>
             <p className="mt-1 text-sm text-slate-500">
               {pagination.total} matching quote
               {pagination.total === 1 ? "" : "s"}
@@ -512,10 +530,10 @@ export default function AdminQuotesPage() {
             <div>
               <FileClock className="mx-auto h-12 w-12 text-slate-300" />
               <h3 className="mt-4 text-lg font-bold text-slate-950">
-                No quotes found
+                {accountId ? "No quotes found" : "Choose an account to view quotes"}
               </h3>
               <p className="mt-2 text-sm text-slate-500">
-                Change the filters or create a new quote from a customer account.
+                {accountId ? "Change the section or filters, or create a quote through Planning." : "Select a customer or Guest customers above."}
               </p>
             </div>
           </div>

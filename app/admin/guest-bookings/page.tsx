@@ -93,183 +93,9 @@ function statusLabel(value: string) {
   return value.replace(/_/g, " ");
 }
 
-export default function GuestBookingsPage() {
-  const [bookings, setBookings] = useState<GuestBooking[]>([]);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: 25,
-    total: 0,
-    totalPages: 1,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
-  const loadBookings = useCallback(async () => {
-    const adminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
-
-    if (!adminKey) {
-      setError("Admin key is required.");
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: "25",
-      });
-
-      if (submittedSearch) {
-        params.set("search", submittedSearch);
-      }
-
-      const response = await fetch(
-        `${API_BASE}/api/admin/customers/guests?${params.toString()}`,
-        {
-          headers: {
-            "x-admin-key": adminKey,
-          },
-          cache: "no-store",
-        },
-      );
-
-      const payload = (await response.json()) as GuestPayload;
-
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to load guest bookings.");
-      }
-
-      setBookings(payload.bookings || []);
-      setPagination(
-        payload.pagination || {
-          page: 1,
-          pageSize: 25,
-          total: 0,
-          totalPages: 1,
-        },
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load guest bookings.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [page, submittedSearch]);
-
-  useEffect(() => {
-    void loadBookings();
-  }, [loadBookings]);
-
-  const guestCountText = useMemo(
-    () =>
-      `${pagination.total} guest booking${pagination.total === 1 ? "" : "s"}`,
-    [pagination.total],
-  );
-
-  function submitSearch(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPage(1);
-    setSubmittedSearch(search.trim());
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-[1800px]">
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-slate-950 px-5 py-5 text-white sm:px-7">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-[#FF6A00]">
-                  <UserRound size={18} />
-                  Customer Management
-                </div>
-                <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
-                  Guest Bookings
-                </h1>
-                <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                  Bookings created without a customer account. When the guest
-                  later creates a business account using the same email address,
-                  unowned historical activity is linked to that account.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void loadBookings()}
-                disabled={loading}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#E55300] disabled:opacity-60"
-              >
-                <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
-                Refresh
-              </button>
-            </div>
-          </div>
-
-          <div className="p-5 sm:p-7">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <form
-                onSubmit={submitSearch}
-                className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row"
-              >
-                <label className="relative flex-1">
-                  <Search
-                    size={18}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search guest, email, phone, booking, company or route"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-[#FF6A00] focus:ring-2 focus:ring-orange-100"
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"
-                >
-                  Search
-                </button>
-              </form>
-
-              <div className="text-sm font-semibold text-slate-600">
-                {guestCountText}
-              </div>
-            </div>
-
-            {error ? (
-              <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                {error}
-              </div>
-            ) : null}
-
-            {loading ? (
-              <div className="flex min-h-72 items-center justify-center">
-                <div className="flex items-center gap-3 text-sm font-semibold text-slate-600">
-                  <Loader2 size={20} className="animate-spin" />
-                  Loading guest bookings...
-                </div>
-              </div>
-            ) : bookings.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center">
-                <UserRound size={34} className="mx-auto text-slate-400" />
-                <h2 className="mt-3 text-lg font-bold">No guest bookings found</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Guest bookings with no linked customer account will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200">
+function GuestTable({ bookings }: { bookings: GuestBooking[] }) {
+  return (              <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200">
                 <table className="min-w-[1200px] w-full border-collapse text-left text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
@@ -378,43 +204,41 @@ export default function GuestBookingsPage() {
                     })}
                   </tbody>
                 </table>
-              </div>
-            )}
-
-            {!loading && pagination.totalPages > 1 ? (
-              <div className="mt-5 flex items-center justify-between gap-4">
-                <button
-                  type="button"
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  disabled={page <= 1}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold disabled:opacity-40"
-                >
-                  <ChevronLeft size={16} />
-                  Previous
-                </button>
-
-                <div className="text-sm font-semibold text-slate-600">
-                  Page {pagination.page} of {pagination.totalPages}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPage((current) =>
-                      Math.min(pagination.totalPages, current + 1),
-                    )
-                  }
-                  disabled={page >= pagination.totalPages}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold disabled:opacity-40"
-                >
-                  Next
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      </div>
-    </main>
-  );
+              </div>);
+}
+function GuestList({ period, search, refresh, enabled = true }: { period: "CURRENT" | "PREVIOUS"; search: string; refresh: number; enabled?: boolean }) {
+  const [bookings, setBookings] = useState<GuestBooking[]>([]), [page, setPage] = useState(1), [pages, setPages] = useState(1), [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true), [error, setError] = useState("");
+  useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    setLoading(true); setError("");
+    const key = localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim();
+    if (!key) { setBookings([]); setError("Sign in to the admin area before loading guest bookings."); setLoading(false); return; }
+    const query = new URLSearchParams({ period, page: String(page), pageSize: "25", search });
+    void fetch(`${API_BASE}/api/admin/customers/guests?${query}`, { cache: "no-store", signal: controller.signal, headers: { "x-admin-key": key } })
+      .then(async response => { const data = await response.json() as GuestPayload; if (!response.ok) throw new Error(data.error || "Unable to load guest bookings."); if (!controller.signal.aborted) { setBookings(data.bookings || []); const count = data.pagination?.totalPages || 1; setPages(count); setTotal(data.pagination?.total || 0); if (page > count) setPage(count); } })
+      .catch(failure => { if (!controller.signal.aborted) { setBookings([]); setError(failure instanceof Error ? failure.message : "Unable to load guest bookings."); } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [period, search, page, refresh, enabled]);
+  if (!enabled) return null;
+  return <div aria-busy={loading}>
+    {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
+    {loading ? <p role="status" className="p-6 text-slate-600">Loading guest bookings…</p> : !error && <>
+      <p className="mt-4 text-sm text-slate-600">{total} {period === "CURRENT" ? "current / future" : "previous"} guest bookings</p>
+      {bookings.length ? <GuestTable bookings={bookings} /> : <p className="mt-4 rounded-xl border border-dashed p-6 text-slate-600">No {period === "CURRENT" ? "current or future" : "previous"} guest bookings match. {period === "CURRENT" && "Older bookings are in Previous bookings below."}</p>}
+      {pages > 1 && <div className="mt-4 flex items-center justify-between gap-3 text-sm"><button type="button" aria-label={`Previous page of ${period.toLowerCase()} guest bookings`} disabled={page <= 1} onClick={() => setPage(value => value - 1)} className="rounded-xl border px-4 py-3 disabled:opacity-40">Previous</button><span>Page {page} of {pages}</span><button type="button" aria-label={`Next page of ${period.toLowerCase()} guest bookings`} disabled={page >= pages} onClick={() => setPage(value => value + 1)} className="rounded-xl border px-4 py-3 disabled:opacity-40">Next</button></div>}
+    </>}
+  </div>;
+}
+export default function GuestBookingsPage() {
+  const [search, setSearch] = useState(""), [submitted, setSubmitted] = useState(""), [refresh, setRefresh] = useState(0), [historyOpen, setHistoryOpen] = useState(false);
+  return <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 sm:px-6 lg:px-8"><section className="mx-auto max-w-[1800px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <header className="flex flex-wrap items-center justify-between gap-4 bg-slate-950 px-6 py-6 text-white"><div><p className="text-sm font-semibold text-[#FF6A00]">Customer Management</p><h1 className="mt-1 text-3xl font-bold">Guest Bookings</h1><p className="mt-2 text-sm text-white/80">Bookings created without a customer account. When the guest later creates a business account using the same email address, unowned historical activity is linked to that account. Current and future bookings are shown here; expand Previous bookings for older work.</p></div><button type="button" onClick={() => setRefresh(value => value + 1)} className="min-h-11 rounded-xl bg-[#FF6A00] px-5 py-3 font-bold">Refresh</button></header>
+    <div className="p-5 sm:p-6"><form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setSubmitted(search.trim()); if (search.trim()) setHistoryOpen(true); }}><input aria-label="Search guest bookings" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search guest, email, phone, booking, company or route" className="min-h-11 min-w-48 flex-1 rounded-xl border px-4 py-3"/><button className="rounded-xl bg-slate-950 px-5 py-3 font-bold text-white">Search</button></form>
+      <h2 className="mt-6 text-lg font-bold">Current and future bookings</h2><GuestList period="CURRENT" search={submitted} refresh={refresh}/>
+      <details open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)} className="mt-6 rounded-xl border border-slate-200 p-4"><summary className="min-h-11 cursor-pointer py-2 text-lg font-bold">Previous bookings</summary><GuestList period="PREVIOUS" search={submitted} refresh={refresh} enabled={historyOpen}/></details>
+    </div></section></main>;
 }

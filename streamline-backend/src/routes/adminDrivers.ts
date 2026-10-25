@@ -1,3 +1,4 @@
+import { dispatchCategoryFilter } from "../lib/dispatchCategoryFilter";
 import express from "express";
 import bcrypt from "bcryptjs";
 import { BookingStatus, DriverStatus, Prisma, ReservationStatus, VehicleStatus } from "@prisma/client";
@@ -142,6 +143,12 @@ router.get("/", route(async (_req, res) => {
 router.get("/dispatch", route(async (req, res) => {
   const page = number(req.query.page, 1, 10000), pageSize = number(req.query.pageSize, 25, 100);
   const where: Prisma.BookingWhereInput = { status: { in: activeStatuses } };
+  const category = text(req.query.vehicleType, 100);
+  if (category && category !== "ALL") {
+    const categoryWhere = dispatchCategoryFilter(category);
+    if (!categoryWhere) throw new DriverPortalError(400, "Choose a valid van category.");
+    where.AND = [categoryWhere];
+  }
   if (req.query.unassigned === "true") where.driverId = null;
   if (text(req.query.driverId, 100)) where.driverId = text(req.query.driverId, 100);
   const query = text(req.query.q, 100);

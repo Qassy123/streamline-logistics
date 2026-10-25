@@ -1,4 +1,5 @@
 "use client";
+import { dispatchCategories, dispatchCategory } from "@/lib/dispatchCategories";
 
 import { useEffect, useRef, useState } from "react";
 import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
@@ -659,6 +660,7 @@ function DriverDispatch({ adminKey, drivers, version, onSaved, onRejected }: { a
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false);
   const [error, setError] = useState(""), [message, setMessage] = useState("");
   const [query, setQuery] = useState(""), [search, setSearch] = useState(""), [page, setPage] = useState(1), [onlyUnassigned, setOnlyUnassigned] = useState(false);
+  const [category, setCategory] = useState("ALL");
   const [selectedDriver, setSelectedDriver] = useState(""), [selectedVan, setSelectedVan] = useState("");
   const [job, setJob] = useState<DispatchJob | null>(null);
   const [start, setStart] = useState(""), [end, setEnd] = useState(""), [reason, setReason] = useState("");
@@ -673,7 +675,7 @@ function DriverDispatch({ adminKey, drivers, version, onSaved, onRejected }: { a
   async function load() {
     const current = ++generation.current; setLoading(true); setError("");
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: "25", q: search, unassigned: String(onlyUnassigned) });
+      const params = new URLSearchParams({ page: String(page), pageSize: "25", q: search, unassigned: String(onlyUnassigned), vehicleType: category });
       const payload: DispatchData = await driverAdminRequest(adminKey, `/dispatch?${params}`);
       if (mounted.current && current === generation.current) setData(payload);
     } catch (e) { if (mounted.current && current === generation.current) fail(e); }
@@ -681,7 +683,7 @@ function DriverDispatch({ adminKey, drivers, version, onSaved, onRejected }: { a
   }
   useEffect(() => { void load(); /* filters and refresh version trigger a fresh snapshot */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminKey, page, search, onlyUnassigned, version]);
+  }, [adminKey, page, search, onlyUnassigned, category, version]);
   function fail(e: unknown) {
     if ((e as { status?: number })?.status === 401) onRejected();
     setError(e instanceof Error ? e.message : "Unable to confirm the operation.");
@@ -722,12 +724,17 @@ function DriverDispatch({ adminKey, drivers, version, onSaved, onRejected }: { a
     {tab === "ASSIGN" ? <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); setPage(1); setSearch(query.trim()); }}><input aria-label="Search released bookings" className={`${control} min-w-40 flex-1`} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search booking reference or address" /><button disabled={busy} className={secondaryButton}>Search</button><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={onlyUnassigned} onChange={e => { setOnlyUnassigned(e.target.checked); setPage(1); }} />Unassigned only</label></form>
+        <label className="mt-3 block text-sm font-semibold">Van category<select value={category} onChange={event => { setCategory(event.target.value); setPage(1); setJob(null); }} className={control}><option value="ALL">All van categories</option>{dispatchCategories.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
         <p className="my-3 text-xs text-slate-500">Released bookings only. Active journeys are shown for dispatch visibility and cannot be reassigned here.</p>
         {loading ? <p className="py-8 text-sm text-slate-500" role="status">Loading dispatch…</p> : !data ? <button className={secondaryButton} onClick={() => void load()}>Retry loading</button> : <>
-          <div className="space-y-3">{data.jobs.map(item => {
+          <div className="space-y-5">{[...dispatchCategories, ...Array.from(new Set(data.jobs.map(dispatchCategory))).filter(value => !dispatchCategories.some(item => item === value))].filter(name => category === "ALL" ? data.jobs.some(item => dispatchCategory(item) === name) : name === category).map(name => {
+            const items = data.jobs.filter(item => dispatchCategory(item) === name);
+            return <section key={name} className="overflow-hidden rounded-2xl border border-slate-200"><h3 className="bg-slate-50 px-4 py-3 font-bold text-slate-950">{name}</h3><div className="space-y-3 p-3">{items.map(item => {
             const started = item.status === "IN_PROGRESS" || !!item.driverJourneyStartedAt;
             return <article key={item.id} className={`rounded-2xl border p-4 ${job?.id === item.id ? "border-orange-400 bg-orange-50/40" : "border-slate-200"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.reference} <span className="ml-2 text-xs font-medium text-slate-500">{formatAvailability(item.status)}</span></p><p className="mt-1 text-xs text-slate-500">Collection: {dateInput(item.collectionDate)} · {item.collectionWindow || "No window"}</p><p className="mt-2 break-words text-sm text-slate-700">{item.collectionAddress} → {item.deliveryAddress}</p><p className="mt-2 text-xs text-slate-500">{item.driver?.name || "No driver"} · {item.vehicle?.registration || item.vehicle?.name || "No van"} · Required: {item.vehicleType || item.quote?.vehicleSize || item.vehicle?.vehicleType || "Check booking"}</p><p className="mt-1 text-xs text-slate-500">{displayDate(item.estimatedStartTime)} → {displayDate(item.estimatedEndTime)}</p><p className="mt-1 text-xs text-slate-500">{item.driverAcknowledgedAt ? "Driver acknowledged" : "Awaiting driver acknowledgement"}</p></div><button disabled={busy || started} className={secondaryButton} onClick={() => chooseJob(item)}>{started ? "Journey active" : item.driverId ? "Review / reassign" : "Select job"}</button></div></article>;
-          })}{!data.jobs.length ? <p className="rounded-xl bg-slate-50 p-6 text-sm text-slate-500">No released bookings match these filters.</p> : null}</div>
+
+            })}{!items.length && <p className="p-3 text-sm text-slate-500">No matching jobs in this category.</p>}</div></section>;
+          })}{!data.jobs.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No released bookings match these filters.</p>}</div>
           <div className="mt-4 flex items-center justify-between gap-2 text-sm"><button className={secondaryButton} disabled={page <= 1 || busy} onClick={() => setPage(p => p - 1)}>Previous</button><span>{data.pagination.total} jobs · Page {page} / {Math.max(1, data.pagination.totalPages)}</span><button className={secondaryButton} disabled={page >= data.pagination.totalPages || busy} onClick={() => setPage(p => p + 1)}>Next</button></div>
         </>}
       </div>

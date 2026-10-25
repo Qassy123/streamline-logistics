@@ -223,16 +223,12 @@ async function buildAuditEntries(
     entries.push({
       id: `booking:${booking.id}:${booking.updatedAt.toISOString()}`,
       entity: "BOOKING",
-      action:
-        booking.driverId || booking.vehicleId
-          ? "ASSIGNED"
-          : booking.createdAt.getTime() === booking.updatedAt.getTime()
-            ? "CREATED"
-            : "UPDATED",
+      // This row is a current booking snapshot, not an assignment event.
+      action: booking.createdAt.getTime() === booking.updatedAt.getTime() ? "CREATED" : "UPDATED",
       entityId: booking.id,
       reference: booking.reference,
       title: `Booking ${booking.reference}`,
-      description: `Booking is ${String(booking.status)
+      description: `Current booking status: ${String(booking.status)
         .replace(/_/g, " ")
         .toLowerCase()}.`,
       createdAt: booking.updatedAt,
