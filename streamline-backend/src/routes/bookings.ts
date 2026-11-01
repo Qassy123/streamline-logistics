@@ -1,3 +1,5 @@
+import { assertFutureCollection } from "../lib/collectionSchedule";
+import { bookingSectionWhere } from "../lib/bookingSections";
 import {approveBookingRefund,completeManualBookingRefund} from "../lib/bookingRefunds";
 import {editBooking,bookingEditInclude} from "../lib/bookingChanges";
 import { reviewJob } from "../lib/completedJobs";
@@ -60,7 +62,7 @@ async function generateBookingReference(
   const highestSequence = existingReferences.reduce((highest, booking) => {
     const sequence = booking.reference.slice(prefix.length);
 
-    if (!/^\\d+$/.test(sequence)) {
+    if (!/^\d+$/.test(sequence)) {
       return highest;
     }
 
@@ -374,7 +376,8 @@ router.get("/admin/completed-jobs", async (req, res) => {
     if (req.query.customerId !== undefined && (!customerId || customerId.length > 128)) return res.status(400).json({ error: "Choose a valid customer account." });
     if (customerId && !await prisma.user.findUnique({ where: { id: customerId }, select: { id: true } })) return res.status(404).json({ error: "Customer account not found." });
     const where: Prisma.BookingWhereInput = { archivedCustomerId: null, ...(customerId ? { userId: customerId } : {}), status: filter === "COMPLETED" ? "COMPLETED" : filter === "CANCELLED" ? "CANCELLED" : filter === "OPEN" ? { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] } : { not: "PENDING_PAYMENT" }, ...(q ? { OR: [{ reference: { contains: q, mode: "insensitive" } }, { user: { is: { companyName: { contains: q, mode: "insensitive" } } } }] } : {}) };
-    const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } }, trackingEvents: { where: { status: "COMPLETED" }, orderBy: { createdAt: "asc" }, take: 1, select: { createdAt: true } }, pod: { select: { deliveredAt: true } } } }), prisma.booking.count({ where })]);
+    if(["CURRENT","FUTURE"].includes(filter)){delete where.status;where.AND=[bookingSectionWhere(filter)];}
+    const [jobs,total] = await Promise.all([prisma.booking.findMany({ where, orderBy: [{ collectionDate: "desc" }, { id: "asc" }], skip: (page-1)*50, take: 50, include: { quote: { select: { companyName: true, customerName: true } }, user: { select: { id: true, companyName: true, name: true, accountType: true } }, driver: { select: { name: true } }, invoices: { select: { id: true, invoiceNumber: true } }, invoiceBookings: { select: { invoiceId: true } }, trackingEvents: { where: { status: "COMPLETED" }, orderBy: { createdAt: "asc" }, take: 1, select: { createdAt: true } }, pod: { select: { deliveredAt: true } } } }), prisma.booking.count({ where })]);
     res.setHeader("Cache-Control", "no-store"); res.json({ jobs: jobs.map(job => ({ ...job, completedAt: job.status === "COMPLETED" ? job.trackingEvents?.[0]?.createdAt || job.pod?.deliveredAt || null : null })),total,page,pages: Math.max(1,Math.ceil(total/50)) });
   } catch { res.status(500).json({ error: "Unable to load completed jobs." }); }
 });
@@ -811,6 +814,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
         error: "Quote not found",
       });
     }
+    if(!quote.booking)assertFutureCollection(quote.collectionDate,quote.collectionWindow);
 
     if ((!quote.userId || !quote.user) && quote.booking) {
       return res.status(409).json({ error: "Booking already exists for this quote. Refresh Planning before trying again.", code: "BOOKING_ALREADY_EXISTS" });
@@ -1120,6 +1124,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
       },
     });
   } catch (error) {
+    if(error instanceof Error && error.name==="CollectionScheduleError")return res.status(400).json({error:error.message});
     console.error("Admin booking creation from quote error:", error);
 
     const refusal = error instanceof Error && error.name === "DriverPortalError" && "status" in error && typeof error.status === "number" && error.status >= 400 && error.status < 500;
@@ -1193,9 +1198,8 @@ router.get("/me", async (req, res) => {
       },
     });
 
-    res.json({
-      bookings,
-    });
+    res.setHeader("Cache-Control","no-store");
+    res.json({ bookings, accountName: user.companyName || user.legalEntity || user.name, serverTime: new Date().toISOString() });
   } catch (error) {
     console.error("Fetch user bookings error:", error);
 
@@ -1484,6 +1488,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
         error: "Quote not found",
       });
     }
+    if(!quote.booking)assertFutureCollection(quote.collectionDate,quote.collectionWindow);
 
     if (quote.user && quote.user.accountStatus !== "ACTIVE") {
       return res.status(403).json({
@@ -1589,6 +1594,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 
     res.status(201).json(booking);
   } catch (error) {
+    if(error instanceof Error && error.name==="CollectionScheduleError")return res.status(400).json({error:error.message});
     console.error(error);
 
     res.status(500).json({

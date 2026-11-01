@@ -1,3 +1,4 @@
+import BookingConfirmationDetails from "@/components/account/BookingConfirmationDetails";
 import PaymentSuccessAccountStatus from "@/components/account/PaymentSuccessAccountStatus";
 import {
   Bell,
@@ -25,9 +26,13 @@ type ConfirmedBookingDetails = {
   reference?: string | null;
   user?: {
     name?: string | null;
+    companyName?: string | null;
+    legalEntity?: string | null;
   } | null;
   quote?: {
     customerName?: string | null;
+    companyName?: string | null;
+    legalEntity?: string | null;
   } | null;
 };
 
@@ -115,9 +120,12 @@ export default async function PaymentSuccessPage({
   const quote = await getQuote(quoteId);
 
   const bookingReference =
-    confirmedBooking?.reference || "Booking reference unavailable";
+    confirmedBooking?.reference || "";
 
   const customerName =
+    confirmedBooking?.user?.companyName || confirmedBooking?.user?.legalEntity ||
+    confirmedBooking?.quote?.companyName || confirmedBooking?.quote?.legalEntity ||
+    quote?.companyName || quote?.legalEntity ||
     confirmedBooking?.quote?.customerName ||
     quote?.customerName ||
     confirmedBooking?.user?.name ||
@@ -176,17 +184,7 @@ export default async function PaymentSuccessPage({
                 <h2 className="text-xl font-bold">Booking Reference</h2>
               </div>
 
-              <div className="grid gap-4 rounded-2xl border border-[#D7E6FF] bg-white p-5 sm:grid-cols-2">
-                <ReferenceItem
-                  label="Booking Reference"
-                  value={bookingReference}
-                />
-
-                <ReferenceItem
-                  label="Customer Name"
-                  value={customerName}
-                />
-              </div>
+              <BookingConfirmationDetails quoteId={quoteId} initialReference={bookingReference} initialName={customerName} />
             </section>
 
             <section className="overflow-hidden rounded-3xl border border-[#D7E6FF] bg-white shadow-xl shadow-black/5">

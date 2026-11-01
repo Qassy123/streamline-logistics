@@ -1,3 +1,4 @@
+import { processAdminSms,smsConfiguration } from "./lib/adminSms";
 import accountRecoveryRoutes from "./routes/accountRecovery";
 import { processTradeDecisionEmails } from "./lib/tradeDecisionEmail";
 import { driverVehicleRecords, adminVehicleRecords } from "./routes/vehicleRecords";
@@ -230,6 +231,9 @@ async function processAutomaticBillingCycles() {
 
 app.listen(PORT, () => {
   console.log(`Streamline Backend running on port ${PORT}`);
+  const sms=smsConfiguration();if(sms.enabled&&!sms.ready)console.warn("Admin SMS is enabled but provider settings are incomplete.");
+  const runSms=()=>void processAdminSms().catch(()=>console.error("Admin SMS processing failed. Check provider settings and outbox records."));
+  setTimeout(runSms,15000);setInterval(runSms,30000);
 
   setTimeout(() => {
     void processInvoiceReminders();

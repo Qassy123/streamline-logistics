@@ -49,7 +49,7 @@ const baseCards = [
   },
   {
     title: "Bookings",
-    text: "View current and previous delivery bookings.",
+    text: "View current, future and completed delivery bookings.",
     href: "/dashboard/bookings",
     icon: Package,
   },
@@ -321,6 +321,7 @@ export default function DashboardPage() {
               </section>
             )}
 
+            <section aria-label="Your booking sections" className="grid gap-3 sm:grid-cols-3">{[["CURRENT","Current bookings"],["FUTURE","Future bookings"],["COMPLETED","Completed bookings"]].map(([value,label])=><Link key={value} href={`/dashboard/bookings?section=${value}`} className="rounded-2xl border border-[#D7E6FF] bg-white p-5 font-bold text-[#071D49] hover:border-[#006CFF]">{label} →</Link>)}</section>
             <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {cards.map((card) => {
                 const Icon = card.icon;

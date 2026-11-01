@@ -97,7 +97,7 @@ export default function Header() {
         <div className="mx-auto flex h-[86px] max-w-[1700px] items-center justify-between gap-4 px-4 sm:h-[96px] sm:px-6 lg:h-[120px] lg:gap-8 lg:px-10">
           <Link
             href="/"
-            className="flex h-full w-[270px] shrink-0 items-center sm:w-[330px] md:w-[380px] lg:w-[480px]"
+            className="flex h-full w-[270px] shrink-0 items-center sm:w-[330px] md:w-[380px] lg:w-[300px] xl:w-[380px]"
             aria-label="Streamline Logistics Group home"
           >
             <Image
@@ -110,7 +110,7 @@ export default function Header() {
             />
           </Link>
 
-          <nav className="hidden flex-1 items-center justify-center gap-12 lg:flex">
+          <nav className="hidden flex-1 items-center justify-center gap-5 xl:gap-8 2xl:flex">
             <Link href="/" className="font-medium text-[#006CFF]">
               Home
             </Link>
@@ -121,6 +121,9 @@ export default function Header() {
             >
               Instant Quote
             </Link>
+
+            <Link href="/industries" className="font-medium text-white transition hover:text-[#2D8CFF]">Industries</Link>
+            <Link href="/vehicles" className="font-medium text-white transition hover:text-[#2D8CFF]">Vehicles</Link>
 
             <Link
               href="/about"
@@ -137,7 +140,7 @@ export default function Header() {
             </Link>
           </nav>
 
-          <div className="hidden w-[460px] shrink-0 items-center justify-end gap-5 lg:flex">
+          <div className="hidden w-auto shrink-0 items-center justify-end gap-5 2xl:flex">
             <a
               href="tel:07301827224"
               className="flex items-center gap-2 whitespace-nowrap font-medium text-white"
@@ -188,7 +191,7 @@ export default function Header() {
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white transition hover:bg-white/10 lg:hidden"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white transition hover:bg-white/10 2xl:hidden"
             aria-label="Open menu"
           >
             <Menu size={30} />

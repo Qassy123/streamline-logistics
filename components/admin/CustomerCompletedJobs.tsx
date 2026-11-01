@@ -14,8 +14,8 @@ type Job = {
   driver?: { name: string } | null;
 };
 type Review = { id: string; reference: string; action: "COMPLETE" | "CANCEL" };
-const outcomes = ["COMPLETED", "OPEN", "CANCELLED", "ALL"] as const;
-const outcomeLabels = { COMPLETED: "Completed jobs", OPEN: "Open jobs", CANCELLED: "Cancelled jobs", ALL: "All outcomes" };
+const outcomes = ["COMPLETED", "CURRENT", "FUTURE", "CANCELLED", "ALL"] as const;
+const outcomeLabels = { COMPLETED: "Completed jobs", CURRENT: "Current / in transit", FUTURE: "Future bookings", CANCELLED: "Cancelled jobs", ALL: "All outcomes" };
 
 export default function CustomerCompletedJobs({ customerId, apiBase }: { customerId: string; apiBase: string }) {
   const [open, setOpen] = useState(false);
@@ -102,8 +102,8 @@ export default function CustomerCompletedJobs({ customerId, apiBase }: { custome
   return (
     <section className="mt-6 rounded-xl border border-slate-300 bg-white" aria-label="Customer completed jobs">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <div><h2 className="text-lg font-bold text-slate-950">Completed Jobs</h2><p className="mt-1 text-sm text-slate-600">View completed work and review job outcomes for this customer.</p></div>
-        <button type="button" aria-expanded={open} aria-controls={listId} disabled={saving} onClick={() => setOpen(value => !value)} className="min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">{open ? "Hide jobs" : "View completed jobs"}</button>
+        <div><h2 className="text-lg font-bold text-slate-950">Customer Bookings</h2><p className="mt-1 text-sm text-slate-600">View completed, current and future bookings for this customer.</p></div>
+        <button type="button" aria-expanded={open} aria-controls={listId} disabled={saving} onClick={() => setOpen(value => !value)} className="min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">{open ? "Hide jobs" : "View bookings"}</button>
       </div>
       {open && <div id={listId} className="space-y-4 p-5">
         <div className="flex flex-wrap items-end gap-3">

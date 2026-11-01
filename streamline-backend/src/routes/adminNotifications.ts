@@ -1,3 +1,4 @@
+import { smsConfiguration } from "../lib/adminSms";
 import {
   BookingStatus,
   InvoiceStatus,
@@ -149,6 +150,11 @@ function matchesSearch(notification: AdminNotification, search: string) {
 
   return haystack.includes(search.toLowerCase());
 }
+
+router.get("/sms",async(req,res)=>{
+ const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});
+ try{const page=Math.min(10000,Math.max(1,getPositiveInteger(req.query.page,1)));const [records,total]=await Promise.all([prisma.adminSmsOutbox.findMany({orderBy:[{createdAt:"desc"},{id:"asc"}],skip:(page-1)*25,take:25,select:{id:true,reference:true,eventType:true,status:true,lastError:true,createdAt:true}}),prisma.adminSmsOutbox.count()]);const config=smsConfiguration();res.setHeader("Cache-Control","no-store");res.json({records,total,page,pages:Math.max(1,Math.ceil(total/25)),enabled:config.enabled,configured:config.ready,to:config.to});}catch{res.status(500).json({error:"Unable to load admin SMS alerts. Check November database setup."});}
+});
 
 router.get("/", async (req, res) => {
   const admin = requireAdmin(req);

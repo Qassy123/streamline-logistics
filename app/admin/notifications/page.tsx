@@ -1,4 +1,5 @@
 "use client";
+import AdminSmsAlerts from "@/components/admin/AdminSmsAlerts";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -308,6 +309,7 @@ export default function AdminNotificationsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1600px]">
+        <AdminSmsAlerts/>
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <Link

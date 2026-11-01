@@ -1,3 +1,4 @@
+import { routeSheet } from "../lib/operationalSheets";
 import { inspectionItems, inspectionPayload } from "../lib/vehicleHandovers";
 import { requireUploaded, storeEvidence } from "../lib/operationalEvidence";
 import { legacyDuty } from "../lib/driverAttendance";
@@ -251,6 +252,7 @@ router.get("/", driverRoute(async (req, res, driver) => {
   res.json({ jobs: await hydrateJobs(rows, driver.id), pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) }, serverTime: new Date() });
 }));
 
+router.get("/route-sheet", driverRoute(async(req,res,driver)=>{res.json(await routeSheet(driver.id,text(req.query.date,10)||undefined));}));
 router.get("/:bookingId", driverRoute(async (req, res, driver) => {
   res.json({ job: await readDriverJob(text(req.params.bookingId, 100), driver.id), serverTime: new Date() });
 }));

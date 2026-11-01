@@ -1,4 +1,5 @@
 "use client";
+import RouteSheetDownload from "@/components/RouteSheetDownload";
 import { dispatchCategories, dispatchCategory } from "@/lib/dispatchCategories";
 
 import { useEffect, useRef, useState } from "react";
@@ -489,6 +490,7 @@ export default function AdminDriversPage() {
                           <p className="font-bold text-slate-950">
                             {driver.name}
                           </p>
+                          <RouteSheetDownload driverId={driver.id}/>
                           <p className="mt-1 text-xs font-semibold text-slate-500">
                             @{driver.username}
                           </p>

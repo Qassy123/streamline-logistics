@@ -1,4 +1,5 @@
 "use client";
+import AdminBookingSections from "@/components/admin/AdminBookingSections";
 import { calendarInterval, calendarTimeText } from "@/lib/bookingCalendar";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -360,6 +361,8 @@ export default function AdminBookingsPage() {
     }
   }, [adminKey, loadBookings]);
 
+  useEffect(()=>{if(!adminKey)return;const id=new URLSearchParams(window.location.search).get("booking");if(!id)return;const c=new AbortController();void fetch(`${API_BASE}/api/bookings/admin/${encodeURIComponent(id)}`,{signal:c.signal,cache:"no-store",headers:{"x-admin-key":adminKey}}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to open booking.");if(!c.signal.aborted&&d.booking){setSelectedBooking(d.booking);setSelectedDate(d.booking.collectionDate.slice(0,10));}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[adminKey]);
+
   function moveSelectedDate(days: number) {
     const nextDate = new Date(`${selectedDate}T12:00:00`);
     nextDate.setDate(nextDate.getDate() + days);
@@ -417,6 +420,7 @@ export default function AdminBookingsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1800px]">
+        {adminKey && <AdminBookingSections/>}
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">

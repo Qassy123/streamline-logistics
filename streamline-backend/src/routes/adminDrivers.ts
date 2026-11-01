@@ -1,3 +1,4 @@
+import { routeSheet } from "../lib/operationalSheets";
 import { dispatchCategoryFilter } from "../lib/dispatchCategoryFilter";
 import express from "express";
 import bcrypt from "bcryptjs";
@@ -381,6 +382,7 @@ router.post("/", route(async (req, res) => {
   res.status(201).json({ driver: publicDriver(driver), message: "Driver created." });
 }));
 
+router.get("/:id/route-sheet", route(async(req,res)=>{res.json(await routeSheet(text(req.params.id,100),text(req.query.date,10)||undefined));}));
 router.get("/:id", route(async (req, res) => {
   const driver = await prisma.driver.findUnique({ where: { id: text(req.params.id, 100) }, include: { vehicle: true,
     bookings: { orderBy: { collectionDate: "desc" }, take: 50, include: { vehicle: true, pod: true, driverStops: { orderBy: { sequence: "asc" }, include: { evidence: true } } } },

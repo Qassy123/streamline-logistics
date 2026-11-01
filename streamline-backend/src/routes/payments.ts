@@ -1,3 +1,4 @@
+import { assertFutureCollection } from "../lib/collectionSchedule";
 import { reserveInvoiceNumber } from "../lib/invoiceNumber";
 import { readFleetAvailability, findFleetVehicle } from "../lib/fleetAvailability";
 import { BookingStatus, PaymentStatus, Prisma, ReservationStatus } from "@prisma/client";
@@ -852,6 +853,8 @@ router.post("/pay-later", async (req, res) => {
       return res.status(404).json({ error: "Quote not found for this account." });
     }
 
+    try{if(!quote.booking||quote.booking.status===BookingStatus.PENDING_PAYMENT)assertFutureCollection(quote.collectionDate,quote.collectionWindow);}catch(e){return res.status(400).json({error:e instanceof Error?e.message:"Choose a future collection time."});}
+
     if (!quote.totalPrice) {
       return res.status(400).json({ error: "Quote has no total price." });
     }
@@ -1292,6 +1295,8 @@ router.post("/create-checkout-session", async (req, res) => {
     if (quote.user && quote.user.accountStatus !== "ACTIVE") {
       return res.status(403).json({ error: "This customer account is not active. Checkout is unavailable." });
     }
+
+    try{assertFutureCollection(quote.collectionDate,quote.collectionWindow);}catch(e){return res.status(400).json({error:e instanceof Error?e.message:"Choose a future collection time."});}
 
     if (!quote.totalPrice) {
       return res.status(400).json({

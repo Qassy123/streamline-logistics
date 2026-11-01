@@ -1,3 +1,4 @@
+import { assertFutureCollection } from "../lib/collectionSchedule";
 import { adminQuoteGrouping } from "../lib/adminQuoteGrouping";
 import { quoteMaintenance } from "../lib/quoteMaintenance";
 import crypto from "crypto";
@@ -549,6 +550,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
       });
     }
 
+    if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
     const calculation = await calculateAdminQuote(req.body || {});
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
@@ -718,6 +720,7 @@ router.post("/admin/guest", async (req, res) => {
       });
     }
 
+    if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
     const calculation = await calculateAdminQuote(req.body || {});
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
@@ -1246,6 +1249,7 @@ router.post("/", async (req, res) => {
       });
     }
 
+    assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
     let distanceMiles: number | null = null;
     let durationMinutes: number | null = null;
     let distanceSource = "fallback";

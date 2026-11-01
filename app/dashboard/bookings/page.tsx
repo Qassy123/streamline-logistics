@@ -1,4 +1,5 @@
 "use client";
+import {bookingSection} from "@/lib/bookingSections";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -14,6 +15,7 @@ type Booking = {
   reference: string;
   status: string;
   collectionDate: string;
+  estimatedStartTime?: string | null;
   collectionWindow: string;
   collectionAddress: string;
   deliveryAddress: string;
@@ -48,12 +50,18 @@ export default function DashboardBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [section,setSection]=useState("CURRENT");
+  const [now,setNow]=useState(()=>new Date());
+  const [accountName,setAccountName]=useState("");
+  useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("section");if(requested&&["CURRENT","FUTURE","COMPLETED"].includes(requested))setSection(requested);const timer=window.setInterval(()=>setNow(new Date()),30000);return()=>window.clearInterval(timer);},[]);
+
 
   useEffect(() => {
     loadBookings();
   }, []);
 
   async function loadBookings() {
+    setLoading(true);setError("");
     try {
       const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
 
@@ -70,6 +78,7 @@ export default function DashboardBookingsPage() {
       }
 
       setBookings(Array.isArray(data.bookings) ? data.bookings : []);
+      setAccountName(data.accountName||"");
     } catch (error) {
       setError(
         error instanceof Error
@@ -95,11 +104,16 @@ export default function DashboardBookingsPage() {
             </h1>
 
             <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
-              View your current and previous delivery bookings.
+              View your current, future and completed delivery bookings.
             </p>
           </div>
 
           <div className="grid gap-5 p-5 sm:p-8">
+            {accountName&&<p className="font-bold">{accountName}</p>}
+            <div role="tablist" aria-label="Customer booking sections" className="flex flex-wrap gap-2">{[["CURRENT","Current bookings"],["FUTURE","Future bookings"],["COMPLETED","Completed bookings"]].map(([value,label])=><button role="tab" aria-selected={section===value} key={value} onClick={()=>setSection(value)} className={`min-h-11 rounded-xl border px-4 py-3 font-bold ${section===value?"bg-[#071D49] text-white":"bg-white"}`}>{label} ({bookings.filter(b=>bookingSection(b,now)===value).length})</button>)}<button onClick={()=>void loadBookings()} className="min-h-11 rounded-xl border px-4 py-3" disabled={loading}>Refresh</button></div>
+            {section==="FUTURE"&&<p className="rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 text-sm">To change or cancel a booking, call <a className="font-bold text-blue-700 underline" href="tel:07301827224">07301827224</a>.</p>}
+            {!loading&&!error&&bookings.length>0&&!bookings.some(b=>bookingSection(b,now)===section)&&<p>No bookings in this section.</p>}
+
             {loading && (
               <div className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-6 font-bold">
                 Loading bookings...
@@ -136,7 +150,7 @@ export default function DashboardBookingsPage() {
 
             {!loading &&
               !error &&
-              bookings.map((booking) => (
+              bookings.filter(booking=>bookingSection(booking,now)===section).map((booking) => (
                 <article
                   key={booking.id}
                   className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5 sm:p-6"
@@ -228,6 +242,7 @@ export default function DashboardBookingsPage() {
                   </div>
                 </article>
               ))}
+            {!loading&&bookings.some(b=>bookingSection(b,now)==="CLOSED")&&<details className="rounded-xl border bg-white p-4"><summary className="min-h-11 cursor-pointer font-semibold">Cancelled / expired bookings</summary>{bookings.filter(b=>bookingSection(b,now)==="CLOSED").map(b=><p key={b.id} className="mt-3 text-sm">{b.reference} · {formatDate(b.collectionDate)} · {b.status.replaceAll("_"," ")}</p>)}</details>}
           </div>
         </section>
       </div>

@@ -17,7 +17,6 @@ import {
   Truck,
   UserPlus,
   Users,
-  WalletCards,
 } from "lucide-react";
 
 const primaryActions = [
@@ -117,14 +116,6 @@ const modules = [
     group: "Finance",
   },
   {
-    title: "Payments",
-    description:
-      "Manage card, bank transfer, cash, credit account, refund and credit activity.",
-    href: "/admin/payments",
-    icon: WalletCards,
-    group: "Finance",
-  },
-  {
     title: "Pricing / Tariffs",
     description:
       "Control base fares, mileage bands, surcharges, discounts and VAT treatment.",
@@ -152,7 +143,7 @@ const modules = [
     title: "Documents",
     description:
       "Manage customer, driver, vehicle, insurance, MOT and proof-of-delivery files.",
-    href: "/admin/documents",
+    href: "/admin/reports/documents",
     icon: FileText,
     group: "Governance",
   },
@@ -160,7 +151,7 @@ const modules = [
     title: "Audit Log",
     description:
       "Trace who changed each record, what changed, when it changed and why.",
-    href: "/admin/audit-log",
+    href: "/admin/reports/audit-history",
     icon: FileClock,
     group: "Governance",
   },

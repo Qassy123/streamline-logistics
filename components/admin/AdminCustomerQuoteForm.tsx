@@ -1,4 +1,5 @@
 "use client";
+import { collectionChoices,ukClock } from "@/lib/collectionChoices";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import SavedRoutePicker from "@/components/SavedRoutePicker";
 
@@ -198,14 +199,7 @@ function normaliseExtraStops(extraDrops: unknown): ExtraStop[] {
     });
 }
 
-function getTodayDateString() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
+function getTodayDateString() { return ukClock().day; }
 
 function getWindowStartMinutes(window: string) {
   const [hours, minutes] = window.split("-")[0].split(":").map(Number);
@@ -367,6 +361,10 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
 
   const [collectionDate, setCollectionDate] = useState("");
   const [collectionWindow, setCollectionWindow] = useState("");
+  const [scheduleNow,setScheduleNow]=useState(()=>new Date());
+  useEffect(()=>{const today=ukClock(scheduleNow).day;if(collectionDate&&collectionDate<today){setCollectionDate(today);setCollectionWindow("");}},[scheduleNow,collectionDate]);
+  useEffect(()=>{const timer=window.setInterval(()=>setScheduleNow(new Date()),30000);return()=>window.clearInterval(timer);},[]);
+
   const [collectionAddress, setCollectionAddress] =
     useState<AddressFields>(emptyAddress);
   const [deliveryAddress, setDeliveryAddress] =
@@ -666,13 +664,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
   const showAddressFields = Boolean(collectionDate && collectionWindow);
   const returnAddress = formatAddress(collectionAddress);
 
-  const availableCollectionWindows = useMemo(() => {
-    if (collectionDate !== getTodayDateString()) {
-      return twoHourWindows;
-    }
-
-    return buildSameDayCollectionWindows();
-  }, [collectionDate]);
+  const availableCollectionWindows = collectionChoices(collectionDate,twoHourWindows,collectionWindow,scheduleNow);
 
   const allVehiclesUnavailable =
     showAddressFields &&
@@ -1441,16 +1433,17 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
                     name="collectionWindow"
                     required
                     value={collectionWindow}
-                    onChange={(event) =>
-                      setCollectionWindow(event.target.value)
-                    }
+                    onChange={(event) => {
+                      const choice=availableCollectionWindows.find(item=>item.window===event.target.value);
+                      if(choice){setCollectionDate(choice.date);setCollectionWindow(choice.window);}else setCollectionWindow("");
+                    }}
                     disabled={!collectionDate}
                     className="mt-2 w-full rounded-2xl border border-[#E2E8F0] bg-white px-4 py-4 text-[#0F172A] outline-none transition focus:border-[#FF6A00] focus:ring-4 focus:ring-[#FF6A00]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                   >
                     <option value="">Select collection window</option>
-                    {availableCollectionWindows.map((window) => (
-                      <option key={window} value={window}>
-                        {window}
+                    {availableCollectionWindows.map((choice) => (
+                      <option key={`${choice.date}:${choice.window}`} value={choice.window}>
+                        {choice.label}
                       </option>
                     ))}
                   </select>

@@ -1,4 +1,5 @@
 "use client";
+import RouteSheetDownload from "@/components/RouteSheetDownload";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -103,7 +104,7 @@ function JobsContent() {
   const first = data && data.pagination.total ? (data.pagination.page - 1) * data.pagination.pageSize + 1 : 0;
   const last = data ? Math.min(data.pagination.total, (data.pagination.page - 1) * data.pagination.pageSize + data.jobs.length) : 0;
   return <div className="space-y-5">
-    <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">Jobs</h1><p className="mt-1 text-sm text-slate-500">Work assigned to you by dispatch.</p></div><button className={secondary} disabled={loading || !online} onClick={() => void load()}><RefreshCw size={17} className={loading ? "animate-spin" : ""} />Refresh</button></div>
+    <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl font-bold tracking-tight">Jobs</h1><RouteSheetDownload/><p className="mt-1 text-sm text-slate-500">Work assigned to you by dispatch.</p></div><button className={secondary} disabled={loading || !online} onClick={() => void load()}><RefreshCw size={17} className={loading ? "animate-spin" : ""} />Refresh</button></div>
     <nav aria-label="Job filters" className="flex flex-wrap gap-2">{scopes.map(scope => <Link key={scope.value} href={`/driver/jobs?${filterParams({ ...filters, scope: scope.value, status: "ALL", page: 1 })}`} scroll={false} prefetch={false} aria-current={filters.scope === scope.value ? "page" : undefined} className={`inline-flex min-h-11 items-center rounded-xl px-4 py-2.5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${filters.scope === scope.value ? "bg-[#006CFF] text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>{scope.label}</Link>)}</nav>
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
       <form className="flex gap-2" onSubmit={event => { event.preventDefault(); navigate({ query: query.trim(), page: 1 }); }}><div className="relative min-w-0 flex-1"><label className="sr-only" htmlFor="driver-job-search">Search jobs</label><Search size={18} aria-hidden="true" className="pointer-events-none absolute left-3 top-4 text-slate-400" /><input id="driver-job-search" className={`${control} pl-10`} maxLength={100} value={query} onChange={event => setQuery(event.target.value)} placeholder="Reference or address" /></div><button className={secondary} type="submit">Search</button></form>

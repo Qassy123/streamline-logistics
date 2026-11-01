@@ -14,6 +14,8 @@ type MobileMenuProps = {
 const menuLinks = [
   { label: "Home", href: "/" },
   { label: "Instant Quote", href: "/quote" },
+  { label: "Industries", href: "/industries" },
+  { label: "Vehicles", href: "/vehicles" },
   { label: "About Us", href: "/about" },
   { label: "Contact", href: "/contact" },
 ];
@@ -24,7 +26,7 @@ export default function MobileMenu({ isOpen, onClose, signedIn = false, onLogout
   }
 
   return (
-    <div className="fixed inset-0 z-[999] overflow-y-auto bg-[#020B1F] text-white lg:hidden">
+    <div className="fixed inset-0 z-[999] overflow-y-auto bg-[#020B1F] text-white 2xl:hidden">
       <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(0,108,255,0.32),_transparent_35%),linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_140%)]">
         <div className="flex h-[92px] items-center justify-between border-b border-white/10 px-4 sm:px-6">
           <Link
