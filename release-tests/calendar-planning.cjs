@@ -23,7 +23,7 @@ check('Drops outside timeline clamp safely',()=>{assert.equal(dropCollectionWind
 const {ukMidnight}=load(root+'/streamline-backend/src/lib/driverPayroll.ts');
 check('Backend UK bounds preserve DST day lengths',()=>{assert.equal((+ukMidnight('2026-03-30')-+ukMidnight('2026-03-29'))/3600000,23);assert.equal((+ukMidnight('2026-10-26')-+ukMidnight('2026-10-25'))/3600000,25)});
 const list=fs.readFileSync(root+'/app/admin/bookings/page.tsx','utf8');
-check('Calendar loads all pages and renders every fetched booking in a list',()=>{assert.match(list,/while \(page <= totalPages\)/);assert.match(list,/bookings\.map\(booking => <button/);assert.match(list,/calendar: "true"/)});
+check('Calendar loads all pages and renders confirmed bookings in the existing grid',()=>{assert.match(list,/while \(page <= totalPages\)/);assert.match(list,/gridRows\.map/);assert.match(list,/row\.items\.map/);assert.match(list,/confirmedOnly: "true"/);assert.doesNotMatch(list,/All bookings for this day|AdminBookingSections/);assert.match(list,/calendar: "true"/)});
 const planning=fs.readFileSync(root+'/app/admin/planning-board/page.tsx','utf8');
 check('Drop only selects; creation requires explicit button',()=>{const drop=planning.slice(planning.indexOf('async function handleDraftDrop'),planning.indexOf('async function submitDraft'));assert.doesNotMatch(drop,/await|createUnassignedBooking|assignExactVehicle/);assert.match(planning,/>Create booking<\/button>/)});
 check('Saved booking prevents a duplicate creation after assignment failure',()=>{assert.match(planning,/createdBookingId \|\| savedDraftReference\) return/);assert.match(planning,/setSavedDraftReference\(newBooking.reference\);\s*await assignExactVehicle/)});

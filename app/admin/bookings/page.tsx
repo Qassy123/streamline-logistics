@@ -1,5 +1,5 @@
 "use client";
-import AdminBookingSections from "@/components/admin/AdminBookingSections";
+import {existingBookingsGrid,confirmedGridStatuses} from "@/lib/existingBookingsGrid";
 import { calendarInterval, calendarTimeText } from "@/lib/bookingCalendar";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -26,7 +26,7 @@ const START_HOUR = 0;
 const END_HOUR = 24;
 const HOUR_WIDTH = 100;
 const VEHICLE_COLUMN_WIDTH = 220;
-const ROW_HEIGHT = 88;
+const ROW_HEIGHT = 104;
 const END_MARKER_WIDTH = 72;
 
 type Vehicle = {
@@ -66,6 +66,8 @@ type Booking = {
   dispatchNotes?: string | null;
   totalPrice: string | number;
   vehicleType?: string | null;
+  vehicleId?: string | null;
+  reservation?: {vehicleId?:string|null;status?:string|null;expiresAt?:string|null;reservedUntil?:string|null;vehicle?:Vehicle|null}|null;
   createdAt: string;
   updatedAt: string;
   user?: {
@@ -309,6 +311,7 @@ export default function AdminBookingsPage() {
           vehicleId: "ALL",
           driverId: "ALL",
           calendar: "true",
+          confirmedOnly: "true",
           dateFrom: selectedDate,
           dateTo: selectedDate,
         });
@@ -331,9 +334,9 @@ export default function AdminBookingsPage() {
           totalPages = payload.pagination?.totalPages || 1;
           page++;
         } while (page <= totalPages);
-        const unique = [...new Map(allBookings.map(booking => [booking.id, booking])).values()].filter(booking => booking.collectionDate.slice(0, 10) === selectedDate || calendarInterval(booking, selectedDate));
+        const unique = [...new Map(allBookings.map(booking => [booking.id, booking])).values()].filter(booking => (confirmedGridStatuses as readonly string[]).includes(booking.status) && (booking.collectionDate.slice(0, 10) === selectedDate || calendarInterval(booking, selectedDate)));
         const rows = new Map(fleet.map(vehicle => [vehicle.id, vehicle]));
-        for (const booking of unique) if (booking.vehicle) rows.set(booking.vehicle.id, booking.vehicle);
+        for (const booking of unique) { if (booking.vehicle) rows.set(booking.vehicle.id, booking.vehicle); if(booking.reservation?.vehicle)rows.set(booking.reservation.vehicle.id,booking.reservation.vehicle); }
         setBookings(unique); setVehicles([...rows.values()]); setDrivers(availableDrivers);
       } catch (requestError) {
         setBookings([]);
@@ -385,42 +388,10 @@ export default function AdminBookingsPage() {
 
   const timelineWidth = (END_HOUR - START_HOUR) * HOUR_WIDTH;
 
-  const bookingsByVehicle = useMemo(() => {
-    const map = new Map<string, Booking[]>();
-
-    vehicles.forEach((vehicle) => {
-      map.set(vehicle.id, []);
-    });
-
-    bookings.forEach((booking) => {
-      if (!booking.vehicle?.id) {
-        return;
-      }
-
-      const current = map.get(booking.vehicle.id) || [];
-      current.push(booking);
-      map.set(booking.vehicle.id, current);
-    });
-
-    return map;
-  }, [bookings, vehicles]);
-
-  const operationalBookings = useMemo(
-    () =>
-      bookings.filter(
-        (booking) => !["CANCELLED", "EXPIRED"].includes(booking.status),
-      ),
-    [bookings],
-  );
-
-  const unassignedBookings = useMemo(
-    () => operationalBookings.filter((booking) => !booking.vehicle?.id),
-    [operationalBookings],
-  );
+  const gridRows=useMemo(()=>existingBookingsGrid(bookings,vehicles,selectedDate),[bookings,vehicles,selectedDate]);
 
   return (
     <div className="mx-auto w-full max-w-[1800px]">
-        {adminKey && <AdminBookingSections/>}
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
@@ -432,7 +403,7 @@ export default function AdminBookingsPage() {
           </h1>
 
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 sm:text-base">
-            View existing bookings against each vehicle and its occupied time.
+            Confirmed bookings from customer accounts, guest checkout and admin Planning. Assigned and on-delivery jobs stay visible.
           </p>
         </div>
 
@@ -551,7 +522,7 @@ export default function AdminBookingsPage() {
               </p>
             </div>
           </div>
-        ) : vehicles.length === 0 ? (
+        ) : gridRows.length === 0 ? (
           <div className="flex min-h-[360px] items-center justify-center px-6 text-center">
             <div>
               <Truck className="mx-auto h-12 w-12 text-slate-300" />
@@ -618,156 +589,15 @@ export default function AdminBookingsPage() {
                 </div>
               </div>
 
-              {vehicles.map((vehicle) => {
-                const vehicleBookings =
-                  bookingsByVehicle.get(vehicle.id) || [];
+              {gridRows.map(row=>{const height=row.lanes*ROW_HEIGHT;return <div key={row.id} className="flex border-b border-slate-200 last:border-b-0" style={{minHeight:height}}>
+                <div className={`sticky left-0 z-20 flex shrink-0 items-center border-r border-slate-300 px-5 ${row.vehicle?"bg-white":"bg-amber-50"}`} style={{width:VEHICLE_COLUMN_WIDTH,height}}><div className="min-w-0"><div className="flex items-center gap-2"><Truck size={18} className="shrink-0 text-[#E55300]"/><p className="text-sm font-bold text-slate-950">{row.label}</p></div><p className="mt-1 text-xs font-semibold text-slate-500">{row.vehicle?row.vehicle.registration||"No registration":"No van assigned"}</p>{row.vehicle&&<p className="mt-1 text-[11px] text-slate-400">{row.vehicle.vehicleType}</p>}{row.vehicle&&vehicleComplianceWarnings(row.vehicle).length>0&&<p className="mt-1 text-[10px] font-bold text-amber-700" title={vehicleComplianceWarnings(row.vehicle).join(" · ")}>Tax / MOT due within 30 days</p>}</div></div>
+                <div className="relative shrink-0 bg-white" style={{width:timelineWidth,height}}>{hours.map((hour,index)=><div key={hour} className="pointer-events-none absolute top-0 h-full border-l border-slate-200" style={{left:hour===END_HOUR?timelineWidth-1:index*HOUR_WIDTH}}/>)}{row.items.map(item=><BookingBlock key={item.booking.id} booking={item.booking} selectedDate={selectedDate} lane={item.lane} assignment={item.assignment} onClick={()=>setSelectedBooking(item.booking)}/>)}{!row.items.length&&<div className="pointer-events-none absolute inset-0 flex items-center px-5"><span className="text-xs font-medium text-slate-300">No bookings</span></div>}</div><div aria-hidden="true" className="shrink-0 border-l border-slate-200 bg-slate-50" style={{width:END_MARKER_WIDTH}}/>
+              </div>})}
 
-                return (
-                  <div
-                    key={vehicle.id}
-                    className="flex border-b border-slate-200 last:border-b-0"
-                    style={{
-                      minHeight: ROW_HEIGHT,
-                    }}
-                  >
-                    <div
-                      className="sticky left-0 z-20 flex shrink-0 items-center border-r border-slate-300 bg-white px-5"
-                      style={{
-                        width: VEHICLE_COLUMN_WIDTH,
-                        height: ROW_HEIGHT,
-                      }}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Truck
-                            size={18}
-                            className="shrink-0 text-[#E55300]"
-                          />
-
-                          <p className="truncate text-sm font-bold text-slate-950">
-                            {vehicle.name}
-                          </p>
-                        </div>
-
-                        <p className="mt-1 truncate text-xs font-semibold text-slate-500">
-                          {vehicle.registration || "No registration"}
-                        </p>
-
-                        <p className="mt-1 truncate text-[11px] text-slate-400">
-                          {vehicle.vehicleType}
-                        </p>
-
-                        {vehicleComplianceWarnings(vehicle).length > 0 ? (
-                          <p
-                            className="mt-1 truncate text-[10px] font-bold text-amber-700"
-                            title={vehicleComplianceWarnings(vehicle).join(" Â· ")}
-                          >
-                            Tax / MOT due within 30 days
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div
-                      className="relative shrink-0 bg-white"
-                      style={{
-                        width: timelineWidth,
-                        height: ROW_HEIGHT,
-                      }}
-                    >
-                      {hours.map((hour, index) => (
-                        <div
-                          key={`${vehicle.id}-${hour}`}
-                          className="pointer-events-none absolute top-0 h-full border-l border-slate-200"
-                          style={{
-                            left: hour === END_HOUR ? timelineWidth - 1 : index * HOUR_WIDTH,
-                          }}
-                        />
-                      ))}
-
-                      {vehicleBookings.map((booking) => (
-                        <BookingBlock
-                          key={booking.id}
-                          booking={booking}
-                          selectedDate={selectedDate}
-                          onClick={() => setSelectedBooking(booking)}
-                        />
-                      ))}
-
-                      {vehicleBookings.length === 0 ? (
-                        <div className="pointer-events-none absolute inset-0 flex items-center px-5">
-                          <span className="text-xs font-medium text-slate-300">
-                            No bookings
-                          </span>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div aria-hidden="true" className="shrink-0 border-l border-slate-200 bg-slate-50" style={{ width: END_MARKER_WIDTH }} />
-                  </div>
-                );
-              })}
             </div>
           </div>
         )}
       </section>
-
-      {!loading && bookings.length > 0 ? (
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5">
-          <h2 className="font-bold">All bookings for this day</h2>
-          <p className="mt-1 text-sm text-slate-600">Includes overnight carryovers, unassigned, cancelled and expired bookings. Cancelled and expired bookings do not reserve a van.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {bookings.map(booking => <button key={booking.id} type="button" onClick={() => setSelectedBooking(booking)} className="min-h-12 rounded-xl border border-slate-200 p-4 text-left hover:bg-slate-50">
-              <p className="font-bold">{booking.reference} · {bookingCustomerName(booking)}</p>
-              <p className="mt-1 text-sm">{booking.vehicle?.name || "Vehicle unassigned"} · {bookingTimeText(booking)} (UK)</p>
-              <p className="mt-1 text-sm">{statusLabel(booking.status)} · {booking.driver?.name || "Driver unassigned"}</p>
-            </button>)}
-          </div>
-        </section>
-      ) : null}
-
-      {!loading && unassignedBookings.length > 0 ? (
-        <section className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-              <Truck size={19} />
-            </span>
-
-            <div>
-              <h2 className="font-bold text-amber-950">
-                Unassigned Bookings
-              </h2>
-
-              <p className="mt-1 text-sm text-amber-800">
-                These bookings do not currently have a vehicle assigned, so
-                they cannot be placed on a vehicle row.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {unassignedBookings.map((booking) => (
-              <button
-                key={booking.id}
-                type="button"
-                onClick={() => setSelectedBooking(booking)}
-                className="rounded-2xl border border-amber-200 bg-white p-4 text-left transition hover:border-amber-300 hover:shadow-sm"
-              >
-                <p className="text-sm font-bold text-slate-950">
-                  {bookingCustomerName(booking)}
-                </p>
-
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  {booking.reference}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  {bookingTimeText(booking)}
-                </p>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {selectedBooking ? (
         <BookingDetailsModal
@@ -794,26 +624,31 @@ function BookingBlock({
   booking,
   selectedDate,
   onClick,
+  lane=0,
+  assignment="assigned",
 }: {
   booking: Booking;
   selectedDate: string;
   onClick: () => void;
+  lane?:number;
+  assignment?:"assigned"|"reserved"|"unassigned";
 }) {
   const interval = calendarInterval(booking, selectedDate);
-  if (!interval) return null;
-  const left = interval.start / 60 * HOUR_WIDTH;
-  const width = (interval.end - interval.start) / 60 * HOUR_WIDTH;
+  if(!interval&&booking.collectionDate.slice(0,10)!==selectedDate)return null;
+  const left = interval ? interval.start / 60 * HOUR_WIDTH : 0;
+  const width = interval ? (interval.end - interval.start) / 60 * HOUR_WIDTH : 260;
 
   return (
     <button
       type="button"
       onClick={onClick}
-      title={`${bookingCustomerName(booking)} Â· ${bookingTimeText(booking)}`}
-      className={`absolute top-3 z-10 overflow-hidden rounded-xl border-l-4 px-3 py-2 text-left shadow-sm transition hover:z-20 hover:-translate-y-0.5 hover:shadow-md ${statusClasses(
+      title={`${bookingCustomerName(booking)} · ${booking.reference} · ${interval?bookingTimeText(booking):"Time not recorded"}${assignment==="reserved"?" · Van reserved, awaiting assignment":assignment==="unassigned"?" · Awaiting assignment":""}`}
+      className={`absolute z-10 overflow-hidden rounded-xl border-l-4 px-3 py-2 text-left shadow-sm transition hover:z-20 hover:-translate-y-0.5 hover:shadow-md ${statusClasses(
         booking.status,
       )}`}
       style={{
         left: left + 3,
+        top: lane*ROW_HEIGHT+12,
         width: Math.max(width - 6, 46),
         height: ROW_HEIGHT - 24,
       }}
@@ -823,7 +658,7 @@ function BookingBlock({
       </p>
 
       <p className="mt-1 truncate text-[11px] font-bold opacity-75">
-        {bookingTimeText(booking)}
+        {interval?bookingTimeText(booking):"Time not recorded"}{assignment!=="assigned"?" · Awaiting assignment":""}
       </p>
 
       {width >= 125 ? (

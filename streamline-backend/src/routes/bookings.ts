@@ -233,7 +233,7 @@ function adminBookingInclude() {
     payments: true,
     invoices: true,
     pod: true,
-    reservation: true,
+    reservation: { include: { vehicle: true } },
     trackingEvents: {
       orderBy: {
         createdAt: "asc",
@@ -520,6 +520,8 @@ router.get("/admin/list", async (req, res) => {
     if (driverId && driverId !== "ALL") {
       where.driverId = driverId;
     }
+
+    if(req.query.confirmedOnly==="true")where.AND=[...(Array.isArray(where.AND)?where.AND:where.AND?[where.AND]:[]),{status:{in:[BookingStatus.CONFIRMED,BookingStatus.ASSIGNED,BookingStatus.IN_PROGRESS]}}];
 
     const [bookings, total, statusTotals, vehicles, drivers] =
       await Promise.all([

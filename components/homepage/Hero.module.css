@@ -1,0 +1,19 @@
+.background {
+  position: absolute;
+  inset: -2%;
+  background-size: cover;
+  background-position: center;
+  transform-origin: 65% 50%;
+  animation: brandedVanPan 22s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.paused { animation-play-state: paused; }
+.motionControl { touch-action: manipulation; }
+@keyframes brandedVanPan {
+  from { transform: scale(1.02) translateX(-0.5%); }
+  to { transform: scale(1.08) translateX(0.5%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .background { animation: none; transform: none; will-change: auto; }
+  .motionControl { display: none; }
+}
