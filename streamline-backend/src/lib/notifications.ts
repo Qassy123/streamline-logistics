@@ -1,3 +1,6 @@
+import {bookingEmailOnce} from "./bookingEmailOnce";
+import {prisma} from "./prisma";
+import {renderInvoicePdf} from "./invoicePdf";
 import { emailLayout, sendEmail } from "./email";
 
 type BookingEmailInput = {
@@ -121,8 +124,9 @@ function journeySummary(booking: BookingEmailInput): string {
 export async function sendCustomerBookingConfirmedEmail(booking: BookingEmailInput) {
   const customerEmail = getCustomerEmail(booking);
   if (!customerEmail) { console.warn("Customer booking email skipped: missing customer email"); return; }
-  await sendEmail({
+  await bookingEmailOnce(booking.id,"BOOKING_CONFIRMATION",customerEmail,`Booking confirmed - ${booking.reference}`,()=>sendEmail({
     to: customerEmail,
+    idempotencyKey:`booking-${booking.id}-booking_confirmation`,
     department: "bookings",
     subject: `Booking confirmed - ${booking.reference}`,
     html: emailLayout("Your booking is confirmed", `
@@ -133,14 +137,19 @@ export async function sendCustomerBookingConfirmedEmail(booking: BookingEmailInp
       <p>We will keep you informed as your booking progresses. If you need to change any details, reply to this email and include your booking reference.</p>
       <p>Kind regards,<br/><strong>Bookings Team</strong><br/>Streamline Logistics Group</p>
     `, "bookings"),
-  });
+  }));
 }
 
 export async function sendCustomerPaymentSuccessfulEmail(booking: BookingEmailInput) {
   const customerEmail = getCustomerEmail(booking);
   if (!customerEmail) { console.warn("Payment email skipped: missing customer email"); return; }
-  await sendEmail({
+  const invoice=await prisma.invoice.findFirst({where:{bookingId:booking.id,status:"PAID"},include:{user:true,adjustments:true,lines:true,invoiceBookings:true,allocations:{include:{payment:true}},creditNotes:true,emailLogs:true,auditEvents:true,booking:{include:{quote:true,payments:true,vehicle:true,driver:true,pod:true}}}});
+  if(!invoice)throw Error("A paid invoice is required before sending the payment-received email.");
+  const pdf=await renderInvoicePdf(invoice);
+  await bookingEmailOnce(booking.id,"PAYMENT_RECEIVED",customerEmail,`Payment received - ${booking.reference}`,()=>sendEmail({
     to: customerEmail,
+    attachments:[{filename:`invoice-${invoice.invoiceNumber}.pdf`,content:pdf}],
+    idempotencyKey:`booking-${booking.id}-payment_received`,
     department: "accounts",
     subject: `Payment received - ${booking.reference}`,
     html: emailLayout("Payment received", `
@@ -151,7 +160,7 @@ export async function sendCustomerPaymentSuccessfulEmail(booking: BookingEmailIn
       <p>Your booking is confirmed. For questions about this payment, reply to this email and quote your booking reference.</p>
       <p>Kind regards,<br/><strong>Accounts Team</strong><br/>Streamline Logistics Group</p>
     `, "accounts"),
-  });
+  }));
 }
 
 export async function sendAdminNewPaidBookingEmail(booking: BookingEmailInput) {

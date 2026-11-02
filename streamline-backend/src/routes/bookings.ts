@@ -1,3 +1,4 @@
+import {newNotices,checkNewNotice} from "../lib/adminNewNotices";
 import { assertFutureCollection } from "../lib/collectionSchedule";
 import { bookingSectionWhere } from "../lib/bookingSections";
 import {approveBookingRefund,completeManualBookingRefund} from "../lib/bookingRefunds";
@@ -368,6 +369,8 @@ async function findAvailableVehicleForWindow(params: {
    Admin Booking Management
 ---------------------------------- */
 
+router.get("/admin/new-notices",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{res.setHeader("Cache-Control","no-store");res.json({notices:await newNotices("BOOKING")});}catch{res.status(500).json({error:"Unable to load new records."});}});
+router.post("/admin/new-notices/:id/check",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{await checkNewNotice("BOOKING",req.params.id);res.json({success:true});}catch{res.status(500).json({error:"Unable to mark record checked."});}});
 router.get("/admin/completed-jobs", async (req, res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {

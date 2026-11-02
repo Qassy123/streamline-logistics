@@ -1,3 +1,4 @@
+import {newNotices,checkNewNotice} from "../lib/adminNewNotices";
 import { guestBookingPeriod } from "../lib/guestBookingPeriod";
 import { sendCustomerPasswordInvite } from "../lib/customerPasswordInvite";
 import { archiveAndDeleteCustomer } from "../lib/customerArchive";
@@ -209,6 +210,8 @@ async function generateAccountNumber() {
   throw new Error("Unable to generate a unique customer account number.");
 }
 
+router.get("/new-notices",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{res.setHeader("Cache-Control","no-store");res.json({notices:await newNotices("CUSTOMER")});}catch{res.status(500).json({error:"Unable to load new records."});}});
+router.post("/new-notices/:id/check",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{await checkNewNotice("CUSTOMER",req.params.id);res.json({success:true});}catch{res.status(500).json({error:"Unable to mark record checked."});}});
 router.get("/", async (req, res) => {
   const admin = requireAdmin(req);
 

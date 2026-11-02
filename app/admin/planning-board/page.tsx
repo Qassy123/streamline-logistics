@@ -1,4 +1,6 @@
 "use client";
+import PlanningDiscountSelect from "@/components/admin/PlanningDiscountSelect";
+import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import { calendarInterval, calendarTimeText, dropCollectionWindow } from "@/lib/bookingCalendar";
 import FleetAllocationBoard from "@/components/admin/FleetAllocationBoard";
@@ -41,10 +43,10 @@ const VEHICLE_TYPES = [
 ] as const;
 
 const CAPACITY_OPTIONS = [
-  { label: "0â€“25", value: 25, pricingVehicle: "Small Van" },
-  { label: "25â€“50", value: 50, pricingVehicle: "SWB Van" },
-  { label: "50â€“75", value: 75, pricingVehicle: "LWB High Roof Van" },
-  { label: "75â€“100", value: 100, pricingVehicle: "XLWB High Roof Van" },
+  { label: "0-25", value: 25, pricingVehicle: "Small Van" },
+  { label: "25-50", value: 50, pricingVehicle: "SWB Van" },
+  { label: "50-75", value: 75, pricingVehicle: "LWB High Roof Van" },
+  { label: "75-100", value: 100, pricingVehicle: "XLWB High Roof Van" },
 ] as const;
 
 const TIMELINE_START_HOUR = 0;
@@ -126,6 +128,7 @@ type Booking = {
     vehicleSize?: string | null;
     capacityPercent?: number | null;
     distanceMiles?: string | number | null;
+    pricingBreakdown?:unknown;discountAmount?:unknown;
     basePrice?: string | number | null;
     fuelSurcharge?: string | number | null;
     adminPrice?: string | number | null;
@@ -338,7 +341,7 @@ function mileageRate(calculation: Calculation | null) { return quotePriceBreakdo
 function extraStopsPrice(calculation: Calculation | null) { return quotePriceBreakdown(calculation).extraStopsPrice; }
 
 function formatMileageRate(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "Â£0.00";
+  if (!Number.isFinite(value) || value <= 0) return "£0.00";
 
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
@@ -384,6 +387,8 @@ export default function AdminPlanningBoardPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [discountRuleId,setDiscountRuleId]=useState("");
+  const [editDiscountRuleId,setEditDiscountRuleId]=useState<string|undefined>(undefined);
   const [form, setForm] = useState<FormState>(initialForm);
   const [extraStops, setExtraStops] = useState<string[]>([]);
   const [planningDate, setPlanningDate] = useState(() =>
@@ -640,6 +645,7 @@ export default function AdminPlanningBoardPage() {
   }
 
   async function calculateJourney(payload: AdminQuotePayload) {
+    payload={...payload,...{discountRuleId,discountCustomerId:form.accountId==="GUEST"?null:form.accountId}};
     if (!adminKey) throw new Error("Unlock the admin area before calculating a quote.");
     setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null); setSavedDraftReference("");
     try {
@@ -965,6 +971,7 @@ export default function AdminPlanningBoardPage() {
   async function openBookingEditor(booking: Booking) {
     populateBookingEditor(booking);
     setLoadingBookingDetails(true);
+    setEditDiscountRuleId(undefined);
     setError("");
 
     try {
@@ -1052,6 +1059,7 @@ export default function AdminPlanningBoardPage() {
             manualPrice:editManualPrice,recalculatePrice:editRecalculate,
             adjustmentAmount:editAdjustment||"0",adjustmentReason:editAdjustmentReason.trim(),
             expectedUpdatedAt:editingBooking.updatedAt,
+            ...(editDiscountRuleId!==undefined?{discountRuleId:editDiscountRuleId}:{}),
             extraDrops:editExtraDrops,
             customerReference: editCustomerReference.trim() || null,
             purchaseOrderNumber: editPurchaseOrderNumber.trim() || null,
@@ -1170,11 +1178,12 @@ export default function AdminPlanningBoardPage() {
         <section className="mt-7 space-y-6">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
             <FieldLabel label="Select Account">
-              <select value={form.accountId} disabled={loadingCustomers || calculating} onChange={(event) => { updateForm("accountId", event.target.value); setCustomerFormPayload(null); }} className="manual-input">
+              <select value={form.accountId} disabled={loadingCustomers || calculating} onChange={(event) => { updateForm("accountId", event.target.value); setCustomerFormPayload(null); setDiscountRuleId(""); }} className="manual-input">
                 <option value="GUEST">Guest Customer (No Account)</option>
-                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"} Â· {customer.companyName || customer.legalEntity || customer.name}</option>)}
+                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"}  ·  {customer.companyName || customer.legalEntity || customer.name}</option>)}
               </select>
             </FieldLabel>
+            <PlanningDiscountSelect customerId={form.accountId==="GUEST"?null:form.accountId} value={discountRuleId} onChange={id=>{setDiscountRuleId(id);setCalculation(null);setCustomerFormPayload(null);}} />
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <FieldLabel label="Purchase Order Number"><input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" /></FieldLabel>
               <FieldLabel label="Customer Reference"><input value={form.customerReference} onChange={(event) => updateForm("customerReference", event.target.value)} className="manual-input" /></FieldLabel>
@@ -1399,7 +1408,7 @@ export default function AdminPlanningBoardPage() {
                     />
                     <QuotePriceRow
                       icon={<MapPinned size={20} />}
-                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi Ã— ${formatMileageRate(
+                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi  at  ${formatMileageRate(
                         mileageRate(calculation),
                       )})`}
                       value={money(quotePriceBreakdown(calculation).mileagePrice)}
@@ -1746,9 +1755,9 @@ export default function AdminPlanningBoardPage() {
                                     left: block.left,
                                     width: block.width,
                                   }}
-                                  title={`${booking.reference} Â· ${bookingCustomerName(
+                                  title={`${booking.reference}  ·  ${bookingCustomerName(
                                     booking,
-                                  )} Â· ${money(booking.totalPrice)}`}
+                                  )}  ·  ${money(booking.totalPrice)}`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <p className="truncate text-xs font-bold text-slate-950">
@@ -1988,6 +1997,8 @@ export default function AdminPlanningBoardPage() {
 
                 <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <h3 className="text-lg font-bold text-slate-950">Financial / operational status</h3>
+                  <PlanningDiscountSelect customerId={editingBooking.user?.id||null} value={editDiscountRuleId||""} onChange={id=>{setEditDiscountRuleId(id);setEditManualPrice(false);setEditRecalculate(true);}} />
+                  <BookingPriceBreakdown booking={editingBooking} />
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <InfoBox label="Booking Total" value={money(editingBooking.totalPrice)} />
                     <InfoBox label="Payments" value={editingBooking.payments?.length ? `${editingBooking.payments.length} payment record(s)` : "No payment records"} />

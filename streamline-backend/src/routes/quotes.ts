@@ -1,3 +1,4 @@
+import {planningDiscounts} from "../lib/planningDiscounts";
 import { assertFutureCollection } from "../lib/collectionSchedule";
 import { adminQuoteGrouping } from "../lib/adminQuoteGrouping";
 import { quoteMaintenance } from "../lib/quoteMaintenance";
@@ -472,14 +473,19 @@ export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
     extraDropCount,
   });
 
+  let discountType=getString(reqBody.discountType),discountValue=reqBody.discountValue,discountReason=getOptionalString(reqBody.discountReason);
+  const discountRuleId=getString(reqBody.discountRuleId);
+  if(discountRuleId){const discount=(await planningDiscounts(getString(reqBody.discountCustomerId)||null)).find(d=>d.id===discountRuleId);if(!discount)throw Error("The selected discount is unavailable for this customer.");discountType=discount.type==="FIXED_AMOUNT"?"FIXED":"PERCENTAGE";discountValue=discount.value;discountReason=discount.name;}
   const price = applyAdminDiscount(
     rawPrice,
-    getString(reqBody.discountType),
-    reqBody.discountValue,
+    discountType,
+    discountValue,
   );
 
   return {
     ...price,
+    pricingBreakdown:{...price.pricingBreakdown,durationMinutes:route.durationMinutes},
+    discountReason,
     durationMinutes: route.durationMinutes,
     originalRouteAddresses,
     optimisedRouteAddresses: routeStops.map((stop) => stop.address),
@@ -487,6 +493,7 @@ export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
   };
 }
 
+router.get("/admin/discount-options",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{const rows=await planningDiscounts(getString(req.query.customerId)||null);res.json({discounts:rows.map(d=>({id:d.id,label:`${d.name} - ${d.type==="FIXED_AMOUNT"?"GBP ":""}${d.value}${d.type==="PERCENTAGE"?"%":""}`}))});}catch{res.status(500).json({error:"Unable to load discounts."});}});
 router.post("/admin/calculate", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -551,7 +558,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     }
 
     if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
-    const calculation = await calculateAdminQuote(req.body || {});
+    const calculation = await calculateAdminQuote({...req.body,discountCustomerId:customer.id});
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
@@ -613,7 +620,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
         fuelSurcharge: calculation.fuelSurcharge,
         adminPrice: calculation.adminPrice,
         discountAmount: calculation.discountAmount,
-        discountReason: getOptionalString(req.body.discountReason),
+        discountReason: calculation.discountReason,
         vatAmount: calculation.vatAmount,
         totalPrice: calculation.totalPrice,
       },
@@ -721,7 +728,7 @@ router.post("/admin/guest", async (req, res) => {
     }
 
     if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
-    const calculation = await calculateAdminQuote(req.body || {});
+    const calculation = await calculateAdminQuote({...req.body,discountCustomerId:null});
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
@@ -790,7 +797,7 @@ router.post("/admin/guest", async (req, res) => {
         fuelSurcharge: calculation.fuelSurcharge,
         adminPrice: calculation.adminPrice,
         discountAmount: calculation.discountAmount,
-        discountReason: getOptionalString(req.body.discountReason),
+        discountReason: calculation.discountReason,
         vatAmount: calculation.vatAmount,
         totalPrice: calculation.totalPrice,
       },
@@ -1356,7 +1363,7 @@ router.post("/", async (req, res) => {
         purchaseOrderNumber: req.body.purchaseOrderNumber || null,
         distanceMiles: price.distanceMiles,
         basePrice: price.basePrice,
-        pricingBreakdown: price.pricingBreakdown,
+        pricingBreakdown: {...price.pricingBreakdown,durationMinutes},
         fuelSurcharge: price.fuelSurcharge,
         adminPrice: price.adminPrice,
         vatAmount: price.vatAmount,

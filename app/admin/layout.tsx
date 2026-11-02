@@ -1,4 +1,5 @@
 "use client";
+import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
 
 import Link from "next/link";
@@ -156,7 +157,7 @@ export default function AdminLayout({
                         : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-950",
                     ].join(" ")}
                   >
-                    {item.label}{item.href === "/admin/invoices" && <InvoiceReviewNotifications badge /> }
+                    {item.label}{item.href === "/admin/customers" && <NewRecordNotifications kind="CUSTOMER" badge />}{item.href === "/admin/bookings" && <NewRecordNotifications kind="BOOKING" badge />}{item.href === "/admin/invoices" && <InvoiceReviewNotifications badge /> }
                   </Link>
                 );
               })}

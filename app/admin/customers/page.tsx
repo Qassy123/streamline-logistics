@@ -1,4 +1,5 @@
 "use client";
+import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -176,6 +177,7 @@ export default function ExistingCustomersPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1500px]">
+      <NewRecordNotifications kind="CUSTOMER" />
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-950">

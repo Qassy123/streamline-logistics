@@ -1,4 +1,6 @@
 "use client";
+import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
+import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import {existingBookingsGrid,confirmedGridStatuses} from "@/lib/existingBookingsGrid";
 import { calendarInterval, calendarTimeText } from "@/lib/bookingCalendar";
 
@@ -85,6 +87,7 @@ type Booking = {
     customerEmail: string;
     customerPhone: string;
     vehicleSize?: string | null;
+    pricingBreakdown?:unknown;basePrice?:unknown;fuelSurcharge?:unknown;adminPrice?:unknown;discountAmount?:unknown;vatAmount?:unknown;totalPrice?:unknown;distanceMiles?:unknown;
   } | null;
   vehicle?: Vehicle | null;
   driver?: Driver | null;
@@ -392,6 +395,7 @@ export default function AdminBookingsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1800px]">
+<NewRecordNotifications kind="BOOKING" />
       <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#E55300]">
@@ -856,7 +860,7 @@ function BookingDetailsModal({
 
             <span className="inline-flex items-center gap-2 text-sm font-bold text-slate-700">
               <Clock3 size={16} className="text-[#E55300]" />
-              {bookingTimeText(booking)}
+              {booking.collectionWindow || "Collection slot not recorded"}
             </span>
           </div>
 
@@ -941,6 +945,7 @@ function BookingDetailsModal({
             ) : null}
           </div>
 
+          <BookingPriceBreakdown booking={booking} />
           {!booking.vehicle?.id || !booking.driver?.id ? <div className="mt-6 border-t border-slate-200 pt-6"><h3 className="text-sm font-bold">Dispatch assignment</h3><p className="mt-2 text-sm text-slate-600">Assign the vehicle and driver through Driver Management.</p><a href="/admin/drivers" className="mt-3 inline-flex min-h-12 items-center rounded-xl bg-[#FF6A00] px-5 font-bold text-white">Open Drivers</a></div> : null}
 
           {!["CANCELLED", "COMPLETED", "EXPIRED"].includes(booking.status) ? (

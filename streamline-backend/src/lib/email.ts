@@ -21,13 +21,15 @@ export function departmentSender(department: EmailDepartment): string {
 
 type SendEmailInput = {
   to: string;
+  attachments?: {filename:string;content:Buffer}[];
+  idempotencyKey?:string;
   subject: string;
   html: string;
   replyTo?: string;
   department?: EmailDepartment;
 };
 
-export async function sendEmail({ to, subject, html, replyTo, department = "info" }: SendEmailInput) {
+export async function sendEmail({ to, subject, html, replyTo, attachments, idempotencyKey, department = "info" }: SendEmailInput) {
   if (!process.env.RESEND_API_KEY) {
     console.warn("RESEND_API_KEY missing. Email skipped:", subject);
     return { skipped: true };
@@ -43,7 +45,8 @@ export async function sendEmail({ to, subject, html, replyTo, department = "info
     subject,
     html,
     replyTo: replyTo || departmentEmail(department),
-  });
+    ...(attachments?.length?{attachments}:{}),
+  },idempotencyKey?{idempotencyKey}:undefined);
 }
 
 export function emailLayout(title: string, content: string, department: EmailDepartment = "info") {

@@ -1,3 +1,4 @@
+import {resolveBookingReference} from "../lib/referenceAliases";
 import { BookingStatus, Prisma } from "@prisma/client";
 import { Router } from "express";
 import crypto from "crypto";
@@ -637,7 +638,7 @@ router.get("/public/:reference", async (req, res) => {
   if (publicReads.size > 10000) publicReads.delete(publicReads.keys().next().value!);
   if (++bucket.count > 30) { res.setHeader("Retry-After", "60"); return void res.status(429).json({ error: "Please wait before refreshing tracking again." }); }
   try {
-    const booking = await prisma.booking.findFirst({ where: { reference, trackingShareTokenHash: hashValue(token), trackingShareExpiresAt: { gt: new Date() } },
+    const booking = await prisma.booking.findFirst({ where: { reference:await resolveBookingReference(reference), trackingShareTokenHash: hashValue(token), trackingShareExpiresAt: { gt: new Date() } },
       include: { driver: { select: driverSelection }, driverLocations: { orderBy: { createdAt: "desc" }, take: 1 },
         trackingEvents: { where: { userVisible: true }, select: { id: true, title: true, status: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 50 } } });
     if (!booking) return void res.status(404).json({ error: "Tracking link is unavailable or expired." });

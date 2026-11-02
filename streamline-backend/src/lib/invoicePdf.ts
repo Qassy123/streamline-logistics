@@ -1,3 +1,5 @@
+import {bookingPriceBreakdown} from "./bookingPriceBreakdown";
+import {orderedRoute} from "./invoicePresentation";
 import {randomUUID} from "crypto";
 import fs = require("node:fs");
 import path = require("node:path");
@@ -100,7 +102,7 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
   const name = manual?.recipientName || user?.companyName || user?.name || q?.companyName || q?.customerName || "Guest customer";
   const billingAddress = manual?.recipientAddress || [user?.registeredAddressLine1, user?.registeredAddressLine2, user?.registeredTownCity, user?.registeredCounty, user?.registeredPostcode, user?.registeredCountry].filter(Boolean).join(", ");
   const customer = [name, billingAddress, manual?.recipientEmail || user?.accountsEmail || user?.email || q?.customerEmail,
-    manual?.recipientPhone ? `Tel: ${manual.recipientPhone}` : null, user?.accountNumber ? `Account: ${user.accountNumber}` : null].filter(Boolean).join("\n");
+    manual?.recipientPhone || user?.phone || q?.customerPhone ? `Tel: ${manual?.recipientPhone || user?.phone || q?.customerPhone}` : null, user?.accountNumber ? `Account: ${user.accountNumber}` : null].filter(Boolean).join("\n");
   const refs = [user?.accountType ? `Account type: ${user.accountType === "TRADE" ? "Trade Account" : user.accountType === "BUSINESS" ? "Business Account" : "Private Account"}` : "Guest customer",
     `Payment terms: ${user?.accountType === "BUSINESS" ? "Due immediately" : invoice.paymentTerms || "As agreed"}`,
     invoice.purchaseOrderNumber ? `PO / order: ${invoice.purchaseOrderNumber}` : null,
@@ -191,15 +193,15 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
     ensure(30);
     doc.rect(left, y, width, 23).fill(navy);
     doc.font("Helvetica-Bold").fontSize(7.5).fillColor("white");
-    for (const [label, x, w] of [["Description", left + 8, 270], ["Qty", 320, 30], ["Unit (net)", 357, 62], ["VAT", 426, 40], ["Gross", 474, 71]] as const)
-      doc.text(label, x, y + 8, { width: w, align: label === "Description" ? "left" : "right", lineBreak: false });
+    for (const [label,x,w] of [["Description",left+8,360],["Unit price (net)",440,105]] as const)
+      doc.text(label,x,y+8,{width:w,align:label==="Description"?"left":"right",lineBreak:false});
     y += 23;
   };
-  // Booking details are part of the invoice description, once per booking, including multi-drop/return stops.
   for (const booking of bookings) {
-    ensure(55); flow(`Courier service - ${booking.reference}`, 9, true);
-    for (const detail of invoiceServiceDetails(booking)) flow(detail, 7.5);
-    y += 9;
+    ensure(55); flow(`SERVICE DETAILS - ${booking.reference}`,9,true);
+    const routes=orderedRoute(booking);
+    for(const detail of invoiceServiceDetails(booking).filter(detail=>!routes.includes(detail)))flow(detail,7.5);
+    y+=6;flow("ROUTE DETAILS",9,true);for(const detail of routes)flow(detail,7.5);y+=9;
   }
   // Retain saved booking snapshots if an operational booking is no longer available.
   for (const row of invoice.invoiceBookings.filter(row => !bookings.some(b => b.id === row.bookingId))) {
@@ -207,37 +209,43 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
     flow(row.routeDescription || "Route not recorded"); y += 8;
   }
   tableHeader();
-  const lines = invoice.lines.length ? invoice.lines : [{ description: "Courier service", quantity: new Prisma.Decimal(1), unitPrice: invoice.subtotal,
-    vatRate: invoice.subtotal.equals(0) ? new Prisma.Decimal(0) : invoice.vatAmount.div(invoice.subtotal).mul(100), grossAmount: invoice.total, bookingReference: primary?.reference }];
+  const lines:{description:string;quantity:number;unitPrice:Prisma.Decimal;bookingReference?:string|null}[]=[];
+  for(const booking of bookings){const b=bookingPriceBreakdown(booking),ref=booking.reference;
+    lines.push({description:`Base fare - ${booking.vehicleType||booking.quote?.vehicleSize||"Courier service"}`,quantity:1,unitPrice:new Prisma.Decimal(b.base),bookingReference:ref},
+      {description:`Mileage - ${b.miles} miles (per mile)`,quantity:b.miles,unitPrice:new Prisma.Decimal(b.mileageRate),bookingReference:ref},
+      {description:`Extra stops - ${b.stopCount} (per stop)`,quantity:b.stopCount,unitPrice:new Prisma.Decimal(b.stopRate),bookingReference:ref});
+    if(b.discount)lines.push({description:"Booking discount",quantity:1,unitPrice:new Prisma.Decimal(-b.discount),bookingReference:ref});
+    if(b.adjustment)lines.push({description:"Booking price adjustment",quantity:1,unitPrice:new Prisma.Decimal(b.adjustment),bookingReference:ref});
+  }
+  for(const line of invoice.lines){if(line.sourceType==="ADJUSTMENT"||line.sourceType==="MANUAL"||!bookings.some(b=>b.id===line.bookingId))
+    lines.push({description:line.description,quantity:Number(line.quantity),unitPrice:line.chargeType==="DISCOUNT"?line.unitPrice.abs().negated():line.unitPrice,bookingReference:line.bookingReference});}
+  if(!lines.length)lines.push({description:"Courier service",quantity:1,unitPrice:invoice.subtotal});
   for (const line of lines) {
     const description = line.bookingReference && !line.description.includes(line.bookingReference) ? `${line.description}\nBooking: ${line.bookingReference}` : line.description;
-    const pieces = wrap(description, 264, 8);
+    const pieces = wrap(description, 360, 8);
     let first = true;
     while (pieces.length) {
       if (y + 30 > bottom()) { nextPage(); tableHeader(); }
       const count = Math.max(1, Math.floor((bottom() - y - 14) / 12));
       const segment = pieces.splice(0, count), height = Math.max(29, segment.length * 12 + 14);
       doc.font("Helvetica").fontSize(8).fillColor(navy);
-      segment.forEach((text, i) => doc.text(text, left + 8, y + 7 + i * 12, { width: 264, lineBreak: false }));
+      segment.forEach((text, i) => doc.text(text, left + 8, y + 7 + i * 12, { width: 360, lineBreak: false }));
       if (first) {
-        doc.text(Number(line.quantity).toString(), 320, y + 7, { width: 30, align: "right", lineBreak: false });
-        doc.text(money(line.unitPrice), 357, y + 7, { width: 62, align: "right", lineBreak: false });
-        doc.text(`${Number(line.vatRate)}%`, 426, y + 7, { width: 40, align: "right", lineBreak: false });
-        doc.text(money(line.grossAmount), 474, y + 7, { width: 71, align: "right", lineBreak: false });
+        doc.text(money(line.unitPrice),440,y+7,{width:105,align:"right",lineBreak:false});
         first = false;
       }
       doc.strokeColor(border).moveTo(left, y + height).lineTo(right, y + height).stroke(); y += height;
     }
   }
   y += 12; ensure(124);
-  const totals = [["Subtotal (net)", invoice.subtotal], ["VAT", invoice.vatAmount], ["Total", invoice.total], ["Payments received", paid], ["Credit notes", credited], ["Outstanding", outstanding]] as const;
+  const totals = [["Subtotal (excluding VAT)", invoice.subtotal], ["VAT @20%", invoice.vatAmount], ["Total (including VAT)", invoice.total]] as const;
   totals.forEach(([label, value], i) => {
-    const row = y + i * 18, strong = label === "Total" || label === "Outstanding";
+    const row = y + i * 18, strong = label === "Total (including VAT)";
     if (strong) doc.roundedRect(330, row - 3, right - 330, 18, 3).fill(light);
-    doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(8.5).fillColor(strong ? navy : grey).text(label, 338, row, { width: 111, lineBreak: false });
-    doc.font("Helvetica-Bold").fillColor(navy).text(money(value), 450, row, { width: right - 458, align: "right", lineBreak: false });
+    doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(8.5).fillColor(strong ? navy : grey).text(label, 338, row, { width: 135, lineBreak: false });
+    doc.font("Helvetica-Bold").fillColor(navy).text(money(value), 480, row, { width: right - 488, align: "right", lineBreak: false });
   });
-  y += 122;
+  y += 68;
   const bank = [settings.bankAccountName ? `Account name: ${settings.bankAccountName}` : null, settings.bankName ? `Bank: ${settings.bankName}` : null,
     settings.sortCode ? `Sort code: ${settings.sortCode}` : null, settings.accountNumber ? `Account number: ${settings.accountNumber}` : null,
     `Payment reference: ${invoice.invoiceNumber}`].filter(Boolean).join("\n");

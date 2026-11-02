@@ -27,6 +27,7 @@ export function orderedRoute(booking: Pick<ServiceBooking, "collectionAddress" |
 }
 export function invoiceServiceDetails(booking: ServiceBooking): string[] {
   const q = booking.quote;
+  const saved=q?.pricingBreakdown && typeof q.pricingBreakdown==="object" && !Array.isArray(q.pricingBreakdown)?q.pricingBreakdown as Record<string,unknown>:null;
   const label = (value: unknown) => text(value).replace(/_/g, " ");
   const values = [
     ...orderedRoute(booking),
@@ -42,15 +43,12 @@ export function invoiceServiceDetails(booking: ServiceBooking): string[] {
     q?.fragileGoods ? "Fragile goods: Yes" : null,
     q?.capacityPercent !== null && q?.capacityPercent !== undefined ? `Load capacity: ${q.capacityPercent}%` : null,
     q?.returnCapacityPercent !== null && q?.returnCapacityPercent !== undefined ? `Return load capacity: ${q.returnCapacityPercent}%` : null,
+    saved?.durationMinutes!=null ? `Journey time: ${saved.durationMinutes} minutes` : null,
     q?.distanceMiles !== null && q?.distanceMiles !== undefined ? `Distance: ${q.distanceMiles} miles` : null,
     q?.specialInstructions ? `Special instructions: ${q.specialInstructions}` : null,
     q?.handoverContactName || q?.handoverContactPhone ? `Handover contact: ${[q.handoverContactName, q.handoverContactPhone].filter(Boolean).join(" / ")}` : null,
     q?.handoverNotes ? `Handover notes: ${q.handoverNotes}` : null,
     q?.discountReason ? `Quote discount reason: ${q.discountReason}` : null,
-    q?.basePrice !== null && q?.basePrice !== undefined ? `Quoted base fare (net): GBP ${Number(q.basePrice).toFixed(2)}` : null,
-    q?.fuelSurcharge !== null && q?.fuelSurcharge !== undefined ? `Quoted fuel surcharge (net): GBP ${Number(q.fuelSurcharge).toFixed(2)}` : null,
-    q?.adminPrice !== null && q?.adminPrice !== undefined ? `Quoted subtotal before discount (net, includes base and fuel): GBP ${Number(q.adminPrice).toFixed(2)}` : null,
-    q?.discountAmount && Number(q.discountAmount) !== 0 ? `Quote discount (net): GBP ${Number(q.discountAmount).toFixed(2)}` : null,
   ];
   return values.filter((value): value is string => Boolean(value)).map(pdfText);
 }
