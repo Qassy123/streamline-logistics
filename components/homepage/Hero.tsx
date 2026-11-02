@@ -13,6 +13,7 @@ export default function Hero() {
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
   const [videoPaused, setVideoPaused] = useState(true);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   async function playVideo() {
@@ -158,9 +159,8 @@ export default function Hero() {
         <video
           ref={videoRef}
           id="homepage-hero-video"
-          className={styles.video}
+          className={`${styles.video} ${videoReady ? "" : styles.videoPending}`}
           src="/videos/hero-van.mp4"
-          poster="/images/hero/hero-bg.jpg"
           muted
           loop
           playsInline
@@ -168,6 +168,8 @@ export default function Hero() {
           aria-hidden="true"
           tabIndex={-1}
           disablePictureInPicture
+          onLoadedData={() => setVideoReady(true)}
+          onEmptied={() => setVideoReady(false)}
           onPlay={() => setVideoPaused(false)}
           onPause={() => setVideoPaused(true)}
           onError={() => { setVideoFailed(true); setVideoPaused(true); }}
