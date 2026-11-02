@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import styles from "./Hero.module.css";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -11,7 +11,42 @@ const API_BASE_URL =
 export default function Hero() {
   const [websiteDowntime, setWebsiteDowntime] = useState(false);
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
-  const [animationPaused,setAnimationPaused]=useState(false);
+  const [videoPaused, setVideoPaused] = useState(true);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  async function playVideo() {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = true;
+    video.defaultMuted = true;
+    try {
+      await video.play();
+    } catch {
+      // Autoplay may be blocked; keep the poster and allow a manual start.
+      setVideoPaused(true);
+    }
+  }
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    function applyPreference() {
+      if (preference.matches) {
+        video?.pause();
+        setVideoPaused(true);
+      } else {
+        void playVideo();
+      }
+    }
+    applyPreference();
+    preference.addEventListener("change", applyPreference);
+    return () => {
+      preference.removeEventListener("change", applyPreference);
+      video.pause();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -81,11 +116,31 @@ export default function Hero() {
       <div
         id="homepage-hero-image"
         aria-hidden="true"
-        className={`${styles.background} ${animationPaused?styles.paused:""}`}
-        style={{
-          backgroundImage: "url('/images/hero/hero-bg.jpg')",
-        }}
+        className={styles.background}
+        style={{ backgroundImage: "url('/images/hero/hero-bg.jpg')" }}
       />
+      {!videoFailed && (
+        <video
+          ref={videoRef}
+          id="homepage-hero-video"
+          className={styles.video}
+          src="/videos/hero-van.mp4"
+          poster="/images/hero/hero-bg.jpg"
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+          disablePictureInPicture
+          onPlay={() => setVideoPaused(false)}
+          onPause={() => setVideoPaused(true)}
+          onError={() => { setVideoFailed(true); setVideoPaused(true); }}
+          onVolumeChange={() => {
+            if (videoRef.current) videoRef.current.muted = true;
+          }}
+        />
+      )}
 
       <div className="absolute inset-0 bg-gradient-to-r from-[#020B1F]/95 via-[#071D49]/72 to-[#071D49]/10" />
 
@@ -131,7 +186,20 @@ export default function Hero() {
       >
         Get A Quote
       </Link>
-      <button type="button" aria-controls="homepage-hero-image" aria-pressed={animationPaused} onClick={()=>setAnimationPaused(paused=>!paused)} className={`${styles.motionControl} absolute bottom-4 right-4 z-20 min-h-11 rounded-full border border-white/40 bg-[#071D49]/80 px-4 py-2 text-sm font-semibold text-white hover:bg-[#071D49] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white`}>{animationPaused?"Resume animation":"Pause animation"}</button>
+      {!videoFailed && (
+        <button
+          type="button"
+          aria-controls="homepage-hero-video"
+          aria-pressed={videoPaused}
+          onClick={() => {
+            if (videoPaused) void playVideo();
+            else videoRef.current?.pause();
+          }}
+          className={`${styles.motionControl} absolute bottom-4 right-4 z-20 min-h-11 rounded-full border border-white/40 bg-[#071D49]/80 px-4 py-2 text-sm font-semibold text-white hover:bg-[#071D49] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white`}
+        >
+          {videoPaused ? "Play video" : "Pause video"}
+        </button>
+      )}
     </section>
     </>
   );
