@@ -113,6 +113,41 @@ export default function Hero() {
         </section>
       )}
     <section className="relative w-full overflow-hidden bg-[#071D49]">
+      <div className={styles.layout}>
+        <div className={styles.copy}>
+          <p className="mb-4 text-sm font-bold uppercase tracking-[2px] text-[#006CFF] lg:mb-5 lg:text-base lg:tracking-[3px]">
+            24/7 Same Day Courier Specialists
+          </p>
+
+          <h1 className={styles.heading}>
+            Fast, Reliable, Dependable Business to Business Same Day Delivery
+          </h1>
+
+          <p className="mb-8 max-w-[580px] text-base leading-7 text-white/90 sm:text-lg lg:mb-9">
+            Streamline Logistics Group based in the West Midlands provides
+            dependable collection and delivery services for businesses across
+            the UK. From urgent same-day consignments to multi-drop and next-day
+            deliveries, we ensure your goods reach their destination safely and
+            on time.
+          </p>
+
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <Link
+              href="/quote"
+              className="rounded-full bg-[#006CFF] px-8 py-4 text-center text-base font-semibold text-white transition hover:bg-[#2D8CFF]"
+            >
+              Get Instant Quote
+            </Link>
+
+            <Link
+              href="/about"
+              className="rounded-full border border-white/70 px-8 py-4 text-center text-base font-semibold text-white transition hover:bg-white hover:text-[#071D49]"
+            >
+              Learn More
+            </Link>
+          </div>
+        </div>
+        <div className={styles.media}>
       <div
         id="homepage-hero-image"
         aria-hidden="true"
@@ -141,51 +176,6 @@ export default function Hero() {
           }}
         />
       )}
-
-      <div className="absolute inset-0 bg-gradient-to-r from-[#020B1F]/95 via-[#071D49]/72 to-[#071D49]/10" />
-
-      <div className="relative z-10 mx-auto flex min-h-[560px] max-w-[1500px] items-center px-6 py-12 sm:min-h-[600px] sm:py-16 lg:min-h-[650px] lg:px-10 lg:py-16">
-        <div className="max-w-[650px] text-white">
-          <p className="mb-4 text-sm font-bold uppercase tracking-[2px] text-[#006CFF] lg:mb-5 lg:text-base lg:tracking-[3px]">
-            24/7 Same Day Courier Specialists
-          </p>
-
-          <h1 className="mb-6 text-4xl font-bold leading-[1.12] sm:text-5xl lg:mb-7 lg:text-[56px]">
-            Fast, Reliable, Dependable Business to Business Same Day Delivery
-          </h1>
-
-          <p className="mb-8 max-w-[580px] text-base leading-7 text-white/90 sm:text-lg lg:mb-9">
-            Streamline Logistics Group based in the West Midlands provides
-            dependable collection and delivery services for businesses across
-            the UK. From urgent same-day consignments to multi-drop and next-day
-            deliveries, we ensure your goods reach their destination safely and
-            on time.
-          </p>
-
-          <div className="flex flex-col gap-4 sm:flex-row">
-            <Link
-              href="/quote"
-              className="rounded-full bg-[#006CFF] px-8 py-4 text-center text-base font-semibold text-white transition hover:bg-[#2D8CFF]"
-            >
-              Get Instant Quote
-            </Link>
-
-            <Link
-              href="/about"
-              className="rounded-full border border-white/70 px-8 py-4 text-center text-base font-semibold text-white transition hover:bg-white hover:text-[#071D49]"
-            >
-              Learn More
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <Link
-        href="/quote"
-        className="fixed right-0 top-1/2 z-50 hidden -translate-y-1/2 rounded-l-3xl border-l border-t border-b border-[#2D8CFF] bg-[#006CFF] px-5 py-12 text-sm font-semibold text-white [writing-mode:vertical-rl] transition hover:bg-[#2D8CFF] lg:block"
-      >
-        Get A Quote
-      </Link>
       {!videoFailed && (
         <button
           type="button"
@@ -200,6 +190,16 @@ export default function Hero() {
           {videoPaused ? "Play video" : "Pause video"}
         </button>
       )}
+        </div>
+      </div>
+
+      <Link
+        href="/quote"
+        className="fixed right-0 top-1/2 z-50 hidden -translate-y-1/2 rounded-l-3xl border-l border-t border-b border-[#2D8CFF] bg-[#006CFF] px-5 py-12 text-sm font-semibold text-white [writing-mode:vertical-rl] transition hover:bg-[#2D8CFF] lg:block"
+      >
+        Get A Quote
+      </Link>
+
     </section>
     </>
   );
