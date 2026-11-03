@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import { collectionChoices,ukClock } from "@/lib/collectionChoices";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import SavedRoutePicker from "@/components/SavedRoutePicker";
@@ -529,7 +530,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
           collectionWindow,
         });
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${VEHICLE_AVAILABILITY_API_URL}?${params.toString()}`,
           {
             cache: "no-store",

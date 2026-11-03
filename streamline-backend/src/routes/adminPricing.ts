@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import { Router } from "express";
 import {
   calculateQuotePriceWithConfig,
@@ -18,32 +19,7 @@ function getNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 401,
-      error: "Admin access denied.",
-    };
-  }
-
-  return {
-    authorised: true,
-    status: 200,
-    error: "",
-  };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 function cloneConfig(): PricingConfig {
   return JSON.parse(JSON.stringify(pricingConfig)) as PricingConfig;

@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,7 +22,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 25;
 
 type Payment = {
@@ -128,7 +129,7 @@ function statusClass(status: string) {
 }
 
 export default function AdminPaymentsPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [payments, setPayments] = useState<Payment[]>([]);
   const [selected, setSelected] = useState<Payment | null>(null);
   const [searchInput, setSearchInput] = useState("");
@@ -154,7 +155,7 @@ export default function AdminPaymentsPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -172,7 +173,7 @@ export default function AdminPaymentsPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -192,12 +193,10 @@ export default function AdminPaymentsPage() {
         if (dateFrom) params.set("dateFrom", dateFrom);
         if (dateTo) params.set("dateTo", dateTo);
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/payments/admin/list?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -206,7 +205,7 @@ export default function AdminPaymentsPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            undefined;
             setAdminKey("");
           }
 
@@ -265,14 +264,11 @@ export default function AdminPaymentsPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/payments/admin/${selected.id}/status`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             status: nextStatus,
           }),

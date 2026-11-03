@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import FleetOperationalOverview from "@/components/admin/FleetOperationalOverview";
@@ -27,7 +28,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 25;
 
 const VEHICLE_TYPES = [
@@ -252,7 +253,7 @@ function stateClass(state: string) {
 }
 
 export default function AdminFleetPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selected, setSelected] = useState<Vehicle | null>(null);
@@ -288,7 +289,7 @@ export default function AdminFleetPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -306,7 +307,7 @@ export default function AdminFleetPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -325,12 +326,10 @@ export default function AdminFleetPage() {
 
         if (search) params.set("search", search);
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/vehicles/admin/list?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -339,7 +338,7 @@ export default function AdminFleetPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            undefined;
             setAdminKey("");
           }
 
@@ -458,14 +457,11 @@ export default function AdminFleetPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/vehicles/admin/${selected.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             ...editForm,
             name: editForm.name.trim(),
@@ -533,13 +529,11 @@ export default function AdminFleetPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/vehicles/admin/${selected.id}`,
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 

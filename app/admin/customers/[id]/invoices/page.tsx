@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -8,7 +9,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type CustomerSummary = {
   id: string;
@@ -39,16 +40,14 @@ function formatMoney(value: unknown, currency = "GBP") {
 }
 
 function getAdminKey() {
-  return window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+  return String("session") || "";
 }
 
 async function fetchCustomer(customerId: string) {
-  const response = await fetch(
+  const response = await adminFetch(
     `${API_BASE_URL}/api/admin/customers/${customerId}`,
     {
-      headers: {
-        "x-admin-key": getAdminKey(),
-      },
+      headers: {},
       cache: "no-store",
     },
   );

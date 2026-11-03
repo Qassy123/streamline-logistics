@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
@@ -57,32 +58,7 @@ function getPositiveInteger(value: unknown, fallback: number) {
   return parsedValue;
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 401,
-      error: "Admin access denied.",
-    };
-  }
-
-  return {
-    authorised: true,
-    status: 200,
-    error: "",
-  };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 function createDateFilter(
   dateFrom: string,

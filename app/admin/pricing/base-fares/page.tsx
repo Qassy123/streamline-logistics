@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import {
   Loader2,
@@ -68,7 +69,7 @@ export default function BaseFaresPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const getAdminKey = useCallback(
-    () => window.localStorage.getItem("streamline_admin_key") || "",
+    () => String("session") || "",
     [],
   );
 
@@ -81,10 +82,10 @@ export default function BaseFaresPage() {
       if (search) params.set("search", search);
       if (activeFilter) params.set("active", activeFilter);
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/tariffs?${params.toString()}`,
         {
-          headers: { "x-admin-key": getAdminKey() },
+          headers: {},
           cache: "no-store",
         },
       );
@@ -143,16 +144,13 @@ export default function BaseFaresPage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         editing
           ? `${API_BASE_URL}/api/admin/tariffs/${editing.id}`
           : `${API_BASE_URL}/api/admin/tariffs`,
         {
           method: editing ? "PATCH" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             ...form,
             baseFare: Number(form.baseFare),
@@ -188,11 +186,11 @@ export default function BaseFaresPage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/tariffs/${tariff.id}`,
         {
           method: "DELETE",
-          headers: { "x-admin-key": getAdminKey() },
+          headers: {},
         },
       );
       const data = await response.json();

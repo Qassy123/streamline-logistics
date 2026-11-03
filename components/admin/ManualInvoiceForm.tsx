@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import { tradeMonth, TRADE_PAYMENT_TERMS } from "@/lib/billingPolicy";
 
 import { useEffect, useState } from "react";
@@ -80,7 +81,7 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
     setLoading(true); setOptionsReady(false); setError("");
     async function load() {
       try {
-        const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/manual-options`, { headers: { "x-admin-key": adminKey }, cache: "no-store", signal: controller.signal });
+        const response = await adminFetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/manual-options`, { headers: {}, cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) {
           if (response.status === 404 && data.error === "Invoice not found.") {
@@ -144,8 +145,8 @@ export default function ManualInvoiceForm({ apiBase, adminKey, invoice, onClose,
     if (saving || !optionsReady) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/${invoice ? `${invoice.id}/manual` : "manual"}`, {
-        method: invoice ? "PATCH" : "POST", headers: { "x-admin-key": adminKey, "Content-Type": "application/json" },
+      const response = await adminFetch(`${apiBase.replace(/\/$/, "")}/api/invoices/admin/${invoice ? `${invoice.id}/manual` : "manual"}`, {
+        method: invoice ? "PATCH" : "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ ...form, lines, requestId }),
       });
       const data = await response.json();

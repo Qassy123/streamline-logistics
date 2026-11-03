@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
@@ -25,7 +26,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 25;
 
 type Quote = {
@@ -136,7 +137,7 @@ function statusClass(status: string) {
 }
 
 export default function AdminQuotesPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [selected, setSelected] = useState<Quote | null>(null);
   const [accounts, setAccounts] = useState<{ id: string; name: string; companyName: string | null; accountNumber: string | null }[]>([]);
@@ -180,7 +181,7 @@ export default function AdminQuotesPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -196,7 +197,7 @@ export default function AdminQuotesPage() {
   useEffect(() => {
     if (!adminKey) return;
     const controller = new AbortController();
-    void fetch(`${API_BASE}/api/quotes/admin/accounts`, { cache: "no-store", signal: controller.signal, headers: { "x-admin-key": adminKey } }).then(async response => {
+    void adminFetch(`${API_BASE}/api/quotes/admin/accounts`, { cache: "no-store", signal: controller.signal, headers: {} }).then(async response => {
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "Unable to load accounts."); if (!controller.signal.aborted) setAccounts(data.accounts || []);
     }).catch(failure => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "Unable to load accounts."); });
     return () => controller.abort();
@@ -209,7 +210,7 @@ export default function AdminQuotesPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -228,12 +229,10 @@ export default function AdminQuotesPage() {
         if (dateFrom) params.set("dateFrom", dateFrom);
         if (dateTo) params.set("dateTo", dateTo);
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/quotes/admin/list?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -243,7 +242,7 @@ export default function AdminQuotesPage() {
         if (version !== requestVersion.current) return;
         if (!response.ok) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            undefined;
             setAdminKey("");
           }
 
@@ -323,14 +322,11 @@ export default function AdminQuotesPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/quotes/admin/${selected.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             status: nextStatus,
             collectionDate: editCollectionDate,

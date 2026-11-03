@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import {existingBookingsGrid,confirmedGridStatuses} from "@/lib/existingBookingsGrid";
@@ -21,7 +22,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 100;
 
 const START_HOUR = 0;
@@ -267,7 +268,7 @@ function statusLabel(status: string) {
 }
 
 export default function AdminBookingsPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -280,7 +281,7 @@ export default function AdminBookingsPage() {
 
   useEffect(() => {
     const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedAdminKey);
   }, []);
@@ -293,7 +294,7 @@ export default function AdminBookingsPage() {
         setDrivers([]);
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -326,10 +327,10 @@ export default function AdminBookingsPage() {
         let availableDrivers: Driver[] = [];
         do {
           params.set("page", String(page));
-          const response = await fetch(`${API_BASE}/api/bookings/admin/list?${params}`, { headers: { "x-admin-key": adminKey }, cache: "no-store" });
+          const response = await adminFetch(`${API_BASE}/api/bookings/admin/list?${params}`, { headers: {}, cache: "no-store" });
           const payload = await response.json() as Payload;
           if (!response.ok) {
-            if (response.status === 401) { window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY); setAdminKey(""); }
+            if (response.status === 401) { undefined; setAdminKey(""); }
             throw new Error(payload.error || "Unable to load bookings.");
           }
           allBookings.push(...(payload.bookings || []));
@@ -367,7 +368,7 @@ export default function AdminBookingsPage() {
     }
   }, [adminKey, loadBookings]);
 
-  useEffect(()=>{if(!adminKey)return;const id=new URLSearchParams(window.location.search).get("booking");if(!id)return;const c=new AbortController();void fetch(`${API_BASE}/api/bookings/admin/${encodeURIComponent(id)}`,{signal:c.signal,cache:"no-store",headers:{"x-admin-key":adminKey}}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to open booking.");if(!c.signal.aborted&&d.booking){setSelectedBooking(d.booking);setSelectedDate(d.booking.collectionDate.slice(0,10));}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[adminKey]);
+  useEffect(()=>{if(!adminKey)return;const id=new URLSearchParams(window.location.search).get("booking");if(!id)return;const c=new AbortController();void adminFetch(`${API_BASE}/api/bookings/admin/${encodeURIComponent(id)}`,{signal:c.signal,cache:"no-store",headers:{}}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to open booking.");if(!c.signal.aborted&&d.booking){setSelectedBooking(d.booking);setSelectedDate(d.booking.collectionDate.slice(0,10));}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[adminKey]);
 
   function moveSelectedDate(days: number) {
     const nextDate = new Date(`${selectedDate}T12:00:00`);
@@ -715,14 +716,11 @@ function BookingDetailsModal({
     setAssignmentError("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/planning/bookings/${booking.id}/assignment`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             vehicleId,
             driverId,
@@ -782,13 +780,11 @@ function BookingDetailsModal({
     setCancellationError("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/bookings/admin/${booking.id}/cancel`,
         {
           method: "POST",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 

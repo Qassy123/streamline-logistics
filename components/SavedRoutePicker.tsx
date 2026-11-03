@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import { useEffect, useRef, useState } from "react";
 export type RouteChoice = { id:string; name?:string|null; collectionAddress:string; deliveryAddress:string };
 export default function SavedRoutePicker({accountId,apiBase="https://streamline-logistics-production.up.railway.app/api",onSelect,refresh=0}:{accountId?:string;apiBase?:string;onSelect:(route:RouteChoice)=>void;refresh?:number}) {
@@ -6,10 +7,10 @@ export default function SavedRoutePicker({accountId,apiBase="https://streamline-
   const details=useRef<HTMLDetailsElement>(null);
   useEffect(()=>{
     const controller=new AbortController(); setRoutes([]); setError(""); setQuery("");
-    const token=accountId?sessionStorage.getItem("hoursStaffToken"):localStorage.getItem("streamline_auth_token");
-    const key=accountId?localStorage.getItem("streamline_admin_key"):null;
-    if (!token && !key) return;
-    fetch(`${apiBase}/saved-routes/${accountId?`admin/${encodeURIComponent(accountId)}`:"me"}`,{cache:"no-store",signal:controller.signal,headers:{...(token?{Authorization:`Bearer ${token}`} : {}),...(key?{"x-admin-key":key}:{})}})
+    const token=accountId?null:localStorage.getItem("streamline_auth_token");
+
+    if (!accountId && !token) return;
+    (accountId?adminFetch:fetch)(`${apiBase}/saved-routes/${accountId?`admin/${encodeURIComponent(accountId)}`:"me"}`,{cache:"no-store",signal:controller.signal,headers:{...(token?{Authorization:`Bearer ${token}`} : {})}})
       .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to load routes.");setRoutes(data.savedRoutes||[]);})
       .catch(error=>{if(!controller.signal.aborted)setError(error.message);});
     return ()=>controller.abort();

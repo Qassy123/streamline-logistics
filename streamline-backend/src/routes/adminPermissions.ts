@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import { Router, type Request, type Response } from "express";
 import bcrypt from "bcryptjs";
 import { AdminRole, Prisma } from "@prisma/client";
@@ -11,28 +12,7 @@ function requireAdminKey(
   request: Request,
   response: Response,
   next: () => void,
-) {
-  const configuredKey = process.env.ADMIN_API_KEY;
-  const suppliedKey = request.header("x-admin-key");
-
-  if (!configuredKey) {
-    response.status(500).json({
-      success: false,
-      message: "ADMIN_API_KEY is not configured.",
-    });
-    return;
-  }
-
-  if (!suppliedKey || suppliedKey !== configuredKey) {
-    response.status(401).json({
-      success: false,
-      message: "Unauthorised.",
-    });
-    return;
-  }
-
-  next();
-}
+) { const access=centralAdminAccess(request); if(!access.authorised){response.status(access.status).json({error:access.error,message:access.error});return;} next(); }
 
 router.use(requireAdminKey);
 

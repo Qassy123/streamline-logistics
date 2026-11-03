@@ -13,15 +13,11 @@ import { requireStaff } from "../lib/adminAccess";
 import { assertPlan, assertVanChange, fleetMutation, dispatchRoles, staffActor } from "../lib/fleetOperations";
 const router = express.Router();
 const activeStatuses = [BookingStatus.CONFIRMED, BookingStatus.ASSIGNED, BookingStatus.IN_PROGRESS];
-const actor = "Admin (API key)";
+const actor = "Admin";
 
 router.use(async (req, res, next) => {
-  if (req.headers.authorization) { try { const admin = await requireStaff(req, [...dispatchRoles]); res.locals.fleetActor = staffActor(admin); res.setHeader("Cache-Control", "no-store"); return next(); } catch (e) { return void res.status(e instanceof DriverPortalError ? e.status : 500).json({ error: e instanceof Error ? e.message : "Staff access denied." }); } }
-  const key = process.env.ADMIN_API_KEY;
-  if (!key) return void res.status(500).json({ error: "Admin security is not configured." });
-  if (text(req.headers["x-admin-key"]) !== key) return void res.status(401).json({ error: "Admin access denied." });
-  res.setHeader("Cache-Control", "no-store");
-  next();
+  if (req.headers.authorization) { try { const admin = await requireStaff(req, [...dispatchRoles,...(["GET","HEAD"].includes(req.method)?["READ_ONLY" as const]:[])]); res.locals.fleetActor = staffActor(admin); res.setHeader("Cache-Control", "no-store"); return next(); } catch (e) { return void res.status(e instanceof DriverPortalError ? e.status : 500).json({ error: e instanceof Error ? e.message : "Staff access denied." }); } }
+  return void res.status(401).json({error:"Sign in to the admin portal."});
 });
 
 type Handler = (req: express.Request, res: express.Response) => Promise<unknown>;

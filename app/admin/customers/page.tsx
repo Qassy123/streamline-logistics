@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 
 import Link from "next/link";
@@ -17,7 +18,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
@@ -87,7 +88,7 @@ function statusClasses(status: AccountStatus) {
 }
 
 export default function ExistingCustomersPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -96,7 +97,7 @@ export default function ExistingCustomersPage() {
 
   useEffect(() => {
     const storedKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedKey);
   }, []);
@@ -106,7 +107,7 @@ export default function ExistingCustomersPage() {
       if (!adminKey) {
         setLoading(false);
         setCustomers([]);
-        setError("Admin key is required.");
+        setError("Your admin session has expired. Sign in again.");
         return;
       }
 
@@ -123,12 +124,10 @@ export default function ExistingCustomersPage() {
           params.set("search", search.trim());
         }
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/customers?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -137,7 +136,7 @@ export default function ExistingCustomersPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            undefined;
           }
 
           throw new Error(

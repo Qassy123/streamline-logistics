@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import {
   KeyRound,
@@ -126,7 +127,7 @@ export default function AdminPermissionsPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const getAdminKey = useCallback(() => {
-    return window.localStorage.getItem("streamline_admin_key") || "";
+    return String("session") || "";
   }, []);
 
   const loadAdmins = useCallback(
@@ -152,12 +153,10 @@ export default function AdminPermissionsPage() {
           parameters.set("active", activeFilter);
         }
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE_URL}/api/admin/permissions?${parameters.toString()}`,
           {
-            headers: {
-              "x-admin-key": getAdminKey(),
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -233,16 +232,13 @@ export default function AdminPermissionsPage() {
 
     try {
       const isEdit = modalMode === "edit" && selectedAdmin;
-      const response = await fetch(
+      const response = await adminFetch(
         isEdit
           ? `${API_BASE_URL}/api/admin/permissions/${selectedAdmin.id}`
           : `${API_BASE_URL}/api/admin/permissions`,
         {
           method: isEdit ? "PATCH" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             name: form.name,
             email: form.email,
@@ -290,14 +286,11 @@ export default function AdminPermissionsPage() {
     setWorkingId(admin.id);
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/permissions/${admin.id}/revoke-sessions`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             reason: "Revoked from admin permissions page",
           }),
@@ -336,14 +329,11 @@ export default function AdminPermissionsPage() {
     setWorkingId(admin.id);
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/permissions/${admin.id}`,
         {
           method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             reason: "Deleted from admin permissions page",
           }),
@@ -418,9 +408,9 @@ export default function AdminPermissionsPage() {
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-        Administrator accounts are stored in Prisma. Existing admin API access still
-        uses the shared ADMIN_API_KEY. Driver hours and payroll already enforce
-        individual staff sessions and role permissions.
+        Everyone signs in through the same admin login using their own account.
+        Super Admin has full access. Other staff can access the sections allowed
+        by their assigned role.
       </div>
 
       {error ? (

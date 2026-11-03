@@ -90,8 +90,7 @@ router.get("/me", async (req, res) => {
 
 router.get("/admin/:userId", async (req,res) => {
   try {
-    const key = process.env.ADMIN_API_KEY?.trim();
-    if (!key || req.headers["x-admin-key"] !== key) await requireStaff(req, ["SUPER_ADMIN", "OFFICE_MANAGER", "DISPATCHER", "ACCOUNTS"]);
+    await requireStaff(req, ["SUPER_ADMIN", "OFFICE_MANAGER", "DISPATCHER", "ACCOUNTS", "READ_ONLY"]);
     const userId = getString(req.params.userId);
     const owner = await prisma.user.findUnique({ where: { id: userId } });
     if (!owner || owner.accountStatus !== "ACTIVE") return res.status(404).json({error:"Active customer not found."});

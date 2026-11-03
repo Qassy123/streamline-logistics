@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import LiveFleetTracking from "@/components/admin/LiveFleetTracking";
@@ -19,7 +20,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type TrackingEvent = {
   id: string;
@@ -132,7 +133,7 @@ export default function AdminTrackingPage() {
   return <main className="mx-auto w-full max-w-[1280px] space-y-5"><h1 className="text-3xl font-bold">Tracking</h1><LiveFleetTracking /><details className="rounded-2xl border bg-white p-4"><summary className="min-h-12 cursor-pointer content-center font-semibold">Existing booking tracking tools</summary><LegacyTrackingTools /></details></main>;
 }
 function LegacyTrackingTools() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [registrationSearch, setRegistrationSearch] = useState("");
@@ -143,14 +144,14 @@ function LegacyTrackingTools() {
 
   useEffect(() => {
     const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedAdminKey);
 
     if (!storedAdminKey) {
       setLoadingVehicles(false);
       setError(
-        "Admin key is missing. Unlock the admin area first, then return to Tracking.",
+        "Your admin session has expired. Sign in again.",
       );
     }
   }, []);
@@ -162,7 +163,7 @@ function LegacyTrackingTools() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/vehicles`, {
+      const response = await adminFetch(`${API_BASE}/api/vehicles`, {
         cache: "no-store",
       });
 
@@ -253,7 +254,7 @@ function LegacyTrackingTools() {
 
   async function trackVehicle(vehicle: Vehicle) {
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -273,12 +274,10 @@ function LegacyTrackingTools() {
         search: searchTerm,
       });
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/tracking/admin/list?${params.toString()}`,
         {
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
           cache: "no-store",
         },
       );

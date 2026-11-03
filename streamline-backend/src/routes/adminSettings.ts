@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -41,28 +42,7 @@ function requireAdminKey(
   request: Request,
   response: Response,
   next: () => void,
-) {
-  const configuredKey = process.env.ADMIN_API_KEY;
-  const suppliedKey = request.header("x-admin-key");
-
-  if (!configuredKey) {
-    response.status(500).json({
-      success: false,
-      message: "ADMIN_API_KEY is not configured.",
-    });
-    return;
-  }
-
-  if (!suppliedKey || suppliedKey !== configuredKey) {
-    response.status(401).json({
-      success: false,
-      message: "Unauthorised.",
-    });
-    return;
-  }
-
-  next();
-}
+) { const access=centralAdminAccess(request); if(!access.authorised){response.status(access.status).json({error:access.error,message:access.error});return;} next(); }
 
 // Public read-only status: never expose company, bank or environment details.
 router.get("/downtime", async (_request, response) => {
@@ -265,7 +245,7 @@ router.get("/", async (_request, response) => {
         ),
         stripeConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
         resendConfigured: Boolean(process.env.RESEND_API_KEY),
-        adminKeyConfigured: Boolean(process.env.ADMIN_API_KEY),
+        adminLoginConfigured: true,
         databaseConfigured: Boolean(process.env.DATABASE_URL),
       },
     });

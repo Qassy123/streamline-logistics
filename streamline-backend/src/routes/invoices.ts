@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import { reserveInvoiceNumber } from "../lib/invoiceNumber";
 import { TRADE_PAYMENT_TERMS, invoiceTerms, tradeMonth } from "../lib/billingPolicy";
 import { processMonthlyTradeBilling } from "../lib/monthlyTradeBilling";
@@ -53,24 +54,7 @@ function isInvoiceStatus(value: string): value is InvoiceStatusValue {
   return ALLOWED_INVOICE_STATUSES.includes(value as InvoiceStatusValue);
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return { authorised: false, status: 401, error: "Admin access denied." };
-  }
-
-  return { authorised: true, status: 200, error: "" };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 function invoiceInclude() {
   return {
@@ -2231,13 +2215,7 @@ router.post("/admin/:id/payment-allocations", async (req, res) => {
 });
 
 
-router.post("/admin/process-reminders", async (req, res) => {
-  const admin = requireAdmin(req);
-  if (!admin.authorised) {
-    return res.status(admin.status).json({ error: admin.error });
-  }
-
-  try {
+export async function runInvoiceReminders(){
     const now = new Date();
     const todayStart = new Date(now);
     todayStart.setUTCHours(0, 0, 0, 0);
@@ -2389,12 +2367,9 @@ router.post("/admin/process-reminders", async (req, res) => {
       }
     }
 
-    res.json({ success: true, sent, skipped, failures });
-  } catch (error) {
-    console.error("Invoice reminder processing error:", error);
-    res.status(500).json({ error: "Unable to process invoice reminders." });
-  }
-});
+    return {success:true,sent,skipped,failures};
+}
+router.post("/admin/process-reminders",async(req,res)=>{const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});try{res.json(await runInvoiceReminders());}catch{res.status(500).json({error:"Unable to process invoice reminders."});}});
 
 router.get("/admin/credit-exposure/:userId", async (req, res) => {
   const admin = requireAdmin(req);

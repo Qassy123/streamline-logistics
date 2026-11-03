@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import {newNotices,checkNewNotice} from "../lib/adminNewNotices";
 import { assertFutureCollection } from "../lib/collectionSchedule";
 import { bookingSectionWhere } from "../lib/bookingSections";
@@ -110,32 +111,7 @@ function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 401,
-      error: "Admin access denied.",
-    };
-  }
-
-  return {
-    authorised: true,
-    status: 200,
-    error: "",
-  };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 async function getAuthenticatedUser(req: {
   headers: { authorization?: string };
@@ -961,7 +937,7 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
     const purchaseOrderNumber = getOptionalString(req.body.purchaseOrderNumber);
     const customerReference = getOptionalString(req.body.customerReference);
     const creditOverrideReason = getString(req.body.creditOverrideReason);
-    const approvedByAdminId = "ADMIN_API_KEY";
+    const approvedByAdminId = centralAdminAccess(req).admin!.id;
     const bookingAmount = new Prisma.Decimal(quote.totalPrice).toDecimalPlaces(
       2,
       Prisma.Decimal.ROUND_HALF_UP,
@@ -1143,7 +1119,8 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
    Existing Booking Routes
 ---------------------------------- */
 
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
+  const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});
   try {
     const bookings = await prisma.booking.findMany({
       orderBy: {
@@ -1380,6 +1357,7 @@ router.get("/me/invoices", async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
+  const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});
   try {
     const booking = await prisma.booking.findUnique({
       where: {
@@ -1418,7 +1396,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.post("/expire-reservations", async (_, res) => {
+router.post("/expire-reservations", async (req, res) => {
+  const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});
   try {
     const now = new Date();
 
@@ -1609,6 +1588,7 @@ router.post("/from-quote/:quoteId", async (req, res) => {
 });
 
 router.post("/:id/confirm-payment", async (req, res) => {
+  const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});
   try {
     const booking = await prisma.booking.findUnique({
       where: {

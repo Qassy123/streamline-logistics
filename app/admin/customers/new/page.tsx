@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import { useRouter } from "next/navigation";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
@@ -10,7 +11,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type AccountType = "BUSINESS" | "TRADE";
 
@@ -71,7 +72,7 @@ const initialForm: FormState = {
 };
 
 function adminKey() {
-  return window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+  return String("session")?.trim() || "";
 }
 
 export default function AddNewCustomerPage() {
@@ -168,7 +169,7 @@ export default function AddNewCustomerPage() {
       const key = adminKey();
 
       if (!key) {
-        throw new Error("Admin key is required.");
+        throw new Error("Your admin session has expired. Sign in again.");
       }
 
       const payload = {
@@ -244,14 +245,11 @@ export default function AddNewCustomerPage() {
             : "United Kingdom",
       };
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/customers`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": key,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload),
         },
       );

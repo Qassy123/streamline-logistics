@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,7 +20,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type ReportPayload = {
   range: {
@@ -129,7 +130,7 @@ function maxValue(values: number[]) {
 }
 
 export default function AdminReportsPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [dateFrom, setDateFrom] = useState(startOfCurrentYear);
   const [dateTo, setDateTo] = useState(() => dateInput(new Date()));
   const [report, setReport] = useState<ReportPayload | null>(null);
@@ -139,7 +140,7 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -148,7 +149,7 @@ export default function AdminReportsPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is missing. Unlock the admin area first, then return to Reports.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -162,12 +163,10 @@ export default function AdminReportsPage() {
           dateTo,
         });
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/reports?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );

@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import RouteSheetDownload from "@/components/RouteSheetDownload";
 import { dispatchCategories, dispatchCategory } from "@/lib/dispatchCategories";
 
@@ -19,7 +20,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type Vehicle = {
   id: string;
@@ -51,7 +52,7 @@ type Driver = {
 };
 
 export default function AdminDriversPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,14 +72,11 @@ export default function AdminDriversPage() {
   const [error, setError] = useState("");
 
   function adminHeaders(key = adminKey) {
-    return {
-      "Content-Type": "application/json",
-      "x-admin-key": key,
-    };
+    return {"Content-Type": "application/json"};
   }
 
   function clearRejectedAdminKey() {
-    window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+    undefined;
     setAdminKey("");
     setDrivers([]);
     setVehicles([]);
@@ -95,13 +93,11 @@ export default function AdminDriversPage() {
 
     try {
       const [driversResponse, vehiclesResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/admin/drivers`, {
-          headers: {
-            "x-admin-key": activeAdminKey,
-          },
+        adminFetch(`${API_BASE}/api/admin/drivers`, {
+          headers: {},
           cache: "no-store",
         }),
-        fetch(`${API_BASE}/api/vehicles`, {
+        adminFetch(`${API_BASE}/api/vehicles`, {
           cache: "no-store",
         }),
       ]);
@@ -113,7 +109,7 @@ export default function AdminDriversPage() {
         if (driversResponse.status === 401) {
           clearRejectedAdminKey();
           throw new Error(
-            "Admin key rejected. Unlock the admin area from Driver Management.",
+            "Your admin session has expired. Sign in again.",
           );
         }
 
@@ -150,7 +146,7 @@ export default function AdminDriversPage() {
 
     if (!adminKey) {
       setError(
-        "Admin key is missing. Unlock the admin area first, then return to Drivers.",
+        "Your admin session has expired. Sign in again.",
       );
       return;
     }
@@ -170,7 +166,7 @@ export default function AdminDriversPage() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/drivers`, {
+      const response = await adminFetch(`${API_BASE}/api/admin/drivers`, {
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify({
@@ -190,7 +186,7 @@ export default function AdminDriversPage() {
       if (!response.ok) {
         if (response.status === 401) {
           clearRejectedAdminKey();
-          throw new Error("Admin key rejected.");
+          throw new Error("Your admin session has expired. Sign in again.");
         }
 
         throw new Error(payload?.error || "Unable to create driver.");
@@ -222,7 +218,7 @@ export default function AdminDriversPage() {
 
   async function deactivateDriver(driver: Driver) {
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -236,13 +232,11 @@ export default function AdminDriversPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/drivers/${driver.id}`,
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 
@@ -251,7 +245,7 @@ export default function AdminDriversPage() {
       if (!response.ok) {
         if (response.status === 401) {
           clearRejectedAdminKey();
-          throw new Error("Admin key rejected.");
+          throw new Error("Your admin session has expired. Sign in again.");
         }
 
         throw new Error(payload?.error || "Unable to deactivate driver.");
@@ -270,14 +264,14 @@ export default function AdminDriversPage() {
 
   useEffect(() => {
     const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedAdminKey);
 
     if (!storedAdminKey) {
       setLoading(false);
       setError(
-        "Admin key is missing. Unlock the admin area from Driver Management before using this page.",
+        "Your admin session has expired. Sign in again.",
       );
       return;
     }
@@ -643,7 +637,7 @@ function localTimeInput(value?: string | null) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 async function driverAdminRequest(key: string, path: string, method = "GET", body?: unknown) {
-  const response = await fetch(`${API_BASE}/api/admin/drivers${path}`, { method, cache: "no-store", headers: { "x-admin-key": key, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await adminFetch(`${API_BASE}/api/admin/drivers${path}`, { method, cache: "no-store", headers: {"Content-Type": "application/json"}, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || "Unable to confirm this operation. Refresh before retrying.") as Error & { status?: number };

@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import { Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -49,7 +50,7 @@ export default function MileagePage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const getAdminKey = useCallback(
-    () => window.localStorage.getItem("streamline_admin_key") || "",
+    () => String("session") || "",
     [],
   );
 
@@ -58,8 +59,8 @@ export default function MileagePage() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/tariffs`, {
-        headers: { "x-admin-key": getAdminKey() },
+      const response = await adminFetch(`${API_BASE_URL}/api/admin/tariffs`, {
+        headers: {},
         cache: "no-store",
       });
 
@@ -115,16 +116,13 @@ export default function MileagePage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         editing
           ? `${API_BASE_URL}/api/admin/tariffs/mileage-bands/${editing.id}`
           : `${API_BASE_URL}/api/admin/tariffs/${form.tariffId}/mileage-bands`,
         {
           method: editing ? "PATCH" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             minimumMiles: Number(form.minimumMiles),
             maximumMiles:
@@ -166,11 +164,11 @@ export default function MileagePage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/tariffs/mileage-bands/${band.id}`,
         {
           method: "DELETE",
-          headers: { "x-admin-key": getAdminKey() },
+          headers: {},
         },
       );
       const data = await response.json();

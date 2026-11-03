@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import PlanningDiscountSelect from "@/components/admin/PlanningDiscountSelect";
 import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
@@ -32,7 +33,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 const VEHICLE_TYPES = [
   "Small Van",
@@ -383,7 +384,7 @@ function capacityPricingVehicle(capacityPercent: number) {
 function windowFromDropOffset(offsetX: number) { return dropCollectionWindow(offsetX, HOUR_WIDTH); }
 
 export default function AdminPlanningBoardPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -440,7 +441,7 @@ export default function AdminPlanningBoardPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -478,7 +479,7 @@ export default function AdminPlanningBoardPage() {
       let page = 1;
       let totalPages = 1;
       do {
-        const response = await fetch(API_BASE + "/api/admin/customers?page=" + page + "&pageSize=100&accountStatus=ACTIVE", { headers: { "x-admin-key": adminKey }, cache: "no-store" });
+        const response = await adminFetch(API_BASE + "/api/admin/customers?page=" + page + "&pageSize=100&accountStatus=ACTIVE", { headers: {}, cache: "no-store" });
         const payload = await response.json() as CustomerPayload;
         if (!response.ok) throw new Error(payload.error || "Unable to load customer accounts.");
         allCustomers.push(...(payload.customers || []));
@@ -515,12 +516,10 @@ export default function AdminPlanningBoardPage() {
           unassignedOnly: "false",
         });
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/planning?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -646,11 +645,11 @@ export default function AdminPlanningBoardPage() {
 
   async function calculateJourney(payload: AdminQuotePayload) {
     payload={...payload,...{discountRuleId,discountCustomerId:form.accountId==="GUEST"?null:form.accountId}};
-    if (!adminKey) throw new Error("Unlock the admin area before calculating a quote.");
+    if (!adminKey) throw new Error("Your admin session has expired. Sign in again.");
     setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null); setSavedDraftReference("");
     try {
-      const response = await fetch(API_BASE + "/api/quotes/admin/calculate", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-admin-key": adminKey }, body: JSON.stringify(payload),
+      const response = await adminFetch(API_BASE + "/api/quotes/admin/calculate", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
       });
       const result = await response.json() as CalculatePayload;
       if (!response.ok || !result.calculation) throw new Error(result.error || "Unable to calculate the journey.");
@@ -694,12 +693,9 @@ export default function AdminPlanningBoardPage() {
     };
 
     if (form.accountId === "GUEST") {
-      const response = await fetch(`${API_BASE}/api/quotes/admin/guest`, {
+      const response = await adminFetch(`${API_BASE}/api/quotes/admin/guest`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           ...commonBody,
           companyName: form.guestCompanyName.trim(),
@@ -723,14 +719,11 @@ export default function AdminPlanningBoardPage() {
       };
     }
 
-    const response = await fetch(
+    const response = await adminFetch(
       `${API_BASE}/api/quotes/admin/customer/${form.accountId}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify(commonBody),
       },
     );
@@ -748,14 +741,11 @@ export default function AdminPlanningBoardPage() {
   }
 
   async function createUnassignedBooking(quoteId: string) {
-    const response = await fetch(
+    const response = await adminFetch(
       `${API_BASE}/api/bookings/admin/from-quote/${quoteId}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           purchaseOrderNumber: form.purchaseOrderNumber.trim() || null,
           customerReference: form.customerReference.trim() || null,
@@ -794,14 +784,11 @@ export default function AdminPlanningBoardPage() {
     vehicleId: string,
     complianceOverride = false,
   ) {
-    const response = await fetch(
+    const response = await adminFetch(
       `${API_BASE}/api/admin/planning/bookings/${bookingId}/assignment`,
       {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           vehicleId,
           complianceOverride,
@@ -893,14 +880,11 @@ export default function AdminPlanningBoardPage() {
        * This keeps the final stored charge aligned with the physical vehicle
        * chosen on the planning board.
        */
-      const finalCalculationResponse = await fetch(
+      const finalCalculationResponse = await adminFetch(
         `${API_BASE}/api/quotes/admin/calculate`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ ...customerFormPayload, vehicleSize: vehicle.vehicleType, collectionDate: planningDate + "T00:00:00.000Z", collectionWindow }),
         },
       );
@@ -975,12 +959,10 @@ export default function AdminPlanningBoardPage() {
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/bookings/admin/${booking.id}`,
         {
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
           cache: "no-store",
         },
       );
@@ -1040,14 +1022,11 @@ export default function AdminPlanningBoardPage() {
     setError("");setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/bookings/admin/${editingBooking.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             collectionDate: `${editCollectionDate}T00:00:00`,
             collectionWindow: editCollectionWindow,
@@ -1094,7 +1073,7 @@ export default function AdminPlanningBoardPage() {
     if(!window.confirm(manual?`Confirm ${money(refund.amount)} has been returned manually by ${refund.method}?`:`Approve / check ${money(refund.amount)} refund through the original ${refund.method} payment?`))return;
     setRefundBusy(true);setError("");setMessage("");
     try{
-      const response=await fetch(`${API_BASE}/api/bookings/admin/${editingBooking.id}/refunds/${refund.id}/${manual?"record-manual":"approve"}`,{method:"POST",headers:{"Content-Type":"application/json","x-admin-key":adminKey},body:JSON.stringify({reference:refundReferences[refund.id]||""})});
+      const response=await adminFetch(`${API_BASE}/api/bookings/admin/${editingBooking.id}/refunds/${refund.id}/${manual?"record-manual":"approve"}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reference:refundReferences[refund.id]||""})});
       const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to update the refund.");
       await loadPlanningBoard(false);if(data.booking)populateBookingEditor(data.booking);
       setMessage("Refund record updated. Check its status below.");
@@ -1114,14 +1093,11 @@ export default function AdminPlanningBoardPage() {
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/bookings/admin/${editingBooking.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             status: "CANCELLED", reason: "Admin cancelled this booking from the booking editor.",
           }),

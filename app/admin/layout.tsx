@@ -2,6 +2,7 @@
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
 
+import AdminSessionGate,{useAdminSession,canAdminPage} from "@/components/admin/AdminSession";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
@@ -104,10 +105,11 @@ function isNavigationItemActive(
   );
 }
 
-export default function AdminLayout({
+function AdminLayoutContent({
   children,
 }: AdminLayoutProps) {
   const pathname = usePathname();
+  const {admin,signOut}=useAdminSession();
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
@@ -133,6 +135,7 @@ export default function AdminLayout({
                 </span>
               </span>
             </Link>
+            <div className="ml-auto flex items-center gap-4 text-sm text-white"><span>{admin.name}</span><button className="min-h-11 rounded-lg border border-slate-600 px-4" onClick={()=>void signOut()}>Sign out</button></div>
           </div>
         </div>
 
@@ -140,7 +143,7 @@ export default function AdminLayout({
         <nav className="border-b border-slate-200 bg-white">
           <div className="w-full overflow-x-auto">
             <div className="mx-auto flex min-w-max max-w-[1800px] gap-2 px-4 py-3 sm:px-6">
-              {navigationItems.map((item) => {
+              {navigationItems.filter(item=>canAdminPage(admin,item.href)).map((item) => {
                 const active = isNavigationItemActive(
                   pathname,
                   item,
@@ -173,3 +176,5 @@ export default function AdminLayout({
   );
 }
 
+
+export default function AdminLayout({children}:AdminLayoutProps){const pathname=usePathname();if(pathname==="/admin/login")return children;return <AdminSessionGate><AdminLayoutContent>{children}</AdminLayoutContent></AdminSessionGate>;}

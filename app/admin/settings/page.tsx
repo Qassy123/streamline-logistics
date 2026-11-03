@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import {
   Building2,
@@ -124,7 +125,7 @@ export default function AdminSettingsPage() {
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
   const getAdminKey = useCallback(() => {
-    return window.localStorage.getItem("streamline_admin_key") || "";
+    return String("session") || "";
   }, []);
 
   const loadSettings = useCallback(async () => {
@@ -132,10 +133,8 @@ export default function AdminSettingsPage() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/settings`, {
-        headers: {
-          "x-admin-key": getAdminKey(),
-        },
+      const response = await adminFetch(`${API_BASE_URL}/api/admin/settings`, {
+        headers: {},
         cache: "no-store",
       });
 
@@ -178,11 +177,9 @@ export default function AdminSettingsPage() {
       const body = new FormData();
       body.append("logo", file);
 
-      const response = await fetch(`${API_BASE_URL}/api/admin/settings/logo`, {
+      const response = await adminFetch(`${API_BASE_URL}/api/admin/settings/logo`, {
         method: "POST",
-        headers: {
-          "x-admin-key": getAdminKey(),
-        },
+        headers: {},
         body,
       });
 
@@ -217,12 +214,9 @@ export default function AdminSettingsPage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/admin/settings`, {
+      const response = await adminFetch(`${API_BASE_URL}/api/admin/settings`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": getAdminKey(),
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           websiteDowntime: form.websiteDowntime,
           companyName: form.companyName,

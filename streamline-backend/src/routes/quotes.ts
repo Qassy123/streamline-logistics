@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import {planningDiscounts} from "../lib/planningDiscounts";
 import { assertFutureCollection } from "../lib/collectionSchedule";
 import { adminQuoteGrouping } from "../lib/adminQuoteGrouping";
@@ -63,32 +64,7 @@ function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 401,
-      error: "Admin access denied.",
-    };
-  }
-
-  return {
-    authorised: true,
-    status: 200,
-    error: "",
-  };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 async function getAuthenticatedUser(req: {
   headers: { authorization?: string };
@@ -1192,7 +1168,8 @@ router.patch("/admin/:id", async (req, res) => {
    Existing Public Quote Routes
 ---------------------------------- */
 
-router.get("/", async (_, res) => {
+router.get("/", async (req, res) => {
+  const access=requireAdmin(req);if(!access.authorised)return res.status(access.status).json({error:access.error});
   try {
     const quotes = await prisma.quote.findMany({
       where: { archivedCustomerId: null },

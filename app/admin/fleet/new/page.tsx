@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -16,7 +17,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 const VEHICLE_TYPES = [
   "Small Van",
@@ -82,7 +83,7 @@ const INITIAL_FORM: FormState = {
 };
 
 export default function AddFleetVehiclePage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
   const [lookupMessage, setLookupMessage] = useState("");
@@ -91,13 +92,13 @@ export default function AddFleetVehiclePage() {
 
   useEffect(() => {
     const storedKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedKey);
 
     if (!storedKey) {
       setError(
-        "Admin key is required. Unlock the admin area from Driver Management.",
+        "Your admin session has expired. Sign in again.",
       );
     }
   }, []);
@@ -134,7 +135,7 @@ export default function AddFleetVehiclePage() {
     event.preventDefault();
 
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -157,12 +158,9 @@ export default function AddFleetVehiclePage() {
     try {
       const internalName = `${form.vehicleType} - ${registration}`;
 
-      const response = await fetch(`${API_BASE}/api/vehicles/admin`, {
+      const response = await adminFetch(`${API_BASE}/api/vehicles/admin`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           name: internalName,
           vehicleType: form.vehicleType,

@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,7 @@ import {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 25;
 
 type TradeStatus =
@@ -196,7 +197,7 @@ function address(parts: Array<string | null | undefined>) {
 }
 
 export default function TradeAccountsPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [accounts, setAccounts] = useState<TradeAccount[]>([]);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -222,7 +223,7 @@ export default function TradeAccountsPage() {
   useEffect(
     () =>
       setAdminKey(
-        window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+        String("session")?.trim() || "",
       ),
     [],
   );
@@ -238,7 +239,7 @@ export default function TradeAccountsPage() {
     async (refresh = false) => {
       if (!adminKey) {
         setLoading(false);
-        setError("Admin key is required. Unlock the admin area first.");
+        setError("Your admin session has expired. Sign in again.");
         return;
       }
       refresh ? setRefreshing(true) : setLoading(true);
@@ -250,14 +251,14 @@ export default function TradeAccountsPage() {
           status,
         });
         if (search) params.set("search", search);
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/trade-accounts/admin?${params}`,
-          { headers: { "x-admin-key": adminKey }, cache: "no-store" },
+          { headers: {}, cache: "no-store" },
         );
         const payload = (await response.json()) as Payload;
         if (!response.ok) {
           if (response.status === 401) {
-            window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+            undefined;
             setAdminKey("");
           }
           throw new Error(payload.error || "Unable to load trade accounts.");
@@ -348,14 +349,11 @@ export default function TradeAccountsPage() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/trade-accounts/admin/${selected.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             ...(nextStatus && nextStatus!=="APPROVED" ? {} : form),
             status: nextStatus,
@@ -845,7 +843,7 @@ export default function TradeAccountsPage() {
                   if (saving) return;
                   setSaving(true); setError(""); setMessage("");
                   try {
-                    const response = await fetch(`${API_BASE}/api/trade-accounts/admin/${selected.id}/retry-decision-email`, { method: "POST", headers: { "x-admin-key": adminKey } });
+                    const response = await adminFetch(`${API_BASE}/api/trade-accounts/admin/${selected.id}/retry-decision-email`, { method: "POST", headers: {} });
                     const result = await response.json();
                     if (!response.ok || !result.success) throw new Error(result.error || "Decision email retry failed; check email configuration.");
                     setMessage(result.message || "Decision email accepted for delivery. Check the recipient inbox and spam folder.");

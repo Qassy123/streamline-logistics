@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
 import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 
@@ -23,7 +24,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 100;
 
 type InvoiceStatus =
@@ -291,7 +292,7 @@ function AdminInvoicesContent() {
   const searchParams = useSearchParams();
   const invoiceFromQuery = searchParams.get("invoice")?.trim() || "";
 
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedAccount, setSelectedAccount] = useState("ALL");
   const [invoiceNumber, setInvoiceNumber] = useState(invoiceFromQuery);
@@ -332,14 +333,14 @@ function AdminInvoicesContent() {
 
   useEffect(() => {
     const storedKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+      String("session")?.trim() || "";
 
     setAdminKey(storedKey);
 
     if (!storedKey) {
       setLoading(false);
       setError(
-        "Admin key is missing. Unlock the admin area first, then return to Invoices.",
+        "Your admin session has expired. Sign in again.",
       );
     }
   }, []);
@@ -364,12 +365,10 @@ function AdminInvoicesContent() {
             overdueOnly: "false",
           });
 
-          const response = await fetch(
+          const response = await adminFetch(
             `${API_BASE}/api/invoices/admin/list?${params.toString()}`,
             {
-              headers: {
-                "x-admin-key": adminKey,
-              },
+              headers: {},
               cache: "no-store",
             },
           );
@@ -378,7 +377,7 @@ function AdminInvoicesContent() {
 
           if (!response.ok) {
             if (response.status === 401) {
-              window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+              undefined;
               setAdminKey("");
             }
 
@@ -445,12 +444,10 @@ function AdminInvoicesContent() {
       setOptionsLoading(true);
 
       try {
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/invoices/admin/${invoice.id}/options`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -543,12 +540,10 @@ function AdminInvoicesContent() {
     setError("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/draft-candidates`,
         {
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
           cache: "no-store",
         },
       );
@@ -579,12 +574,9 @@ function AdminInvoicesContent() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/invoices/admin/draft`, {
+      const response = await adminFetch(`${API_BASE}/api/invoices/admin/draft`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           bookingId: selectedBookingId,
         }),
@@ -634,14 +626,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/adjustments`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             sourceType,
             sourceId,
@@ -691,13 +680,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/adjustments/${adjustmentId}`,
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 
@@ -734,7 +721,7 @@ function AdminInvoicesContent() {
     if (!confirmed) return;
     setInvoiceWorking(true); setError(""); setInvoiceMessage("");
     try {
-      const response = await fetch(`${API_BASE}/api/invoices/admin/${selectedInvoice.id}/finalise`, { method: "POST", headers: { "x-admin-key": adminKey } });
+      const response = await adminFetch(`${API_BASE}/api/invoices/admin/${selectedInvoice.id}/finalise`, { method: "POST", headers: {} });
       const payload = (await response.json()) as Payload;
       if (!response.ok || !payload.invoice) throw new Error(payload.error || "Unable to finalise invoice.");
       setSelectedInvoice(payload.invoice);
@@ -758,13 +745,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/unfinalise`,
         {
           method: "POST",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 
@@ -803,7 +788,7 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/invoices/admin/${invoice.id}/pdf`, { headers: { "x-admin-key": adminKey }, cache: "no-store" });
+      const response = await adminFetch(`${API_BASE}/api/invoices/admin/${invoice.id}/pdf`, { headers: {}, cache: "no-store" });
 
       if (!response.ok) {
         throw new Error("Unable to download the issued invoice PDF.");
@@ -854,13 +839,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/send`,
         {
           method: "POST",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 
@@ -926,14 +909,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/record-payment`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             amount,
             paymentMethod,
@@ -1029,14 +1009,11 @@ function AdminInvoicesContent() {
     setInvoiceMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/invoices/admin/${selectedInvoice.id}/credit-notes`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ amount, reason }),
         },
       );

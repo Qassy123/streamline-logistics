@@ -1,0 +1,5 @@
+const path=require("node:path");
+const backend=path.resolve(process.argv[2]||process.cwd());
+require(require.resolve("dotenv",{paths:[backend]})).config({path:path.join(backend,".env"),quiet:true});
+if(!process.env.DATABASE_URL){console.error("Existing backend DATABASE_URL is required to check your current Super Admin account. No accounts or data were changed.");process.exitCode=1;}
+else{const {PrismaClient}=require(require.resolve("@prisma/client",{paths:[backend]}));const client=new PrismaClient();client.adminUser.count({where:{active:true,role:"SUPER_ADMIN"}}).then(count=>{if(!count)throw Error("No active Super Admin account exists. Create your main Super Admin in the current Staff & Permissions screen before installing the central login.");console.log("Existing active Super Admin account verified. Accounts, passwords and assigned roles are retained.");}).catch(error=>{console.error(error.message.startsWith("No active Super Admin")?error.message:"Unable to verify the existing Super Admin. Check the backend database connection before pushing. No accounts or data were changed.");process.exitCode=1;}).finally(()=>client.$disconnect());}

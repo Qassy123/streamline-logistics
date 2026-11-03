@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -16,7 +17,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type GuestBooking = {
   id: string;
@@ -214,10 +215,10 @@ function GuestList({ period, search, refresh, enabled = true }: { period: "CURRE
     if (!enabled) return;
     const controller = new AbortController();
     setLoading(true); setError("");
-    const key = localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim();
+    const key = String("session")?.trim();
     if (!key) { setBookings([]); setError("Sign in to the admin area before loading guest bookings."); setLoading(false); return; }
     const query = new URLSearchParams({ period, page: String(page), pageSize: "25", search });
-    void fetch(`${API_BASE}/api/admin/customers/guests?${query}`, { cache: "no-store", signal: controller.signal, headers: { "x-admin-key": key } })
+    void adminFetch(`${API_BASE}/api/admin/customers/guests?${query}`, { cache: "no-store", signal: controller.signal, headers: {} })
       .then(async response => { const data = await response.json() as GuestPayload; if (!response.ok) throw new Error(data.error || "Unable to load guest bookings."); if (!controller.signal.aborted) { setBookings(data.bookings || []); const count = data.pagination?.totalPages || 1; setPages(count); setTotal(data.pagination?.total || 0); if (page > count) setPage(count); } })
       .catch(failure => { if (!controller.signal.aborted) { setBookings([]); setError(failure instanceof Error ? failure.message : "Unable to load guest bookings."); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });

@@ -1,3 +1,6 @@
+import {attachCentralAdmin} from "./lib/centralAdmin";
+import {runInvoiceReminders} from "./routes/invoices";
+import {processMonthlyTradeBilling} from "./lib/monthlyTradeBilling";
 import { processAdminSms,smsConfiguration } from "./lib/adminSms";
 import accountRecoveryRoutes from "./routes/accountRecovery";
 import { processTradeDecisionEmails } from "./lib/tradeDecisionEmail";
@@ -53,6 +56,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(attachCentralAdmin);
 // Private evidence is signed only on authenticated operational route responses.
 // Public customer routes never receive private evidence links.
 app.use(["/api/driver", "/api/admin/drivers", "/api/admin/fleet-operations", "/api/admin/vehicle-records", "/api/admin/customers", "/api/admin/planning", "/api/bookings/admin", "/api/bookings/me", "/api/tracking/customer"], (_req, res, next) => {
@@ -127,107 +131,8 @@ const INVOICE_REMINDER_INITIAL_DELAY_MS = 60 * 1000;
 const BILLING_CYCLE_INTERVAL_MS = 60 * 60 * 1000;
 const BILLING_CYCLE_INITIAL_DELAY_MS = 90 * 1000;
 
-async function processInvoiceReminders() {
-  const adminKey = process.env.ADMIN_API_KEY?.trim();
-
-  if (!adminKey) {
-    console.warn(
-      "Invoice reminder processing skipped because ADMIN_API_KEY is not configured.",
-    );
-    return;
-  }
-
-  try {
-    const response = await fetch(
-      `http://127.0.0.1:${PORT}/api/invoices/admin/process-reminders`,
-      {
-        method: "POST",
-        headers: {
-          "x-admin-key": adminKey,
-        },
-      },
-    );
-
-    const payload = (await response.json()) as {
-      success?: boolean;
-      sent?: number;
-      skipped?: number;
-      failures?: Array<{ invoiceNumber: string; error: string }>;
-      error?: string;
-    };
-
-    if (!response.ok) {
-      console.error(
-        "Invoice reminder processing failed:",
-        payload.error || `HTTP ${response.status}`,
-      );
-      return;
-    }
-
-    console.log(
-      `Invoice reminders processed. Sent: ${payload.sent ?? 0}, skipped: ${payload.skipped ?? 0}, failures: ${payload.failures?.length ?? 0}.`,
-    );
-
-    if (payload.failures?.length) {
-      console.error("Invoice reminder failures:", payload.failures);
-    }
-  } catch (error) {
-    console.error("Invoice reminder scheduler error:", error);
-  }
-}
-
-async function processAutomaticBillingCycles() {
-  const adminKey = process.env.ADMIN_API_KEY?.trim();
-
-  if (!adminKey) {
-    console.warn(
-      "Automatic billing-cycle processing skipped because ADMIN_API_KEY is not configured.",
-    );
-    return;
-  }
-
-  try {
-    const response = await fetch(
-      `http://127.0.0.1:${PORT}/api/invoices/admin/process-billing-cycles`,
-      {
-        method: "POST",
-        headers: {
-          "x-admin-key": adminKey,
-        },
-      },
-    );
-
-    const payload = (await response.json()) as {
-      success?: boolean;
-      created?: Array<{
-        invoiceNumber: string;
-        bookingCount: number;
-        invoiceType: string;
-      }>;
-      skipped?: Array<{ userId: string; reason: string }>;
-      failures?: Array<{ userId: string; error: string }>;
-      error?: string;
-    };
-
-    if (!response.ok) {
-      console.error(
-        "Automatic billing-cycle processing failed:",
-        payload.error || `HTTP ${response.status}`,
-      );
-      return;
-    }
-
-    console.log(
-      `Automatic billing cycles processed. Created: ${payload.created?.length ?? 0}, skipped: ${payload.skipped?.length ?? 0}, failures: ${payload.failures?.length ?? 0}.`,
-    );
-
-    if (payload.failures?.length) {
-      console.error("Automatic billing-cycle failures:", payload.failures);
-    }
-  } catch (error) {
-    console.error("Automatic billing-cycle scheduler error:", error);
-  }
-}
+async function processInvoiceReminders(){try{const result=await runInvoiceReminders();console.log(`Invoice reminders processed. Sent: ${result.sent}, skipped: ${result.skipped}, failures: ${result.failures.length}.`);}catch(error){console.error("Invoice reminder scheduler error:",error);}}
+async function processAutomaticBillingCycles(){try{const result=await processMonthlyTradeBilling();console.log(`Automatic billing cycles processed. Created: ${result.created.length}, failures: ${result.failures.length}.`);}catch(error){console.error("Automatic billing-cycle scheduler error:",error);}}
 
 app.listen(PORT, () => {
   console.log(`Streamline Backend running on port ${PORT}`);

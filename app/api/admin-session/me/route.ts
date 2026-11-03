@@ -1,0 +1,3 @@
+import {NextRequest,NextResponse} from "next/server";
+import {sessionToken,backendAdminSession,adminError,ADMIN_SESSION_COOKIE,adminCookieOptions} from "@/lib/adminSessionServer";
+export async function GET(req:NextRequest){const token=sessionToken(req);if(!token)return adminError("Sign in to the admin portal.",401);try{const r=await backendAdminSession(token),data=await r.json();const response=NextResponse.json(r.ok?{admin:data.admin}:{error:data.error||"Unable to verify your session."},{status:r.status,headers:{"Cache-Control":"no-store"}});if(r.status===401)response.cookies.set(ADMIN_SESSION_COOKIE,"",{...adminCookieOptions,maxAge:0});return response;}catch{return adminError("Unable to verify your session. Try again.",503);}}

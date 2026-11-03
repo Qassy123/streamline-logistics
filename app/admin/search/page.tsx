@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -309,7 +310,7 @@ function AdminSearchContent() {
   const [error, setError] = useState("");
 
   const getAdminKey = useCallback(() => {
-    return window.localStorage.getItem("streamline_admin_key") || "";
+    return String("session") || "";
   }, []);
 
   const executeSearch = useCallback(
@@ -337,12 +338,10 @@ function AdminSearchContent() {
           parameters.set("entity", nextEntity);
         }
 
-        const result = await fetch(
+        const result = await adminFetch(
           `${API_BASE_URL}/api/admin/search?${parameters.toString()}`,
           {
-            headers: {
-              "x-admin-key": getAdminKey(),
-            },
+            headers: {},
             cache: "no-store",
           },
         );

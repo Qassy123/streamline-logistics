@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import CustomerCompletedJobs from "@/components/admin/CustomerCompletedJobs";
@@ -31,7 +32,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
@@ -338,13 +339,12 @@ export default function CustomerAccountPage() {
       }
 
       const adminKey =
-        window.localStorage
-          .getItem(ADMIN_KEY_STORAGE_KEY)
+        String("session")
           ?.trim() || "";
 
       if (!adminKey) {
         setLoading(false);
-        setError("Admin key is required.");
+        setError("Your admin session has expired. Sign in again.");
         return;
       }
 
@@ -352,12 +352,10 @@ export default function CustomerAccountPage() {
       setError("");
 
       try {
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/customers/${customerId}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -367,9 +365,7 @@ export default function CustomerAccountPage() {
 
         if (!response.ok || !payload.customer) {
           if (response.status === 401) {
-            window.localStorage.removeItem(
-              ADMIN_KEY_STORAGE_KEY,
-            );
+            undefined;
           }
 
           throw new Error(
@@ -457,12 +453,11 @@ export default function CustomerAccountPage() {
     }
 
     const adminKey =
-      window.localStorage
-        .getItem(ADMIN_KEY_STORAGE_KEY)
+      String("session")
         ?.trim() || "";
 
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -471,14 +466,11 @@ export default function CustomerAccountPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/customers/${customerId}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             ...form,
             companyName: form.companyName,
@@ -548,12 +540,11 @@ export default function CustomerAccountPage() {
     }
 
     const adminKey =
-      window.localStorage
-        .getItem(ADMIN_KEY_STORAGE_KEY)
+      String("session")
         ?.trim() || "";
 
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -562,14 +553,11 @@ export default function CustomerAccountPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/customers/${customerId}/status`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             status: "SUSPENDED",
             reason: cleanReason,
@@ -608,12 +596,11 @@ export default function CustomerAccountPage() {
     }
 
     const adminKey =
-      window.localStorage
-        .getItem(ADMIN_KEY_STORAGE_KEY)
+      String("session")
         ?.trim() || "";
 
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -622,14 +609,11 @@ export default function CustomerAccountPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/customers/${customerId}/status`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminKey,
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             status: "ACTIVE",
           }),
@@ -687,12 +671,11 @@ export default function CustomerAccountPage() {
     }
 
     const adminKey =
-      window.localStorage
-        .getItem(ADMIN_KEY_STORAGE_KEY)
+      String("session")
         ?.trim() || "";
 
     if (!adminKey) {
-      setError("Admin key is required.");
+      setError("Your admin session has expired. Sign in again.");
       return;
     }
 
@@ -701,13 +684,11 @@ export default function CustomerAccountPage() {
     setMessage("");
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/customers/${customerId}`,
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 
@@ -739,8 +720,8 @@ export default function CustomerAccountPage() {
   }
 
     async function sendPasswordSetupLink(){
-    if(!customer)return;const adminKey=window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim()||"";setInvitationBusy(true);setInvitationResult("");
-    try{const response=await fetch(`${API_BASE}/api/admin/customers/${customer.id}/password-invitation`,{method:"POST",headers:{"x-admin-key":adminKey}});const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to send password setup link.");setInvitationResult("Password setup link emailed to the customer's account email.");}catch(error){setInvitationResult(error instanceof Error?error.message:"Unable to send password setup link.");}finally{setInvitationBusy(false);}
+    if(!customer)return;const adminKey=String("session")?.trim()||"";setInvitationBusy(true);setInvitationResult("");
+    try{const response=await adminFetch(`${API_BASE}/api/admin/customers/${customer.id}/password-invitation`,{method:"POST",headers:{}});const data=await response.json();if(!response.ok)throw new Error(data.error||"Unable to send password setup link.");setInvitationResult("Password setup link emailed to the customer's account email.");}catch(error){setInvitationResult(error instanceof Error?error.message:"Unable to send password setup link.");}finally{setInvitationBusy(false);}
   }
 
   if (loading) {
@@ -1420,8 +1401,8 @@ export default function CustomerAccountPage() {
               customerId={customer.id}
               emptyMessage="No finalised or issued invoices."
               onUnfinalise={async (invoice) => {
-                const key = window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
-                const response = await fetch(`${API_BASE}/api/invoices/admin/${invoice.id}/unfinalise`, { method: "POST", headers: { "x-admin-key": key } });
+                const key = String("session") || "";
+                const response = await adminFetch(`${API_BASE}/api/invoices/admin/${invoice.id}/unfinalise`, { method: "POST", headers: {} });
                 const payload = await response.json();
                 if (!response.ok) { setError(payload.error || "Unable to unfinalise invoice."); return; }
                 window.location.reload();

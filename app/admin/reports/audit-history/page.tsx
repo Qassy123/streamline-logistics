@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -20,7 +21,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const PAGE_SIZE = 25;
 
 type AuditEntry = {
@@ -82,7 +83,7 @@ function entityClass(entity: string) {
 }
 
 export default function AdminAuditLogPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [selected, setSelected] = useState<AuditEntry | null>(null);
 
@@ -112,7 +113,7 @@ export default function AdminAuditLogPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
   }, []);
 
@@ -130,7 +131,7 @@ export default function AdminAuditLogPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -150,12 +151,10 @@ export default function AdminAuditLogPage() {
         if (dateFrom) params.set("dateFrom", dateFrom);
         if (dateTo) params.set("dateTo", dateTo);
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/audit?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -229,12 +228,10 @@ export default function AdminAuditLogPage() {
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/api/admin/audit/export.csv?${params.toString()}`,
         {
-          headers: {
-            "x-admin-key": adminKey,
-          },
+          headers: {},
         },
       );
 

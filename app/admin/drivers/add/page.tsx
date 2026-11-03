@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,7 +19,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 
 type Vehicle = {
   id: string;
@@ -68,7 +69,7 @@ const initialForm: FormState = {
 export default function AddDriverPage() {
   const router = useRouter();
 
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [form, setForm] = useState<FormState>(initialForm);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
@@ -80,13 +81,13 @@ export default function AddDriverPage() {
 
   useEffect(() => {
     const storedAdminKey =
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "";
+      String("session") || "";
 
     setAdminKey(storedAdminKey);
 
     if (!storedAdminKey) {
       setError(
-        "Admin key not found. Open the Drivers page and unlock admin access first.",
+        "Your admin session has expired. Sign in again.",
       );
     }
 
@@ -97,7 +98,7 @@ export default function AddDriverPage() {
     setLoadingVehicles(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/vehicles`, {
+      const response = await adminFetch(`${API_BASE}/api/vehicles`, {
         cache: "no-store",
       });
 
@@ -149,7 +150,7 @@ export default function AddDriverPage() {
 
   function validateForm(): string | null {
     if (!adminKey) {
-      return "Admin key is required.";
+      return "Your admin session has expired. Sign in again.";
     }
 
     if (!form.name.trim()) {
@@ -199,12 +200,9 @@ export default function AddDriverPage() {
     setSuccessMessage("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/drivers`, {
+      const response = await adminFetch(`${API_BASE}/api/admin/drivers`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           name: form.name.trim(),
           username: form.username.trim(),
@@ -227,9 +225,9 @@ export default function AddDriverPage() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          window.localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+          undefined;
           throw new Error(
-            "Admin key rejected. Return to Drivers and unlock admin access again.",
+            "Your admin session has expired. Sign in again.",
           );
         }
 
@@ -287,7 +285,7 @@ export default function AddDriverPage() {
 
       {!adminKey ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-          Admin access is locked. Open the Drivers page, enter the admin key,
+          Your admin session has expired. Sign in to the admin portal,
           then return here.
         </div>
       ) : null}

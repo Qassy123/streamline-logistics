@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 
 import { vehicleDetails } from "@/lib/vehicleDetails";
@@ -29,7 +30,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "https://streamline-logistics-production.up.railway.app";
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const VEHICLE_AVAILABILITY_API_URL = `${API_BASE_URL}/api/vehicles/availability`;
 
 const twoHourWindows = [
@@ -179,7 +180,7 @@ const EMPTY_FORM: FormState = {
 };
 
 function getAdminKey() {
-  return window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "";
+  return String("session")?.trim() || "";
 }
 function formatAddress(a: AddressFields) {
   return [a.addressLine1, a.addressLine2, a.townCity, a.county, a.postcode]
@@ -271,9 +272,9 @@ export default function CustomerQuotesPage() {
     setLoading(true);
     setError("");
     try {
-      const r = await fetch(
+      const r = await adminFetch(
         `${API_BASE_URL}/api/admin/customers/${customerId}`,
-        { headers: { "x-admin-key": getAdminKey() }, cache: "no-store" },
+        { headers: {}, cache: "no-store" },
       );
       const p = await parseResponse(r);
       const d = p.customer || p.data || p;
@@ -332,7 +333,7 @@ export default function CustomerQuotesPage() {
           collectionDate: form.collectionDate,
           collectionWindow: form.collectionWindow,
         });
-        const r = await fetch(`${VEHICLE_AVAILABILITY_API_URL}?${q}`, {
+        const r = await adminFetch(`${VEHICLE_AVAILABILITY_API_URL}?${q}`, {
           cache: "no-store",
         });
         const d = await parseResponse(r);
@@ -531,12 +532,9 @@ export default function CustomerQuotesPage() {
     setError("");
     setMessage("");
     try {
-      const r = await fetch(`${API_BASE_URL}/api/quotes/admin/calculate`, {
+      const r = await adminFetch(`${API_BASE_URL}/api/quotes/admin/calculate`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": getAdminKey(),
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload),
       });
       const d = await parseResponse(r);
@@ -566,14 +564,11 @@ export default function CustomerQuotesPage() {
     setError("");
     setMessage("");
     try {
-      const r = await fetch(
+      const r = await adminFetch(
         `${API_BASE_URL}/api/quotes/admin/customer/${customerId}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ ...payload, sendToCustomer }),
         },
       );

@@ -38,13 +38,16 @@ function earlier(){if(shift){const open=shift.activities.find(a=>!a.endedAt);if(
  await test('Driver attribution recorded in audit',async()=>{assert.ok(audit.some(a=>a.reason.includes('Driver d')));});
  // Role enforcement uses real requireStaff implementation with an isolated session lookup.
  let session=null;
+ const centralModule={exports:{}};
+ const centralCode=ts.transpileModule(fs.readFileSync(root+'/streamline-backend/src/lib/centralAdmin.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
+ vm.runInNewContext(centralCode,{module:centralModule,exports:centralModule.exports,require:n=>n==='crypto'?require('crypto'):n==='./prisma'?{prisma:{adminSession:{findUnique:async()=>session}}}:undefined,Date,Map,WeakMap,Set});
  const authCode=ts.transpileModule(fs.readFileSync(root+'/streamline-backend/src/lib/adminAccess.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
  const authModule={exports:{}};
- vm.runInNewContext(authCode,{module:authModule,exports:authModule.exports,require:name=>({'crypto':require('crypto'),'./prisma':{prisma:{adminSession:{findUnique:async()=>session}}},'./driverPortal':{DriverPortalError:PortalError}}[name]),Date});
- const staff=authModule.exports,req={headers:{authorization:'Bearer '+'a'.repeat(64)}};
+ vm.runInNewContext(authCode,{module:authModule,exports:authModule.exports,require:name=>({'crypto':require('crypto'),'./prisma':{prisma:{adminSession:{findUnique:async()=>session}}},'./centralAdmin':centralModule.exports,'./driverPortal':{DriverPortalError:PortalError}}[name]),Date});
+ const staff=authModule.exports,req={headers:{authorization:'Bearer as_'+'a'.repeat(64)}};
  await test('Shared API key cannot access payroll',async()=>{await reject(()=>staff.requireStaff({headers:{'x-admin-key':'key'}},staff.payrollRoles),401,/Sign in/);});
- await test('Expired or inactive staff session denied',async()=>{session={expiresAt:new Date(0),admin:{active:true,role:'SUPER_ADMIN'}};await reject(()=>staff.requireStaff(req,staff.payrollRoles),401,/expired/);session={expiresAt:new Date(Date.now()+60000),admin:{active:false,role:'SUPER_ADMIN'}};await reject(()=>staff.requireStaff(req,staff.payrollRoles),401,/expired/);});
- await test('Dispatcher can view attendance but not payroll',async()=>{session={expiresAt:new Date(Date.now()+60000),admin:{active:true,role:'DISPATCHER'}};await staff.requireStaff(req,staff.attendanceRoles);await reject(()=>staff.requireStaff(req,staff.payrollRoles),403,/role/);});
+ await test('Expired or inactive staff session denied',async()=>{session={expiresAt:new Date(0),admin:{active:true,role:'SUPER_ADMIN'}};await reject(()=>staff.requireStaff(req,staff.payrollRoles),401,/Sign in/);session={expiresAt:new Date(Date.now()+60000),admin:{active:false,role:'SUPER_ADMIN'}};await reject(()=>staff.requireStaff(req,staff.payrollRoles),401,/Sign in/);});
+ await test('Dispatcher can view attendance but not payroll',async()=>{session={expiresAt:new Date(Date.now()+60000),admin:{active:true,role:'DISPATCHER'}};await staff.requireStaff(req,staff.attendanceRoles);await reject(()=>staff.requireStaff(req,staff.payrollRoles),403,/permission/);});
  await test('Accounts role allowed payroll',async()=>{session.admin.role='ACCOUNTS';await staff.requireStaff(req,staff.payrollRoles);});
  console.log(tests+' attendance/authentication checks passed. Database races still require a real PostgreSQL test.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

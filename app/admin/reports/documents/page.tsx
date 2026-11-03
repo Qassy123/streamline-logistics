@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import {
   Download,
@@ -270,7 +271,7 @@ export default function AdminDocumentsPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const getAdminKey = useCallback(() => {
-    return window.localStorage.getItem("streamline_admin_key") || "";
+    return String("session") || "";
   }, []);
 
   const loadDocuments = useCallback(
@@ -296,12 +297,10 @@ export default function AdminDocumentsPage() {
           parameters.set("entity", entityFilter);
         }
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE_URL}/api/admin/documents?${parameters.toString()}`,
           {
-            headers: {
-              "x-admin-key": getAdminKey(),
-            },
+            headers: {},
             cache: "no-store",
           },
         );
@@ -351,12 +350,10 @@ export default function AdminDocumentsPage() {
     setOptionsLoading(true);
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/documents/options`,
         {
-          headers: {
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {},
           cache: "no-store",
         },
       );
@@ -500,13 +497,11 @@ export default function AdminDocumentsPage() {
         formData.append(entityField, uploadForm.entityId);
       }
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/documents`,
         {
           method: "POST",
-          headers: {
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {},
           body: formData,
         },
       );
@@ -544,14 +539,11 @@ export default function AdminDocumentsPage() {
     setSaving(true);
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/documents/${selectedDocument.id}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             name: editName,
             type: editType,
@@ -594,13 +586,11 @@ export default function AdminDocumentsPage() {
     setDeletingId(document.id);
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE_URL}/api/admin/documents/${document.id}`,
         {
           method: "DELETE",
-          headers: {
-            "x-admin-key": getAdminKey(),
-          },
+          headers: {},
         },
       );
 

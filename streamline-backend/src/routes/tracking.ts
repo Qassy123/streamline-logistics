@@ -1,3 +1,4 @@
+import {centralAdminAccess} from "../lib/centralAdmin";
 import {resolveBookingReference} from "../lib/referenceAliases";
 import { BookingStatus, Prisma } from "@prisma/client";
 import { Router } from "express";
@@ -72,32 +73,7 @@ function createTrackingToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-function requireAdmin(req: { headers: { [key: string]: unknown } }) {
-  const configuredAdminKey = process.env.ADMIN_API_KEY?.trim();
-  const suppliedAdminKey = getString(req.headers["x-admin-key"]);
-
-  if (!configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 503,
-      error: "Admin API key is not configured.",
-    };
-  }
-
-  if (!suppliedAdminKey || suppliedAdminKey !== configuredAdminKey) {
-    return {
-      authorised: false,
-      status: 401,
-      error: "Admin access denied.",
-    };
-  }
-
-  return {
-    authorised: true,
-    status: 200,
-    error: "",
-  };
-}
+function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
 async function getAuthenticatedUser(req: {
   headers: { authorization?: string };

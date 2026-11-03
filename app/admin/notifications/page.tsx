@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 import AdminSmsAlerts from "@/components/admin/AdminSmsAlerts";
 
 import Link from "next/link";
@@ -24,7 +25,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://streamline-logistics-production.up.railway.app";
 
-const ADMIN_KEY_STORAGE_KEY = "streamline_admin_key";
+
 const READ_STORAGE_KEY = "streamline_admin_notifications_read";
 const ARCHIVED_STORAGE_KEY = "streamline_admin_notifications_archived";
 const PAGE_SIZE = 25;
@@ -122,7 +123,7 @@ function saveStoredSet(key: string, value: Set<string>) {
 }
 
 export default function AdminNotificationsPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(String("session"));
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [selected, setSelected] = useState<NotificationItem | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
@@ -154,7 +155,7 @@ export default function AdminNotificationsPage() {
 
   useEffect(() => {
     setAdminKey(
-      window.localStorage.getItem(ADMIN_KEY_STORAGE_KEY)?.trim() || "",
+      String("session")?.trim() || "",
     );
     setReadIds(readStoredSet(READ_STORAGE_KEY));
     setArchivedIds(readStoredSet(ARCHIVED_STORAGE_KEY));
@@ -174,7 +175,7 @@ export default function AdminNotificationsPage() {
       if (!adminKey) {
         setLoading(false);
         setError(
-          "Admin key is required. Unlock the admin area from Driver Management.",
+          "Your admin session has expired. Sign in again.",
         );
         return;
       }
@@ -192,12 +193,10 @@ export default function AdminNotificationsPage() {
 
         if (search) params.set("search", search);
 
-        const response = await fetch(
+        const response = await adminFetch(
           `${API_BASE}/api/admin/notifications?${params.toString()}`,
           {
-            headers: {
-              "x-admin-key": adminKey,
-            },
+            headers: {},
             cache: "no-store",
           },
         );

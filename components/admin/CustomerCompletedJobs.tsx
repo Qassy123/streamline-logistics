@@ -1,4 +1,5 @@
 "use client";
+import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -42,10 +43,10 @@ export default function CustomerCompletedJobs({ customerId, apiBase }: { custome
     setLoading(true);
     setError("");
     try {
-      const key = localStorage.getItem("streamline_admin_key")?.trim() || "";
+      const key = String("session")?.trim() || "";
       if (!key) throw new Error("Sign in to the admin customer account view before loading jobs.");
       const query = new URLSearchParams({ customerId, status: outcome, search, page: String(page) });
-      const response = await fetch(`${base}?${query}`, { cache: "no-store", signal, headers: { "x-admin-key": key } });
+      const response = await adminFetch(`${base}?${query}`, { cache: "no-store", signal, headers: {} });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to load this customer's jobs.");
       if (!signal?.aborted && version === loadVersion.current) {
@@ -84,9 +85,9 @@ export default function CustomerCompletedJobs({ customerId, apiBase }: { custome
     if (reason.trim().length < 5) { setError("Enter a reason of at least five characters."); return; }
     setSaving(true); setError(""); setMessage("");
     try {
-      const response = await fetch(`${base}/${encodeURIComponent(review.id)}/review`, {
+      const response = await adminFetch(`${base}/${encodeURIComponent(review.id)}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": localStorage.getItem("streamline_admin_key") || "" },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ customerId, action: review.action, reason: reason.trim() }),
       });
       const data = await response.json();
