@@ -177,4 +177,4 @@ function AdminLayoutContent({
 }
 
 
-export default function AdminLayout({children}:AdminLayoutProps){const pathname=usePathname();if(pathname==="/admin/login")return children;return <AdminSessionGate><AdminLayoutContent>{children}</AdminLayoutContent></AdminSessionGate>;}
+export default function AdminLayout({children}:AdminLayoutProps){const pathname=usePathname();if(pathname==="/admin/login")return children;if(pathname==="/admin/setup")return <AdminSessionGate>{children}</AdminSessionGate>;return <AdminSessionGate><AdminLayoutContent>{children}</AdminLayoutContent></AdminSessionGate>;}

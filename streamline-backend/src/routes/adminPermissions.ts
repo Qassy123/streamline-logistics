@@ -277,6 +277,7 @@ router.post("/", async (request, response) => {
         name,
         email,
         passwordHash,
+        mustSetup: true,
         role,
         active,
       },
@@ -408,6 +409,7 @@ router.patch("/:id", async (request, response) => {
           role,
           active,
           passwordHash,
+          ...(passwordHash ? {mustSetup:true} : {}),
         },
         select: safeAdminSelect,
       });

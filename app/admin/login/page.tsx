@@ -1,19 +1,19 @@
 "use client";
-import {useState} from "react";
+import {useState,useEffect} from "react";
 import {useRouter} from "next/navigation";
 import {ArrowRight,LockKeyhole,UserRound,ShieldCheck} from "lucide-react";
-export default function AdminLogin(){const [identifier,setIdentifier]=useState(""),[password,setPassword]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");const router=useRouter();
- async function submit(event:React.FormEvent<HTMLFormElement>){event.preventDefault();if(busy)return;setBusy(true);setError("");try{const response=await fetch("/api/admin-session/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({identifier,password})});const data=await response.json();if(!response.ok)throw Error(data.error||"Unable to sign in.");setPassword("");localStorage.removeItem("streamline_admin_key");sessionStorage.removeItem("hoursStaffToken");const next=new URLSearchParams(window.location.search).get("next")||"/admin";router.replace(next.startsWith("/admin")&&!next.startsWith("/admin/login")&&!next.includes("\\")?next:"/admin");router.refresh();}catch(e){setError(e instanceof Error?e.message:"Unable to sign in.");}finally{setBusy(false);}}
+export default function AdminLogin(){const [identifier,setIdentifier]=useState(""),[password,setPassword]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");const router=useRouter();const [superLogin,setSuperLogin]=useState(false);useEffect(()=>{setSuperLogin(new URLSearchParams(window.location.search).get("super")==="1");},[]);
+ async function submit(event:React.FormEvent<HTMLFormElement>){event.preventDefault();if(busy)return;setBusy(true);setError("");try{const response=await fetch("/api/admin-session/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({identifier,password})});const data=await response.json();if(!response.ok)throw Error(data.error||"Unable to sign in.");setPassword("");localStorage.removeItem("streamline_admin_key");sessionStorage.removeItem("hoursStaffToken");const next=new URLSearchParams(window.location.search).get("next")||"/admin";router.replace(data.admin?.mustSetup?"/admin/setup":next.startsWith("/admin")&&!next.startsWith("/admin/login")&&!next.includes("\\")?next:"/admin");router.refresh();}catch(e){setError(e instanceof Error?e.message:"Unable to sign in.");}finally{setBusy(false);}}
  return (
   <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#06152f] px-4 py-6 sm:px-8 sm:py-12">
    <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(0,108,255,0.2),transparent_55%)]" />
    <div className="relative w-full max-w-[1120px]">
     <section className="grid overflow-hidden rounded-[28px] border border-white/10 bg-white shadow-[0_32px_100px_rgba(0,0,0,0.3)] lg:min-h-[640px] lg:grid-cols-[1.05fr_1fr]">
      <div className="relative isolate flex flex-col justify-between overflow-hidden bg-[#071d49] p-7 sm:p-10 lg:p-12">
-      <img src="/images/hero/hero-bg.jpg" alt="" aria-hidden="true" className="absolute inset-0 -z-20 hidden h-full w-full object-cover object-[60%_center] lg:block" />
       <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-b from-[#071d49]/75 via-[#071d49]/45 to-[#031127]" />
       <img src="/images/logos/header-logo.png" alt="Streamline Logistics Group" width={280} height={80} className="h-auto w-52 object-contain object-left sm:w-60" />
-      <div className="hidden pt-40 lg:block">
+      <img src="/images/hero/hero-bg.jpg" alt="Streamline branded delivery van" className="my-8 hidden h-auto w-full rounded-xl object-contain lg:block" />
+      <div className="hidden lg:block">
        <p className="mb-5 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[0.22em] text-[#82baff]"><span aria-hidden="true" className="h-px w-8 bg-[#338aff]" />Operations portal</p>
        <h2 className="max-w-sm text-[44px] font-bold leading-[1.08] tracking-tight text-white">Every delivery.<br />One place.</h2>
        <p className="mt-5 max-w-xs text-sm leading-7 text-blue-100/85">Your team, your bookings and the road ahead. Welcome to Streamline.</p>
@@ -23,8 +23,8 @@ export default function AdminLogin(){const [identifier,setIdentifier]=useState("
      <div className="flex flex-col justify-center px-6 py-9 sm:px-12 sm:py-12 lg:px-14">
       <div className="mb-7 flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-100 bg-[#eef5ff] text-[#006cff]"><LockKeyhole size={22} strokeWidth={1.7} aria-hidden="true" /></div>
       <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#526888]">Admin access</p>
-      <h1 className="mt-3 text-3xl font-bold tracking-tight text-[#071d49] sm:text-4xl">Welcome back.</h1>
-      <p className="mt-3 text-sm leading-6 text-[#526888]">Sign in to your Streamline workspace.</p>
+      <h1 className="mt-3 text-3xl font-bold tracking-tight text-[#071d49] sm:text-4xl">{superLogin?"Super Admin sign in":"Welcome back."}</h1>
+      <p className="mt-3 text-sm leading-6 text-[#526888]">{superLogin?"Sign in with a Super Admin account to open Staff & Permissions.":"Sign in to your Streamline workspace."}</p>
       <form className="mt-8 space-y-5" onSubmit={submit}>
        {error&&<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
        <label className="block text-sm font-semibold text-[#071d49]">Username or email

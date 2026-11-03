@@ -966,6 +966,8 @@ model DiscountRule {
 }
 
 model AdminUser {
+  username String? @unique
+  mustSetup Boolean @default(false)
   id           String    @id @default(cuid())
   name         String
   email        String    @unique
