@@ -103,165 +103,136 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
   const billingAddress = manual?.recipientAddress || [user?.registeredAddressLine1, user?.registeredAddressLine2, user?.registeredTownCity, user?.registeredCounty, user?.registeredPostcode, user?.registeredCountry].filter(Boolean).join(", ");
   const customer = [name, billingAddress, manual?.recipientEmail || user?.accountsEmail || user?.email || q?.customerEmail,
     manual?.recipientPhone || user?.phone || q?.customerPhone ? `Tel: ${manual?.recipientPhone || user?.phone || q?.customerPhone}` : null, user?.accountNumber ? `Account: ${user.accountNumber}` : null].filter(Boolean).join("\n");
-  const refs = [user?.accountType ? `Account type: ${user.accountType === "TRADE" ? "Trade Account" : user.accountType === "BUSINESS" ? "Business Account" : "Private Account"}` : "Guest customer",
-    `Payment terms: ${user?.accountType === "BUSINESS" ? "Due immediately" : invoice.paymentTerms || "As agreed"}`,
-    invoice.purchaseOrderNumber ? `PO / order: ${invoice.purchaseOrderNumber}` : null,
-    invoice.customerReference ? `Customer reference: ${invoice.customerReference}` : null].filter(Boolean).join("\n");
+  const paymentReference = `INV-${invoice.invoiceNumber}`;
   const chunks: Buffer[] = [];
   const doc = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 30, left: 42, right: 42 }, info: { Title: `Invoice ${invoice.invoiceNumber}`, Author: settings.companyName } });
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
   const completed = new Promise<Buffer>((resolve, reject) => { doc.on("end", () => resolve(Buffer.concat(chunks))); doc.on("error", reject); });
-  const navy = "#071D49", blue = "#006CFF", grey = "#526179", light = "#F4F8FF", border = "#DCE6F5";
-  const left = 42, right = doc.page.width - 42, width = right - left;
-  let y = 40, page = 1;
-  const bottom = () => doc.page.height - 64;
-  const footer = () => {
-    const label = pdfText(`${settings.companyName}${settings.companyRegistrationNumber ? ` | Company No ${settings.companyRegistrationNumber}` : ""}${settings.vatNumber ? ` | VAT No ${settings.vatNumber}` : ""}`);
-    doc.font("Helvetica").fontSize(6.5).fillColor(grey).text(label, left, doc.page.height - 43, { width: width - 38, lineBreak: false });
-    doc.text(String(page), right - 28, doc.page.height - 43, { width: 28, align: "right", lineBreak: false });
-  };
-  const nextPage = () => {
-    footer(); doc.addPage(); page++; y = 40;
-    doc.font("Helvetica-Bold").fontSize(10).fillColor(navy).text(`INVOICE ${invoice.invoiceNumber} - continued`, left, y, { width });
-    y += 25;
-  };
-  const ensure = (height: number) => { if (y + height > bottom()) nextPage(); };
-  // Wrap first, then paginate individual lines. Long addresses/instructions cannot overflow a page.
-  const wrap = (value: string, available: number, size = 8, bold = false) => {
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size);
-    const result: string[] = [];
-    for (const paragraph of pdfText(value).split("\n")) {
-      let line = "";
-      for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-        if (doc.widthOfString(line ? `${line} ${word}` : word) <= available) { line = line ? `${line} ${word}` : word; continue; }
-        if (line) result.push(line); line = "";
-        for (const char of word) {
-          if (line && doc.widthOfString(line + char) > available) { result.push(line); line = ""; }
-          line += char;
-        }
+  const navy="#071D49",blue="#006CFF",grey="#526179",light="#F1F6FD",border="#DCE3ED";
+  const left=42,right=doc.page.width-42,width=right-left;
+  let y=40,page=1;
+  const wrap=(value:string,available:number,size=8.5,bold=false)=>{
+    doc.font(bold?"Helvetica-Bold":"Helvetica").fontSize(size);
+    const result:string[]=[];
+    for(const paragraph of pdfText(value).split("\n")){
+      let line="";
+      for(const word of paragraph.split(/\s+/).filter(Boolean)){
+        if(doc.widthOfString(line?`${line} ${word}`:word)<=available){line=line?`${line} ${word}`:word;continue;}
+        if(line)result.push(line);line="";
+        for(const char of word){if(line&&doc.widthOfString(line+char)>available){result.push(line);line="";}line+=char;}
       }
       result.push(line);
     }
     return result;
   };
-  const flow = (value: string, size = 8, bold = false, indent = 0) => {
-    for (const line of wrap(value, width - indent, size, bold)) {
-      ensure(size + 5);
-      doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size).fillColor(bold ? navy : grey).text(line, left + indent, y, { width: width - indent, lineBreak: false });
-      y += size + 4;
-    }
+  const text=(value:string,x:number,top:number,w:number,size=8.5,bold=false,color=navy,align:"left"|"right"="left")=>{
+    doc.font(bold?"Helvetica-Bold":"Helvetica").fontSize(size).fillColor(color).text(pdfText(value),x,top,{width:w,align,lineBreak:false});
   };
-  // Supplied brand asset, bundled with the backend. Its generous image margins are clipped here.
-  const logo = path.resolve(__dirname, "../../assets/invoice-logo.png");
-  if (fs.existsSync(logo)) {
-    doc.roundedRect(left, 40, 256, 61, 5).fill(navy);
-    doc.save().rect(left, 40, 256, 61).clip();
-    doc.image(logo, left, -17, { width: 256 }); doc.restore();
-  } else {
-    doc.font("Helvetica-Bold").fontSize(20).fillColor(navy).text(settings.companyName, left, 42, { width: 265 });
-  }
-  doc.font("Helvetica-Bold").fontSize(25).fillColor(blue).text("INVOICE", 338, 42, { width: right - 338, align: "right" });
-  const company = [settings.companyName, settings.companyAddress, settings.telephone ? `Tel: ${settings.telephone}` : null,
-    settings.email, settings.website, settings.companyRegistrationNumber ? `Company No: ${settings.companyRegistrationNumber}` : null,
-    settings.vatNumber ? `VAT No: ${settings.vatNumber}` : null].filter(Boolean).join("\n");
-  doc.font("Helvetica").fontSize(7.5).fillColor(grey);
-  const companyLines = wrap(company, 270, 7.5);
-  companyLines.forEach((line, i) => doc.text(line, left, 109 + i * 10, { width: 270, lineBreak: false }));
-  const meta = [["Invoice No", invoice.invoiceNumber], ["Status", invoiceDisplayStatus(invoice.status)], ["Issue date", date(issuedAt)],
-    ["Supply date", date(invoice.supplyDate || primary?.collectionDate)], ["Due date", date(dueDate)]];
-  meta.forEach(([label, value], i) => {
-    const row = 85 + i * 16;
-    doc.font("Helvetica").fontSize(8).fillColor(grey).text(label, 340, row, { width: 75, lineBreak: false });
-    doc.font("Helvetica-Bold").fillColor(navy).text(pdfText(value), 416, row, { width: right - 416, align: "right", lineBreak: false });
-  });
-  y = Math.max(182, 109 + companyLines.length * 10 + 14);
-  const customerLines = wrap(customer, 260, 8), referenceLines = wrap(refs, 205, 8);
-  // If exceptional billing details are long, flow them safely instead of overflowing a fixed box.
-  const boxHeight = Math.max(customerLines.length, referenceLines.length) * 12 + 40;
-  if (boxHeight < 260) {
-    ensure(boxHeight);
-    doc.roundedRect(left, y, width, boxHeight, 6).fill(light);
-    doc.font("Helvetica-Bold").fontSize(9).fillColor(navy).text("BILL TO", left + 12, y + 12, { lineBreak: false });
-    doc.text("INVOICE DETAILS", right - 217, y + 12, { width: 205, align: "right", lineBreak: false });
-    doc.font("Helvetica").fontSize(8);
-    customerLines.forEach((line, i) => doc.text(line, left + 12, y + 31 + i * 12, { width: 260, lineBreak: false }));
-    referenceLines.forEach((line, i) => doc.text(line, right - 217, y + 31 + i * 12, { width: 205, align: "right", lineBreak: false }));
-    y += boxHeight + 16;
-  } else { flow("BILL TO", 9, true); flow(customer); flow("INVOICE DETAILS", 9, true); flow(refs); y += 10; }
-
-  const tableHeader = () => {
-    ensure(30);
-    doc.rect(left, y, width, 23).fill(navy);
-    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("white");
-    for (const [label,x,w] of [["Description",left+8,360],["Unit price (net)",440,105]] as const)
-      doc.text(label,x,y+8,{width:w,align:label==="Description"?"left":"right",lineBreak:false});
-    y += 23;
+  const companyFooter=[`${settings.footerMessage||"Thank you for your business."} | ${settings.companyName}`,settings.companyAddress,[settings.telephone,settings.email,settings.website].filter(Boolean).join(" | "),
+    [settings.companyRegistrationNumber?`Company No ${settings.companyRegistrationNumber}`:null,settings.vatNumber?`VAT No ${settings.vatNumber}`:null].filter(Boolean).join(" | ")].filter(Boolean).flatMap(v=>wrap(v!,width-35,6.5));
+  const footerTop=()=>doc.page.height-30-companyFooter.length*9;
+  const bottom=()=>footerTop()-20;
+  const footer=()=>{companyFooter.forEach((v,i)=>text(v,left,footerTop()+i*9,width-35,6.5,false,grey));text(String(page),right-25,footerTop(),25,7,false,grey,"right");};
+  const nextPage=()=>{footer();doc.addPage();page++;y=40;text(`INVOICE ${invoice.invoiceNumber} - continued`,left,y,width,10,true);y+=28;};
+  const ensure=(h:number)=>{if(y+h>bottom())nextPage();};
+  const flow=(value:string,size=8.5,bold=false,color=navy)=>{for(const line of wrap(value,width,size,bold)){ensure(size+5);text(line,left,y,width,size,bold,color);y+=size+4;}};
+  const rule=()=>{doc.strokeColor(border).lineWidth(0.6).moveTo(left,y).lineTo(right,y).stroke();};
+  // Use the existing supplied logo, with its transparent image margins clipped.
+  const logo=path.resolve(__dirname,"../../assets/invoice-logo.png");
+  if(fs.existsSync(logo)){doc.roundedRect(left,40,235,54,4).fill(navy);doc.save().rect(left,40,235,54).clip();doc.image(logo,left,40-53,{width:235});doc.restore();}
+  else{text(settings.companyName,left,43,270,19,true);}
+  text("INVOICE",330,40,right-330,27,true,navy,"right");
+  text(invoice.invoiceNumber,330,73,right-330,16,true,blue,"right");
+  const status=invoiceDisplayStatus(invoice.status),statusColor=status==="PAID"?"#15803D":status==="UNPAID/DUE"?"#9A4A00":blue;
+  text(status,330,96,right-330,9,true,statusColor,"right");
+  y=119;doc.strokeColor(blue).lineWidth(1.5).moveTo(left,y).lineTo(right,y).stroke();y+=20;
+  const accountType=invoice.billingAccountType||user?.accountType;
+  const accountLabel=accountType==="TRADE"?"Trade account":accountType==="BUSINESS"?"Business account":user?"Customer account":"Guest customer";
+  const meta=[["Issue date",date(issuedAt)],["Due date",date(dueDate)],["Supply date",date(invoice.supplyDate||primary?.collectionDate)],["Account type",accountLabel]];
+  text("BILL TO",left,y,260,9,true);const customerLines=wrap(customer,260,8.5);const customerStart=y+19;
+  if(customerLines.length<16){customerLines.forEach((v,i)=>text(v,left,customerStart+i*12,260,8.5,i===0));meta.forEach(([label,value],i)=>{text(label,335,y+i*19,85,8,false,grey);text(value,420,y+i*19,right-420,8.5,true,navy,"right");});y+=Math.max(80,customerLines.length*12+22);}
+  else{y+=19;flow(customer);y+=8;for(const [label,value]of meta)flow(`${label}: ${value}`);y+=12;}
+  if(invoice.purchaseOrderNumber)flow(`PO / order: ${invoice.purchaseOrderNumber}`,8,false,grey);
+  if(invoice.customerReference)flow(`Customer reference: ${invoice.customerReference}`,8,false,grey);
+  // Terms are shown once; saved dates and financial values are never recalculated here.
+  flow(`Payment terms: ${accountType==="BUSINESS"?"Due immediately":invoice.paymentTerms||"As agreed"}`,7.5,false,grey);y+=16;
+  type DisplayLine={description:string;quantity:number;unitPrice:Prisma.Decimal;net:Prisma.Decimal;vatRate?:number};
+  const dec=(v:Prisma.Decimal|number|string)=>new Prisma.Decimal(v);
+  const used=new Set<InvoiceForPdf["lines"][number]>();
+  const rateSet=[...new Set(invoice.lines.map(l=>Number(l.vatRate)).filter(Number.isFinite))];
+  const savedLine=(l:InvoiceForPdf["lines"][number]):DisplayLine=>{
+    const net=l.chargeType==="DISCOUNT"?l.netAmount.abs().negated():l.netAmount,quantity=Number(l.quantity);
+    const savedRate=l.chargeType==="DISCOUNT"?l.unitPrice.abs().negated():l.unitPrice;
+    // Percentage adjustments store a percentage as unitPrice; display its monetary rate.
+    const unitPrice=quantity&&!savedRate.mul(quantity).toDecimalPlaces(2).equals(net)?net.div(quantity):savedRate;
+    return {description:l.description,quantity,unitPrice,net,vatRate:Number(l.vatRate)};
   };
-  for (const booking of bookings) {
-    ensure(55); flow(`SERVICE DETAILS - ${booking.reference}`,9,true);
-    const routes=orderedRoute(booking);
-    for(const detail of invoiceServiceDetails(booking).filter(detail=>!routes.includes(detail)))flow(detail,7.5);
-    y+=6;flow("ROUTE DETAILS",9,true);for(const detail of routes)flow(detail,7.5);y+=9;
-  }
-  // Retain saved booking snapshots if an operational booking is no longer available.
-  for (const row of invoice.invoiceBookings.filter(row => !bookings.some(b => b.id === row.bookingId))) {
-    flow(`Booking ${row.bookingReference}`, 9, true);
-    flow(row.routeDescription || "Route not recorded"); y += 8;
-  }
-  tableHeader();
-  const lines:{description:string;quantity:number;unitPrice:Prisma.Decimal;bookingReference?:string|null}[]=[];
-  for(const booking of bookings){const b=bookingPriceBreakdown(booking),ref=booking.reference;
-    lines.push({description:`Base fare - ${booking.vehicleType||booking.quote?.vehicleSize||"Courier service"}`,quantity:1,unitPrice:new Prisma.Decimal(b.base),bookingReference:ref},
-      {description:`Mileage - ${b.miles} miles (per mile)`,quantity:b.miles,unitPrice:new Prisma.Decimal(b.mileageRate),bookingReference:ref},
-      {description:`Extra stops - ${b.stopCount} (per stop)`,quantity:b.stopCount,unitPrice:new Prisma.Decimal(b.stopRate),bookingReference:ref});
-    if(b.discount)lines.push({description:"Booking discount",quantity:1,unitPrice:new Prisma.Decimal(-b.discount),bookingReference:ref});
-    if(b.adjustment)lines.push({description:"Booking price adjustment",quantity:1,unitPrice:new Prisma.Decimal(b.adjustment),bookingReference:ref});
-  }
-  for(const line of invoice.lines){if(line.sourceType==="ADJUSTMENT"||line.sourceType==="MANUAL"||!bookings.some(b=>b.id===line.bookingId))
-    lines.push({description:line.description,quantity:Number(line.quantity),unitPrice:line.chargeType==="DISCOUNT"?line.unitPrice.abs().negated():line.unitPrice,bookingReference:line.bookingReference});}
-  if(!lines.length)lines.push({description:"Courier service",quantity:1,unitPrice:invoice.subtotal});
-  for (const line of lines) {
-    const description = line.bookingReference && !line.description.includes(line.bookingReference) ? `${line.description}\nBooking: ${line.bookingReference}` : line.description;
-    const pieces = wrap(description, 360, 8);
-    let first = true;
-    while (pieces.length) {
-      if (y + 30 > bottom()) { nextPage(); tableHeader(); }
-      const count = Math.max(1, Math.floor((bottom() - y - 14) / 12));
-      const segment = pieces.splice(0, count), height = Math.max(29, segment.length * 12 + 14);
-      doc.font("Helvetica").fontSize(8).fillColor(navy);
-      segment.forEach((text, i) => doc.text(text, left + 8, y + 7 + i * 12, { width: 360, lineBreak: false }));
-      if (first) {
-        doc.text(money(line.unitPrice),440,y+7,{width:105,align:"right",lineBreak:false});
-        first = false;
+  const header=()=>{ensure(50);doc.rect(left,y,width,23).fill(navy);for(const [label,x,w,align]of [["Description",left+8,260,"left"],["Qty",310,40,"right"],["Rate (net)",358,86,"right"],["Net",450,right-458,"right"]] as const)text(label,x,y+7,w,8,true,"white",align);y+=23;};
+  const table=(rows:DisplayLine[])=>{
+    if(!rows.length)return;header();
+    for(const row of rows){
+      const desc=row.description+(rateSet.length>1&&row.vatRate!==undefined?`\nVAT ${row.vatRate}%`:"");
+      const pieces=wrap(desc,260,8.5);let first=true;
+      while(pieces.length){
+        if(y+32>bottom()){nextPage();header();}
+        const count=Math.max(1,Math.floor((bottom()-y-14)/12));const segment=pieces.splice(0,count),h=Math.max(27,segment.length*12+14);
+        segment.forEach((v,i)=>text(v,left+8,y+8+i*12,260,8.5));
+        if(first){text(new Intl.NumberFormat("en-GB",{maximumFractionDigits:3}).format(row.quantity),310,y+8,40,8.5,false,navy,"right");text(money(row.unitPrice),358,y+8,86,8.5,false,navy,"right");text(money(row.net),450,y+8,right-458,8.5,true,navy,"right");first=false;}
+        y+=h;rule();
       }
-      doc.strokeColor(border).moveTo(left, y + height).lineTo(right, y + height).stroke(); y += height;
     }
+    y+=15;
+  };
+  for(const booking of bookings){
+    ensure(105);flow(bookings.length>1?`BOOKING ${booking.reference}`:"SERVICE DETAILS",10,true);
+    if(bookings.length===1)flow(`Booking ${booking.reference}`,8,false,grey);
+    const routes=orderedRoute(booking).map(pdfText),details=invoiceServiceDetails(booking).filter(d=>!routes.includes(d));
+    // Compact service metadata, with each full address and instruction retained.
+    for(const detail of details.filter(d=>/^Collection:/.test(d)))flow(detail,8,false,grey);
+    const service=details.filter(d=>/^(Service:|Journey type:|Vehicle:)/.test(d)).map(d=>d.replace(/^(Service:|Journey type:|Vehicle:) /,""));
+    if(service.length)flow(service.join(" | "),8,false,grey);
+    y+=5;for(const route of routes)flow(route,8.5);
+    const extras=details.filter(d=>!/^(Collection:|Service:|Journey type:|Vehicle:)/.test(d));
+    if(extras.length){y+=4;const short=extras.filter(d=>!/^Special instructions:|^Handover notes:/.test(d));if(short.length)flow(short.join(" | "),7.5,false,grey);for(const extra of extras.filter(d=>/^Special instructions:|^Handover notes:/.test(d)))flow(extra,7.5,false,grey);}
+    y+=10;
+    const matches=invoice.lines.filter(l=>l.bookingId===booking.id||l.bookingReference===booking.reference);
+    const baseLines=matches.filter(l=>l.chargeType==="BASE_SERVICE"&&l.sourceType!=="ADJUSTMENT"&&l.sourceType!=="MANUAL");
+    const rows:DisplayLine[]=[];
+    if((baseLines.length&&!matches.some(l=>["MILEAGE","EXTRA_STOP"].includes(l.chargeType)))||(!invoice.lines.length&&booking.quote)){
+      const b=bookingPriceBreakdown(booking),snapshot=invoice.invoiceBookings.find(r=>r.bookingId===booking.id);
+      const savedNet=baseLines.length?baseLines.reduce((n,l)=>n.add(l.netAmount),dec(0)):snapshot?.netAmount??dec(b.subtotal);
+      const add=(description:string,quantity:number,unitPrice:number,net:number)=>{if(net!==0)rows.push({description,quantity,unitPrice:dec(unitPrice),net:dec(net),vatRate:baseLines.length?Number(baseLines[0].vatRate):b.vatRate});};
+      add(`Base fare - ${booking.vehicleType||booking.quote?.vehicleSize||"Courier service"}`,1,b.base,b.base);
+      add(`Journey mileage${b.miles?" (miles)":""}`,b.miles||1,b.miles?b.mileageRate:b.mileage,b.mileage);
+      add("Additional stops",b.stopCount||1,b.stopCount?b.stops/b.stopCount:b.stops,b.stops);
+      add("Booking discount",1,-b.discount,-b.discount);
+      const difference=dec(savedNet).sub(dec(b.base).add(b.mileage).add(b.stops).sub(b.discount)).toDecimalPlaces(2);
+      if(!difference.isZero())rows.push({description:"Booking price adjustment",quantity:1,unitPrice:difference,net:difference});
+      if(!rows.length)rows.push({description:"Courier service",quantity:1,unitPrice:dec(savedNet),net:dec(savedNet)});
+      baseLines.forEach(l=>used.add(l));
+    }
+    for(const l of matches){if(used.has(l))continue;rows.push(savedLine(l));used.add(l);}
+    if(bookings.length===1&&invoice.invoiceBookings.every(r=>r.bookingId===booking.id))for(const l of invoice.lines){if(!used.has(l)){rows.push(savedLine(l));used.add(l);}}
+    table(rows);
   }
-  y += 12; ensure(124);
-  const totals = [["Subtotal (excluding VAT)", invoice.subtotal], ["VAT @20%", invoice.vatAmount], ["Total (including VAT)", invoice.total]] as const;
-  totals.forEach(([label, value], i) => {
-    const row = y + i * 18, strong = label === "Total (including VAT)";
-    if (strong) doc.roundedRect(330, row - 3, right - 330, 18, 3).fill(light);
-    doc.font(strong ? "Helvetica-Bold" : "Helvetica").fontSize(8.5).fillColor(strong ? navy : grey).text(label, 338, row, { width: 135, lineBreak: false });
-    doc.font("Helvetica-Bold").fillColor(navy).text(money(value), 480, row, { width: right - 488, align: "right", lineBreak: false });
-  });
-  y += 68;
-  const bank = [settings.bankAccountName ? `Account name: ${settings.bankAccountName}` : null, settings.bankName ? `Bank: ${settings.bankName}` : null,
-    settings.sortCode ? `Sort code: ${settings.sortCode}` : null, settings.accountNumber ? `Account number: ${settings.accountNumber}` : null,
-    `Payment reference: ${invoice.invoiceNumber}`].filter(Boolean).join("\n");
-  const bankLines = wrap(bank, 270, 8), bankHeight = Math.max(78, bankLines.length * 12 + 24);
-  ensure(bankHeight);
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(navy).text("PAYABLE BY BANK TRANSFER TO", left, y, { width: 275, lineBreak: false });
-  doc.font("Helvetica").fontSize(8).fillColor(grey);
-  bankLines.forEach((line, i) => doc.text(line, left, y + 18 + i * 12, { width: 275, lineBreak: false }));
-  doc.roundedRect(338, y - 5, right - 338, 72, 5).fill(light);
-  doc.font("Helvetica-Bold").fontSize(9).fillColor(navy).text("AMOUNT DUE", 348, y + 5, { width: right - 358, align: "right", lineBreak: false });
-  doc.fontSize(20).fillColor(blue).text(money(outstanding), 348, y + 23, { width: right - 358, align: "right", lineBreak: false });
-  doc.font("Helvetica").fontSize(8).fillColor(grey).text(`Due ${date(dueDate)}`, 348, y + 49, { width: right - 358, align: "right", lineBreak: false });
-  y += bankHeight + 9;
-  if (invoice.notes) { flow("INVOICE NOTES", 9, true); flow(invoice.notes); y += 8; }
-  flow(settings.footerMessage || "Thank you for your business", 8);
-  footer(); doc.end(); return completed;
+  for(const row of invoice.invoiceBookings.filter(r=>!bookings.some(b=>b.id===r.bookingId))){ensure(60);flow(`BOOKING ${row.bookingReference}`,10,true);flow(`Collected ${date(row.bookingDate)}`,8,false,grey);if(row.routeDescription)flow(row.routeDescription,8.5);if(row.serviceDescription)flow(row.serviceDescription,8,false,grey);if(row.poReference)flow(`PO / order: ${row.poReference}`,8,false,grey);y+=9;const rows=invoice.lines.filter(l=>!used.has(l)&&(l.bookingId===row.bookingId||l.bookingReference===row.bookingReference));rows.forEach(l=>used.add(l));table(rows.map(savedLine));}
+  const remaining=invoice.lines.filter(l=>!used.has(l));
+  if(remaining.length){if(bookings.length){ensure(65);flow("ADDITIONAL CHARGES & DISCOUNTS",9,true);y+=7;}table(remaining.map(savedLine));}
+  else if(!invoice.lines.length&&!bookings.length)table([{description:"Courier service",quantity:1,unitPrice:invoice.subtotal,net:invoice.subtotal}]);
+  y+=4;
+  const totals:[string,Prisma.Decimal][]=[["Subtotal",invoice.subtotal],[rateSet.length===1?`VAT (${rateSet[0]}%)`:"VAT",invoice.vatAmount],["TOTAL",invoice.total]];
+  if(paid.greaterThan(0))totals.push(["Payments received",paid]);if(credited.greaterThan(0))totals.push(["Credit notes",credited]);
+  ensure(totals.length*21+15);
+  for(const [label,value]of totals){const strong=label==="TOTAL";if(strong){doc.strokeColor(border).moveTo(330,y-4).lineTo(right,y-4).stroke();}text(label,330,y,130,strong?10:8.5,strong,navy);text(money(value),465,y,right-465,strong?11:9,true,navy,"right");y+=strong?23:19;}
+  y+=10;
+  const bank=[settings.bankAccountName?`Account name: ${settings.bankAccountName}`:null,settings.bankName?`Bank: ${settings.bankName}`:null,settings.sortCode?`Sort code: ${settings.sortCode}`:null,settings.accountNumber?`Account number: ${settings.accountNumber}`:null].filter((v):v is string=>Boolean(v)).flatMap(v=>wrap(v,270,8));
+  const bankHeight=Math.max(103,bank.length*12+59);ensure(bankHeight+14);rule();y+=15;
+  text("PAYMENT DETAILS",left,y,270,9,true);bank.forEach((v,i)=>text(v,left,y+20+i*12,270,8,false,grey));
+  const refY=y+22+bank.length*12;text(`BACS reference: ${paymentReference}`,left,refY,270,9,true,blue);text("Use this exact reference when paying.",left,refY+16,270,7.5,false,grey);
+  doc.rect(335,y, right-335,88).fill(light);text("AMOUNT DUE",347,y+12,right-359,9,true);text(money(outstanding),347,y+31,right-359,23,true,blue);text(status==="PAID"?"Paid in full":`Pay by ${date(dueDate)}`,347,y+65,right-359,8.5,false,grey);
+  y+=bankHeight+10;
+  if(invoice.notes){ensure(32);flow("INVOICE NOTES",9,true);flow(invoice.notes,8,false,grey);y+=8;}
+  footer();doc.end();return completed;
 }
 
 async function uploadPdf(buffer: Buffer, invoiceNumber: string) {
