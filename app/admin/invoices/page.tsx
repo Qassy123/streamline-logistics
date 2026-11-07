@@ -435,7 +435,7 @@ function AdminInvoicesContent() {
 
   const loadOptions = useCallback(
     async (invoice: Invoice) => {
-      if (!adminKey || invoice.status !== "DRAFT") {
+      if (!adminKey || invoice.status !== "DRAFT" || invoice.invoiceType === "CONSOLIDATED") {
         setChargeOptions([]);
         setDiscountOptions([]);
         return;
@@ -1644,7 +1644,7 @@ function AdminInvoicesContent() {
                   <h3 className="font-bold text-slate-950">Manual invoice billing details</h3>
                   <p className="mt-2 whitespace-pre-line text-sm text-slate-700">{manualInvoiceDetails(selectedInvoice)?.recipientAddress}</p>
                   <p className="mt-2 text-sm text-slate-700">{invoiceEmail(selectedInvoice)}</p>
-                  {selectedInvoice.status === "DRAFT" && (
+                  {selectedInvoice.invoiceType !== "CONSOLIDATED" && selectedInvoice.status === "DRAFT" && (
                     <button type="button" onClick={() => { setManualInvoiceToEdit(selectedInvoice); setShowManualInvoice(true); }} disabled={invoiceWorking} className="mt-4 rounded-xl bg-[#FF6A00] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Edit Manual Invoice</button>
                   )}
                 </section>
@@ -1707,7 +1707,7 @@ function AdminInvoicesContent() {
                 </div>
               </div>
 
-              {selectedInvoice.status === "DRAFT" ? (
+              {selectedInvoice.invoiceType !== "CONSOLIDATED" && selectedInvoice.status === "DRAFT" ? (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1878,7 +1878,7 @@ function AdminInvoicesContent() {
                 <div className="rounded-2xl border border-slate-200 p-5"><h3 className="font-bold text-slate-950">Credit Notes</h3>{selectedInvoice.creditNotes.map((note) => <div key={note.id} className="mt-3 flex justify-between gap-4 text-sm"><span>{note.creditNoteNumber} · {note.reason || "Credit"}</span><strong>{money(note.amount)}</strong></div>)}</div>
               ) : null}
 
-              {selectedInvoice ? (
+              {selectedInvoice.invoiceType !== "CONSOLIDATED" ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">Invoice PDF</p>
@@ -1966,7 +1966,7 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
-              {["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && amountPaid(selectedInvoice) === 0 && creditTotal(selectedInvoice) === 0 ? (
+              {selectedInvoice.invoiceType !== "CONSOLIDATED" && ["FINALISED", "SENT", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && amountPaid(selectedInvoice) === 0 && creditTotal(selectedInvoice) === 0 ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">Return to Pending</p>
@@ -1987,7 +1987,7 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
-              {["FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice) > 0 ? (
+              {selectedInvoice.invoiceType !== "CONSOLIDATED" && ["FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && Number(selectedInvoice.total || 0) - creditTotal(selectedInvoice) > 0 ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">Credit note</p>
@@ -2008,7 +2008,7 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
-              {["FINALISED", "SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && outstanding(selectedInvoice) > 0 ? (
+              {selectedInvoice.invoiceType !== "CONSOLIDATED" && ["FINALISED", "SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) && outstanding(selectedInvoice) > 0 ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">Record payment</p>
@@ -2029,7 +2029,7 @@ function AdminInvoicesContent() {
                 </div>
               ) : null}
 
-              {["DRAFT", "FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE"].includes(selectedInvoice.status) ? (
+              {["DRAFT", "FINALISED", "SENT", "PARTIALLY_PAID", "PAID", "OVERDUE", "ISSUED"].includes(selectedInvoice.status) ? (
                 <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-bold text-slate-950">
@@ -2045,7 +2045,7 @@ function AdminInvoicesContent() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                  {selectedInvoice.status === "DRAFT" ? (<>
+                  {selectedInvoice.invoiceType !== "CONSOLIDATED" && selectedInvoice.status === "DRAFT" ? (<>
                     {error && <p role="alert" className="w-full rounded-lg border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
                     {invoiceMessage && <p role="status" className="w-full rounded-lg border border-green-300 bg-green-50 p-3 text-green-800">{invoiceMessage}</p>}
                     <button type="button" onClick={() => void finaliseInvoice()} disabled={invoiceWorking} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-950 bg-white px-5 py-3 text-sm font-bold text-slate-950 disabled:opacity-50">{invoiceWorking ? "Finalising…" : "Finalise"}</button>

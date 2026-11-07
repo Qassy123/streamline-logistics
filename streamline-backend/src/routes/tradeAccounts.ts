@@ -813,7 +813,7 @@ router.patch("/admin/:id", async (req, res) => {
           update: {
             paymentMode: BillingPaymentMode.PAY_LATER,
             paymentTermsDays: 14,
-            invoiceMode: BillingInvoiceMode.CONSOLIDATED,
+            invoiceMode: BillingInvoiceMode.PER_BOOKING,
             billingFrequency: BillingFrequency.MONTHLY,
             invoiceDayOfMonth: 1,
             accountsEmail: approvedAccountsEmail || null,
@@ -825,7 +825,7 @@ router.patch("/admin/:id", async (req, res) => {
             userId: existing.userId,
             paymentMode: BillingPaymentMode.PAY_LATER,
             paymentTermsDays: 14,
-            invoiceMode: BillingInvoiceMode.CONSOLIDATED,
+            invoiceMode: BillingInvoiceMode.PER_BOOKING,
             billingFrequency: BillingFrequency.MONTHLY,
             invoiceDayOfMonth: 1,
             accountsEmail: approvedAccountsEmail || null,

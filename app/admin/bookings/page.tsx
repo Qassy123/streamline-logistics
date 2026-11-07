@@ -269,6 +269,12 @@ function statusLabel(status: string) {
 
 export default function AdminBookingsPage() {
   const [adminKey, setAdminKey] = useState(String("session"));
+  const [overduePage, setOverduePage] = useState(1);
+  const [overdue, setOverdue] = useState<{
+    bookings: { id: string; reference: string; estimatedEndTime: string }[];
+    total: number;
+    pageSize: number;
+  } | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -370,6 +376,29 @@ export default function AdminBookingsPage() {
 
   useEffect(()=>{if(!adminKey)return;const id=new URLSearchParams(window.location.search).get("booking");if(!id)return;const c=new AbortController();void adminFetch(`${API_BASE}/api/bookings/admin/${encodeURIComponent(id)}`,{signal:c.signal,cache:"no-store",headers:{}}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to open booking.");if(!c.signal.aborted&&d.booking){setSelectedBooking(d.booking);setSelectedDate(d.booking.collectionDate.slice(0,10));}}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[adminKey]);
 
+  useEffect(() => {
+    if (!adminKey) return;
+    const controller = new AbortController();
+    async function loadOverdue() {
+      try {
+        const response = await adminFetch(`${API_BASE}/api/bookings/admin/overdue?page=${overduePage}`, {
+          signal: controller.signal, cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Unable to load overdue bookings.");
+        const data = await response.json();
+        if (controller.signal.aborted) return;
+        const lastPage = Math.max(1, Math.ceil(data.total / data.pageSize));
+        if (overduePage > lastPage) setOverduePage(lastPage);
+        else setOverdue(data);
+      } catch {
+        if (!controller.signal.aborted) setOverdue(null);
+      }
+    }
+    void loadOverdue();
+    const interval = window.setInterval(loadOverdue, 30_000);
+    return () => { controller.abort(); window.clearInterval(interval); };
+  }, [adminKey, overduePage, refreshing]);
+
   function moveSelectedDate(days: number) {
     const nextDate = new Date(`${selectedDate}T12:00:00`);
     nextDate.setDate(nextDate.getDate() + days);
@@ -425,6 +454,31 @@ export default function AdminBookingsPage() {
           Refresh
         </button>
       </div>
+
+      {overdue && overdue.total > 0 && (
+        <details className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <summary className="cursor-pointer font-bold">
+            {overdue.total} overdue {overdue.total === 1 ? "booking" : "bookings"} awaiting completion
+          </summary>
+          <ul className="mt-3 space-y-2">
+            {overdue.bookings.map(booking => (
+              <li key={booking.id}>
+                <a className="font-semibold underline" href={`/admin/bookings?booking=${encodeURIComponent(booking.id)}`}>
+                  {booking.reference}
+                </a>
+                {" · Due "}
+                {new Date(booking.estimatedEndTime).toLocaleString("en-GB", { timeZone: "Europe/London" })}
+              </li>
+            ))}
+          </ul>
+          {overdue.total > overdue.pageSize && (
+            <div className="mt-3 flex gap-4">
+              <button type="button" disabled={overduePage === 1} onClick={() => setOverduePage(page => page - 1)}>Previous</button>
+              <button type="button" disabled={overduePage * overdue.pageSize >= overdue.total} onClick={() => setOverduePage(page => page + 1)}>Next</button>
+            </div>
+          )}
+        </details>
+      )}
 
       <section className="mt-7 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">

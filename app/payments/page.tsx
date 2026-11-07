@@ -199,7 +199,7 @@ export default async function PaymentsPage({
                   icon={<MapPinned size={22} />}
                   iconClassName="text-[#006CFF]"
                   label="Mileage"
-                  detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMoney(mileageRate)})`}
+                  detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMoney(mileageRate)})`}
                   value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
                 />
 

@@ -613,7 +613,7 @@ router.post("/", async (req, res) => {
               accountTypeValue === AccountType.TRADE
                 ? BillingPaymentMode.PAY_LATER
                 : BillingPaymentMode.PAY_NOW,
-            invoiceMode: accountTypeValue === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
+            invoiceMode: BillingInvoiceMode.PER_BOOKING,
             billingFrequency: accountTypeValue === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
             paymentTermsDays: accountTypeValue === "TRADE" ? 14 : accountTypeValue === "BUSINESS" ? 0 : 30,
             accountsEmail,
@@ -1511,7 +1511,7 @@ router.patch("/:id", async (req, res) => {
                   ? BillingPaymentMode.PAY_LATER
                   : BillingPaymentMode.PAY_NOW),
 
-              invoiceMode: nextAccountType === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
+              invoiceMode: BillingInvoiceMode.PER_BOOKING,
 
               billingFrequency: nextAccountType === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
 
@@ -1553,7 +1553,7 @@ router.patch("/:id", async (req, res) => {
             update: {
               paymentMode: billingPaymentMode,
 
-              invoiceMode: nextAccountType === AccountType.TRADE ? BillingInvoiceMode.CONSOLIDATED : BillingInvoiceMode.PER_BOOKING,
+              invoiceMode: BillingInvoiceMode.PER_BOOKING,
 
               billingFrequency: nextAccountType === AccountType.TRADE ? BillingFrequency.MONTHLY : BillingFrequency.PER_BOOKING,
 

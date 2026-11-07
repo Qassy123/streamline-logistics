@@ -371,6 +371,34 @@ router.post("/admin/completed-jobs/:id/review", async (req,res) => {
   catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to review job." }); }
 });
 
+router.get("/admin/overdue", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const where: Prisma.BookingWhereInput = {
+      archivedCustomerId: null,
+      estimatedEndTime: { lt: new Date() },
+      status: { in: [BookingStatus.CONFIRMED, BookingStatus.ASSIGNED, BookingStatus.IN_PROGRESS] },
+    };
+    const page = getPositiveInteger(req.query.page, 1);
+    const pageSize = 20;
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        select: { id: true, reference: true, estimatedEndTime: true },
+        orderBy: [{ estimatedEndTime: "desc" }, { id: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.booking.count({ where }),
+    ]);
+    return res.json({ bookings, total, pageSize });
+  } catch (error) {
+    console.error("Overdue booking alert error:", error);
+    return res.status(500).json({ error: "Unable to load overdue bookings." });
+  }
+});
+
 router.get("/admin/list", async (req, res) => {
   const admin = requireAdmin(req);
 

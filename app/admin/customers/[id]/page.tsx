@@ -38,6 +38,7 @@ type AccountType = "PRIVATE" | "BUSINESS" | "TRADE";
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
 
 type Invoice = {
+  invoiceType?: string;
   billingAccountType?: string | null;
   id: string;
   invoiceNumber: string;
@@ -286,8 +287,7 @@ function toEditForm(customer: Customer): EditForm {
     billingPaymentMode:
       customer.billingProfile?.paymentMode ||
       (customer.accountType === "TRADE" ? "PAY_LATER" : "PAY_NOW"),
-    billingInvoiceMode:
-      customer.billingProfile?.invoiceMode || "PER_BOOKING",
+    billingInvoiceMode: "PER_BOOKING",
     billingFrequency:
       customer.billingProfile?.billingFrequency || "PER_BOOKING",
     invoiceDayOfWeek:
@@ -994,7 +994,6 @@ export default function CustomerAccountPage() {
                 className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
               >
                 <option value="PER_BOOKING">Invoice Per Booking</option>
-                <option value="CONSOLIDATED">Consolidated Invoice</option>
               </select>
             </EditRow>
 
@@ -1303,9 +1302,7 @@ export default function CustomerAccountPage() {
             <DetailRow
               label="Invoice Mode"
               value={
-                customer.billingProfile?.invoiceMode === "CONSOLIDATED"
-                  ? "Consolidated Invoice"
-                  : "Invoice Per Booking"
+                "Invoice Per Booking"
               }
             />
 
@@ -1386,7 +1383,8 @@ export default function CustomerAccountPage() {
           </section>
 
           <aside className="space-y-6">
-            {(customer.accountType !== "BUSINESS" || customer.invoices?.some(invoice => invoice.billingAccountType === "TRADE")) && <>
+            <MonthlyInvoiceSummary key={customer.id} customerId={customer.id} />
+            {(customer.accountType !== "BUSINESS" || pendingInvoices.length > 0 || finalisedIssuedInvoices.length > 0) && <>
 <InvoiceSection
               title="Pending Invoices"
               invoices={pendingInvoices}
@@ -1448,6 +1446,91 @@ function DetailRow({
         {value}
       </div>
     </div>
+  );
+}
+
+type MonthlySummary = { id: string; month: string; number: string };
+
+function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
+  const [open, setOpen] = useState(false);
+  const [months, setMonths] = useState<string[]>([]);
+  const [month, setMonth] = useState("");
+  const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const endpoint = `${API_BASE}/api/invoices/admin/monthly-summary/${encodeURIComponent(customerId)}`;
+
+  async function request(path = "", body?: object) {
+    const response = await adminFetch(endpoint + path, {
+      cache: "no-store",
+      ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Unable to manage the consolidated invoice.");
+    return data;
+  }
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try { await action(); }
+    catch (error) { setError(error instanceof Error ? error.message : "Unable to manage the consolidated invoice."); }
+    finally { setBusy(false); }
+  }
+
+  function monthLabel(value: string) {
+    return new Date(`${value}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Europe/London" });
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <button type="button" className="font-semibold text-orange-700" aria-expanded={open} disabled={busy}
+        onClick={() => {
+          if (open) { setOpen(false); return; }
+          setOpen(true);
+          void run(async () => {
+            const data = await request();
+            setMonths(data.months);
+            setSummaries(data.summaries);
+            setMonth(data.months[0] || "");
+          });
+        }}>
+        Consolidated invoices
+      </button>
+      {open && <>
+        <label className="block text-sm font-semibold">
+          Invoice month
+          <select className="mt-1 block w-full rounded-lg border border-slate-300 p-2" value={month}
+            onChange={event => setMonth(event.target.value)} disabled={busy || !months.length}>
+            {!months.length && <option value="">No issued invoices</option>}
+            {months.map(value => <option value={value} key={value}>{monthLabel(value)}</option>)}
+          </select>
+        </label>
+        <button type="button" disabled={!month || busy} className="rounded-lg bg-[#FF6A00] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          onClick={() => void run(async () => {
+            const { summary } = await request("", { month });
+            setSummaries(rows => [summary, ...rows.filter(row => row.id !== summary.id)]);
+            setMessage(`${summary.number} is ready to email.`);
+          })}>
+          Generate consolidated invoice
+        </button>
+        {summaries.map(summary => (
+          <div key={summary.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-sm">
+            <span><strong>{summary.number}</strong> · {monthLabel(summary.month)}</span>
+            <button type="button" disabled={busy} className="font-semibold text-orange-700 disabled:opacity-50"
+              onClick={() => void run(async () => {
+                const data = await request(`/${encodeURIComponent(summary.id)}/send`, {});
+                setMessage(data.message);
+              })}>Email customer</button>
+          </div>
+        ))}
+        {busy && <p role="status" className="text-sm text-slate-500">Working…</p>}
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {message && <p role="status" className="text-sm text-green-700">{message}</p>}
+      </>}
+    </section>
   );
 }
 
@@ -1535,7 +1618,7 @@ function InvoiceSection({
                 <ArrowRight size={15} />
               </div>
             </Link>
-            {onUnfinalise && ["FINALISED", "SENT", "ISSUED", "OVERDUE"].includes(invoice.status) && <button type="button" className="mx-5 mb-4 min-h-11 rounded-xl border px-4 font-semibold text-[#071D49]" onClick={() => { if (window.confirm(`Unfinalise ${invoice.invoiceNumber} and return it to Pending?`)) void onUnfinalise(invoice); }}>Unfinalise</button>}
+            {invoice.invoiceType !== "CONSOLIDATED" && onUnfinalise && ["FINALISED", "SENT", "ISSUED", "OVERDUE"].includes(invoice.status) && <button type="button" className="mx-5 mb-4 min-h-11 rounded-xl border px-4 font-semibold text-[#071D49]" onClick={() => { if (window.confirm(`Unfinalise ${invoice.invoiceNumber} and return it to Pending?`)) void onUnfinalise(invoice); }}>Unfinalise</button>}
             </div>
           ))}
         </div>

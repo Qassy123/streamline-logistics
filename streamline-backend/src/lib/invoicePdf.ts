@@ -83,7 +83,7 @@ function ensureCloudinaryConfigured() {
   }
 }
 
-export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer> {
+export async function renderInvoicePdf(invoice: PdfInvoiceInput, summaryMonth?: string): Promise<Buffer> {
   const settings = await prisma.companySettings.findFirst();
   if (!settings?.companyName?.trim()) throw new Error("Company settings and name are required before rendering invoices.");
   const archived = invoice.archivedCustomerId ? await prisma.customerArchive.findUnique({ where: { id: invoice.archivedCustomerId }, select: { snapshot: true } }) : null;
@@ -141,21 +141,28 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
   const logo=path.resolve(__dirname,"../../assets/invoice-logo.png");
   if(fs.existsSync(logo)){doc.roundedRect(left,40,235,54,4).fill(navy);doc.save().rect(left,40,235,54).clip();doc.image(logo,left,40-53,{width:235});doc.restore();}
   else{text(settings.companyName,left,43,270,19,true);}
-  text("INVOICE",330,40,right-330,27,true,navy,"right");
+  text(summaryMonth ? "CONSOLIDATED INVOICE" : "INVOICE",330,40,right-330,summaryMonth ? 13 : 27,true,navy,"right");
   text(invoice.invoiceNumber,330,73,right-330,16,true,blue,"right");
   const status=invoiceDisplayStatus(invoice.status),statusColor=status==="PAID"?"#15803D":status==="UNPAID/DUE"?"#9A4A00":blue;
-  text(status,330,96,right-330,9,true,statusColor,"right");
+  text(summaryMonth ? "MONTHLY SUMMARY" : status,330,96,right-330,9,true,statusColor,"right");
   y=119;doc.strokeColor(blue).lineWidth(1.5).moveTo(left,y).lineTo(right,y).stroke();y+=20;
   const accountType=invoice.billingAccountType||user?.accountType;
   const accountLabel=accountType==="TRADE"?"Trade account":accountType==="BUSINESS"?"Business account":user?"Customer account":"Guest customer";
-  const meta=[["Issue date",date(issuedAt)],["Due date",date(dueDate)],["Supply date",date(invoice.supplyDate||primary?.collectionDate)],["Account type",accountLabel]];
+  const meta = [["Issue date", date(issuedAt)], ["Account type", accountLabel]];
+  if (summaryMonth) meta.push(["Invoice month", summaryMonth]);
+  else {
+    meta.splice(1, 0, ["Due date", date(dueDate)]);
+    if (invoice.invoiceType !== "CONSOLIDATED") {
+      meta.splice(2, 0, ["Supply date", date(invoice.supplyDate || primary?.collectionDate)]);
+    }
+  }
   text("BILL TO",left,y,260,9,true);const customerLines=wrap(customer,260,8.5);const customerStart=y+19;
   if(customerLines.length<16){customerLines.forEach((v,i)=>text(v,left,customerStart+i*12,260,8.5,i===0));meta.forEach(([label,value],i)=>{text(label,335,y+i*19,85,8,false,grey);text(value,420,y+i*19,right-420,8.5,true,navy,"right");});y+=Math.max(80,customerLines.length*12+22);}
   else{y+=19;flow(customer);y+=8;for(const [label,value]of meta)flow(`${label}: ${value}`);y+=12;}
   if(invoice.purchaseOrderNumber)flow(`PO / order: ${invoice.purchaseOrderNumber}`,8,false,grey);
   if(invoice.customerReference)flow(`Customer reference: ${invoice.customerReference}`,8,false,grey);
   // Terms are shown once; saved dates and financial values are never recalculated here.
-  flow(`Payment terms: ${accountType==="BUSINESS"?"Due immediately":invoice.paymentTerms||"As agreed"}`,7.5,false,grey);y+=16;
+  if (!summaryMonth) flow(`Payment terms: ${accountType==="BUSINESS"?"Due immediately":invoice.paymentTerms||"As agreed"}`,7.5,false,grey);y+=16;
   type DisplayLine={description:string;quantity:number;unitPrice:Prisma.Decimal;net:Prisma.Decimal;vatRate?:number};
   const dec=(v:Prisma.Decimal|number|string)=>new Prisma.Decimal(v);
   const used=new Set<InvoiceForPdf["lines"][number]>();
@@ -165,7 +172,7 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
     const savedRate=l.chargeType==="DISCOUNT"?l.unitPrice.abs().negated():l.unitPrice;
     // Percentage adjustments store a percentage as unitPrice; display its monetary rate.
     const unitPrice=quantity&&!savedRate.mul(quantity).toDecimalPlaces(2).equals(net)?net.div(quantity):savedRate;
-    return {description:l.description,quantity,unitPrice,net,vatRate:Number(l.vatRate)};
+    return {description:l.chargeType === "MILEAGE" && !/per mile/i.test(l.description) ? `${l.description} (per mile)` : l.description,quantity,unitPrice,net,vatRate:Number(l.vatRate)};
   };
   const header=()=>{ensure(50);doc.rect(left,y,width,23).fill(navy);for(const [label,x,w,align]of [["Description",left+8,260,"left"],["Qty",310,40,"right"],["Rate (net)",358,86,"right"],["Net",450,right-458,"right"]] as const)text(label,x,y+7,w,8,true,"white",align);y+=23;};
   const table=(rows:DisplayLine[])=>{
@@ -203,7 +210,7 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
       const savedNet=baseLines.length?baseLines.reduce((n,l)=>n.add(l.netAmount),dec(0)):snapshot?.netAmount??dec(b.subtotal);
       const add=(description:string,quantity:number,unitPrice:number,net:number)=>{if(net!==0)rows.push({description,quantity,unitPrice:dec(unitPrice),net:dec(net),vatRate:baseLines.length?Number(baseLines[0].vatRate):b.vatRate});};
       add(`Base fare - ${booking.vehicleType||booking.quote?.vehicleSize||"Courier service"}`,1,b.base,b.base);
-      add(`Journey mileage${b.miles?" (miles)":""}`,b.miles||1,b.miles?b.mileageRate:b.mileage,b.mileage);
+      add("Journey mileage (per mile)",b.miles||1,b.miles?b.mileageRate:b.mileage,b.mileage);
       add("Additional stops",b.stopCount||1,b.stopCount?b.stops/b.stopCount:b.stops,b.stops);
       add("Booking discount",1,-b.discount,-b.discount);
       const difference=dec(savedNet).sub(dec(b.base).add(b.mileage).add(b.stops).sub(b.discount)).toDecimalPlaces(2);
@@ -220,17 +227,22 @@ export async function renderInvoicePdf(invoice: PdfInvoiceInput): Promise<Buffer
   if(remaining.length){if(bookings.length){ensure(65);flow("ADDITIONAL CHARGES & DISCOUNTS",9,true);y+=7;}table(remaining.map(savedLine));}
   else if(!invoice.lines.length&&!bookings.length)table([{description:"Courier service",quantity:1,unitPrice:invoice.subtotal,net:invoice.subtotal}]);
   y+=4;
-  const totals:[string,Prisma.Decimal][]=[["Subtotal",invoice.subtotal],[rateSet.length===1?`VAT (${rateSet[0]}%)`:"VAT",invoice.vatAmount],["TOTAL",invoice.total]];
+  const totals:[string,Prisma.Decimal][]=[["Subtotal",invoice.subtotal],[!summaryMonth&&rateSet.length===1?`VAT (${rateSet[0]}%)`:"VAT",invoice.vatAmount],["TOTAL",invoice.total]];
   if(paid.greaterThan(0))totals.push(["Payments received",paid]);if(credited.greaterThan(0))totals.push(["Credit notes",credited]);
   ensure(totals.length*21+15);
   for(const [label,value]of totals){const strong=label==="TOTAL";if(strong){doc.strokeColor(border).moveTo(330,y-4).lineTo(right,y-4).stroke();}text(label,330,y,130,strong?10:8.5,strong,navy);text(money(value),465,y,right-465,strong?11:9,true,navy,"right");y+=strong?23:19;}
   y+=10;
-  const bank=[settings.bankAccountName?`Account name: ${settings.bankAccountName}`:null,settings.bankName?`Bank: ${settings.bankName}`:null,settings.sortCode?`Sort code: ${settings.sortCode}`:null,settings.accountNumber?`Account number: ${settings.accountNumber}`:null].filter((v):v is string=>Boolean(v)).flatMap(v=>wrap(v,270,8));
-  const bankHeight=Math.max(103,bank.length*12+59);ensure(bankHeight+14);rule();y+=15;
-  text("PAYMENT DETAILS",left,y,270,9,true);bank.forEach((v,i)=>text(v,left,y+20+i*12,270,8,false,grey));
-  const refY=y+22+bank.length*12;text(`BACS reference: ${paymentReference}`,left,refY,270,9,true,blue);text("Use this exact reference when paying.",left,refY+16,270,7.5,false,grey);
-  doc.rect(335,y, right-335,88).fill(light);text("AMOUNT DUE",347,y+12,right-359,9,true);text(money(outstanding),347,y+31,right-359,23,true,blue);text(status==="PAID"?"Paid in full":`Pay by ${date(dueDate)}`,347,y+65,right-359,8.5,false,grey);
-  y+=bankHeight+10;
+  if (summaryMonth) {
+    ensure(30);
+    flow("For any balance due, use the BACS reference and due date on the original invoice.", 9, true);
+  } else {
+    const bank=["Business name: Streamline Logistics Group LTD",settings.bankAccountName && !/^streamline logistics group(?: ltd)?$/i.test(settings.bankAccountName.trim())?`Account name: ${settings.bankAccountName}`:null,settings.bankName?`Bank: ${settings.bankName}`:null,settings.sortCode?`Sort code: ${settings.sortCode}`:null,settings.accountNumber?`Account number: ${settings.accountNumber}`:null].filter((v):v is string=>Boolean(v)).flatMap(v=>wrap(v,270,8));
+    const bankHeight=Math.max(103,bank.length*12+59);ensure(bankHeight+14);rule();y+=15;
+    text("PAYMENT DETAILS",left,y,270,9,true);bank.forEach((v,i)=>text(v,left,y+20+i*12,270,8,false,grey));
+    const refY=y+22+bank.length*12;text(`BACS reference: ${paymentReference}`,left,refY,270,9,true,blue);text("Use this exact reference when paying.",left,refY+16,270,7.5,false,grey);
+    doc.rect(335,y, right-335,88).fill(light);text("AMOUNT DUE",347,y+12,right-359,9,true);text(money(outstanding),347,y+31,right-359,23,true,blue);text(status==="PAID"?"Paid in full":`Pay by ${date(dueDate)}`,347,y+65,right-359,8.5,false,grey);
+    y+=bankHeight+10;
+  }
   if(invoice.notes){ensure(32);flow("INVOICE NOTES",9,true);flow(invoice.notes,8,false,grey);y+=8;}
   footer();doc.end();return completed;
 }

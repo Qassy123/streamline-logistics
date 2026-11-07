@@ -393,7 +393,7 @@ export default async function QuoteDetailsPage({
                   icon={<MapPinned size={22} />}
                   iconClassName="text-[#006CFF]"
                   label="Mileage"
-                  detail={`(${formatValue(quote.distanceMiles)} mi × ${formatMileageRate(
+                  detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMileageRate(
                     mileageRate,
                   )})`}
                   value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
