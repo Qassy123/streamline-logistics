@@ -1767,8 +1767,12 @@ router.get("/admin/billing-queue", async (req, res) => {
 });
 
 const summaryEvent = "MONTHLY_INVOICE_SUMMARY";
-const summaryInvoiceFilter: Prisma.InvoiceWhereInput = {
+const summaryAccountFilter = {
   archivedCustomerId: null,
+  user: { is: { accountType: "TRADE" as const } },
+};
+const summaryInvoiceFilter: Prisma.InvoiceWhereInput = {
+  ...summaryAccountFilter,
   invoiceType: { not: "CONSOLIDATED" },
   status: { in: ["FINALISED", "SENT", "ISSUED", "OVERDUE", "PARTIALLY_PAID", "PAID", "CREDITED"] },
 };
@@ -1797,7 +1801,7 @@ router.get("/admin/monthly-summary/:userId", async (req, res) => {
         select: { issuedAt: true, finalisedAt: true, createdAt: true },
       }),
       prisma.invoiceAuditEvent.findMany({
-        where: { eventType: summaryEvent, invoice: { userId: req.params.userId, archivedCustomerId: null } },
+        where: { eventType: summaryEvent, invoice: { ...summaryAccountFilter, userId: req.params.userId } },
         orderBy: { createdAt: "desc" },
         select: { id: true, metadata: true },
       }),
@@ -1874,56 +1878,78 @@ router.post("/admin/monthly-summary/:userId", async (req, res) => {
   }
 });
 
+async function loadMonthlySummaryPdf(userId: string, summaryId: string) {
+  const record = await prisma.invoiceAuditEvent.findFirst({
+    where: { id: summaryId, eventType: summaryEvent, invoice: { ...summaryAccountFilter, userId: userId } },
+  });
+  const details = record && summaryMetadata(record.metadata);
+  if (!record || !details) return { ok: false, status: 404, error: "Consolidated invoice not found." } as const;
+  const invoices = await prisma.invoice.findMany({
+    where: { ...summaryInvoiceFilter, userId: userId, id: { in: details.invoiceIds } },
+    include: invoiceInclude(),
+    orderBy: [{ issuedAt: "asc" }, { id: "asc" }],
+  });
+  if (invoices.length !== details.invoiceIds.length) return { ok: false, status: 409, error: "An original invoice is no longer issued. Generate a new summary for this month." } as const;
+  const first = invoices[0];
+  const recipient = first.user?.accountsEmail || first.user?.email;
+  const sum = (key: "subtotal" | "vatAmount" | "total") => invoices.reduce((total, invoice) => total.add(invoice[key]), new Prisma.Decimal(0));
+  const pdf = await renderInvoicePdf({
+    ...first,
+    invoiceNumber: details.number, invoiceType: "CONSOLIDATED",
+    issuedAt: record.createdAt, supplyDate: null, dueDate: null, paymentTerms: null,
+    subtotal: sum("subtotal"), vatAmount: sum("vatAmount"), total: sum("total"),
+    booking: null, invoiceBookings: [], auditEvents: [], notes: null,
+    allocations: invoices.flatMap(invoice => invoice.allocations),
+    creditNotes: invoices.flatMap(invoice => invoice.creditNotes),
+    lines: invoices.flatMap(invoice => {
+      const references = [...new Set([
+        ...invoice.invoiceBookings.map(row => row.bookingReference),
+        ...(invoice.booking ? [invoice.booking.reference] : []),
+      ])];
+      const heading = [`Invoice ${invoice.invoiceNumber}`, ...references].join(" · ");
+      const total = `Total: £${invoice.total.toFixed(2)}`;
+      const due = invoice.dueDate ? ` · Due ${invoice.dueDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })}` : "";
+      if (!invoice.lines.length) {
+        return [{
+          ...first.lines[0],
+          description: `${heading}\n${total}${due}`,
+          quantity: new Prisma.Decimal(1), unitPrice: invoice.subtotal, netAmount: invoice.subtotal,
+          vatRate: new Prisma.Decimal(0), vatAmount: invoice.vatAmount, grossAmount: invoice.total,
+          chargeType: "BASE_SERVICE" as const,
+        }];
+      }
+      return invoice.lines.map((line, index) => ({
+        ...line,
+        description: index === 0 ? `${heading}\n${total}${due}\n${line.description}` : line.description,
+      }));
+    }),
+  }, details.month);
+  return { ok: true, record, details, recipient, pdf } as const;
+}
+
+router.get("/admin/monthly-summary/:userId/:summaryId/pdf", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const summary = await loadMonthlySummaryPdf(getString(req.params.userId), getString(req.params.summaryId));
+    if (!summary.ok) return res.status(summary.status).json({ error: summary.error });
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Disposition", `inline; filename="${summary.details.number}.pdf"`);
+    return res.type("application/pdf").send(summary.pdf);
+  } catch (error) {
+    console.error("Monthly summary PDF error:", error);
+    return res.status(500).json({ error: "Unable to open the consolidated invoice PDF." });
+  }
+});
+
 router.post("/admin/monthly-summary/:userId/:summaryId/send", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const record = await prisma.invoiceAuditEvent.findFirst({
-      where: { id: getString(req.params.summaryId), eventType: summaryEvent, invoice: { userId: req.params.userId, archivedCustomerId: null } },
-    });
-    const details = record && summaryMetadata(record.metadata);
-    if (!record || !details) return res.status(404).json({ error: "Consolidated invoice not found." });
-    const invoices = await prisma.invoice.findMany({
-      where: { ...summaryInvoiceFilter, userId: req.params.userId, id: { in: details.invoiceIds } },
-      include: invoiceInclude(),
-      orderBy: [{ issuedAt: "asc" }, { id: "asc" }],
-    });
-    if (invoices.length !== details.invoiceIds.length) return res.status(409).json({ error: "An original invoice is no longer issued. Generate a new summary for this month." });
-    const first = invoices[0];
-    const recipient = first.user?.accountsEmail || first.user?.email;
+    const summary = await loadMonthlySummaryPdf(getString(req.params.userId), getString(req.params.summaryId));
+    if (!summary.ok) return res.status(summary.status).json({ error: summary.error });
+    const { record, details, recipient, pdf } = summary;
     if (!recipient) return res.status(400).json({ error: "This customer account has no invoice email address." });
-    const sum = (key: "subtotal" | "vatAmount" | "total") => invoices.reduce((total, invoice) => total.add(invoice[key]), new Prisma.Decimal(0));
-    const pdf = await renderInvoicePdf({
-      ...first,
-      invoiceNumber: details.number, invoiceType: "CONSOLIDATED",
-      issuedAt: record.createdAt, supplyDate: null, dueDate: null, paymentTerms: null,
-      subtotal: sum("subtotal"), vatAmount: sum("vatAmount"), total: sum("total"),
-      booking: null, invoiceBookings: [], auditEvents: [], notes: null,
-      allocations: invoices.flatMap(invoice => invoice.allocations),
-      creditNotes: invoices.flatMap(invoice => invoice.creditNotes),
-      lines: invoices.flatMap(invoice => {
-        const references = [...new Set([
-          ...invoice.invoiceBookings.map(row => row.bookingReference),
-          ...(invoice.booking ? [invoice.booking.reference] : []),
-        ])];
-        const heading = [`Invoice ${invoice.invoiceNumber}`, ...references].join(" · ");
-        const total = `Total: £${invoice.total.toFixed(2)}`;
-        const due = invoice.dueDate ? ` · Due ${invoice.dueDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })}` : "";
-        if (!invoice.lines.length) {
-          return [{
-            ...first.lines[0],
-            description: `${heading}\n${total}${due}`,
-            quantity: new Prisma.Decimal(1), unitPrice: invoice.subtotal, netAmount: invoice.subtotal,
-            vatRate: new Prisma.Decimal(0), vatAmount: invoice.vatAmount, grossAmount: invoice.total,
-            chargeType: "BASE_SERVICE" as const,
-          }];
-        }
-        return invoice.lines.map((line, index) => ({
-          ...line,
-          description: index === 0 ? `${heading}\n${total}${due}\n${line.description}` : line.description,
-        }));
-      }),
-    }, details.month);
     const result = await sendEmail({
       to: recipient,
       subject: `Consolidated invoice ${details.number}`,

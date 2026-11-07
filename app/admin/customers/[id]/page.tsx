@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -1383,7 +1384,7 @@ export default function CustomerAccountPage() {
           </section>
 
           <aside className="space-y-6">
-            <MonthlyInvoiceSummary key={customer.id} customerId={customer.id} />
+            {customer.accountType === "TRADE" && <MonthlyInvoiceSummary key={customer.id} customerId={customer.id} />}
             {(customer.accountType !== "BUSINESS" || pendingInvoices.length > 0 || finalisedIssuedInvoices.length > 0) && <>
 <InvoiceSection
               title="Pending Invoices"
@@ -1458,7 +1459,7 @@ function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [selected, setSelected] = useState<MonthlySummary | null>(null);
   const endpoint = `${API_BASE}/api/invoices/admin/monthly-summary/${encodeURIComponent(customerId)}`;
 
   async function request(path = "", body?: object) {
@@ -1474,7 +1475,6 @@ function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError("");
-    setMessage("");
     try { await action(); }
     catch (error) { setError(error instanceof Error ? error.message : "Unable to manage the consolidated invoice."); }
     finally { setBusy(false); }
@@ -1512,7 +1512,7 @@ function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
           onClick={() => void run(async () => {
             const { summary } = await request("", { month });
             setSummaries(rows => [summary, ...rows.filter(row => row.id !== summary.id)]);
-            setMessage(`${summary.number} is ready to email.`);
+            setSelected(summary);
           })}>
           Generate consolidated invoice
         </button>
@@ -1520,17 +1520,121 @@ function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
           <div key={summary.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-sm">
             <span><strong>{summary.number}</strong> · {monthLabel(summary.month)}</span>
             <button type="button" disabled={busy} className="font-semibold text-orange-700 disabled:opacity-50"
-              onClick={() => void run(async () => {
-                const data = await request(`/${encodeURIComponent(summary.id)}/send`, {});
-                setMessage(data.message);
-              })}>Email customer</button>
+              onClick={() => setSelected(summary)}>Open invoice</button>
           </div>
         ))}
         {busy && <p role="status" className="text-sm text-slate-500">Working…</p>}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        {message && <p role="status" className="text-sm text-green-700">{message}</p>}
       </>}
+      {selected && (
+        <MonthlySummaryPreview
+          key={selected.id}
+          summary={selected}
+          monthLabel={monthLabel(selected.month)}
+          pdfUrl={`${endpoint}/${encodeURIComponent(selected.id)}/pdf`}
+          onEmail={async () => {
+            const data = await request(`/${encodeURIComponent(selected.id)}/send`, {});
+            return data.message;
+          }}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function MonthlySummaryPreview({
+  summary, monthLabel, pdfUrl, onEmail, onClose,
+}: {
+  summary: MonthlySummary;
+  monthLabel: string;
+  pdfUrl: string;
+  onEmail: () => Promise<string>;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (dialog.current && !dialog.current.open) dialog.current.showModal();
+    const controller = new AbortController();
+    let objectUrl = "";
+    async function loadPreview() {
+      try {
+        const response = await adminFetch(pdfUrl, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw new Error(data?.error || "Unable to open the invoice PDF.");
+        }
+        const pdf = await response.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(pdf);
+        setPreviewUrl(objectUrl);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setPreviewError(error instanceof Error ? error.message : "Unable to open the invoice PDF.");
+        }
+      }
+    }
+    void loadPreview();
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [pdfUrl]);
+
+  async function emailCustomer() {
+    setSending(true);
+    setEmailError("");
+    setMessage("");
+    try { setMessage(await onEmail()); }
+    catch (error) { setEmailError(error instanceof Error ? error.message : "Unable to email the invoice."); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <dialog ref={dialog} onClose={onClose} aria-labelledby="consolidated-preview-title"
+      className="m-auto max-h-[92dvh] w-[min(96vw,900px)] rounded-2xl bg-white text-slate-950 shadow-xl backdrop:bg-slate-950/60">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 sm:p-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-orange-700">Consolidated invoice</p>
+          <h2 id="consolidated-preview-title" className="mt-1 text-xl font-bold">{summary.number}</h2>
+          <p className="text-sm text-slate-600">{monthLabel}</p>
+        </div>
+        <button type="button" onClick={() => dialog.current?.close()} aria-label="Close invoice"
+          className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50">
+          <X size={20} />
+        </button>
+      </div>
+      <div className="space-y-3 p-4 sm:p-5">
+        {previewUrl ? (
+          <iframe className="h-[57dvh] min-h-52 w-full rounded-xl border border-slate-200 bg-slate-50"
+            title={`PDF preview of ${summary.number}`} src={`${previewUrl}#toolbar=0`} />
+        ) : previewError ? (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{previewError}</p>
+        ) : (
+          <p role="status" className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Loading invoice PDF…</p>
+        )}
+        {emailError && <p role="alert" className="text-sm text-red-700">{emailError}</p>}
+        {message && <p role="status" className="text-sm text-green-700">{message}</p>}
+        <div className="flex flex-wrap justify-end gap-3">
+          {previewUrl && (
+            <a href={previewUrl} download={`${summary.number}.pdf`}
+              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold hover:bg-slate-50">
+              Download PDF
+            </a>
+          )}
+          <button type="button" disabled={!previewUrl || sending} onClick={() => void emailCustomer()}
+            className="rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
+            {sending ? "Sending…" : "Email customer"}
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 
