@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { checkQuoteAvailability, isQuoteFormUrl, QUOTE_MAINTENANCE_MESSAGE } from "@/lib/quoteAvailability";
+import { checkQuoteAvailability, commercialQuoteBlocked, COMMERCIAL_QUOTE_MESSAGE, isQuoteFormUrl, QUOTE_MAINTENANCE_MESSAGE } from "@/lib/quoteAvailability";
 
 // All quote links (header, mobile menu, hero, floating button, footer and services)
 // are checked before navigation, including links mounted after this component.
@@ -17,9 +17,13 @@ export function QuoteNavigationGuard({ children }: { children: ReactNode }) {
       event.preventDefault(); event.stopPropagation();
       const request = new AbortController(); controller = request;
       const timeout = window.setTimeout(() => request.abort(), 8000);
-      void checkQuoteAvailability(request.signal).then(available => {
+      void checkQuoteAvailability(request.signal).then(async available => {
         if (request.signal.aborted) return;
-        if (!available) window.alert(QUOTE_MAINTENANCE_MESSAGE);
+        if (!available) { window.alert(QUOTE_MAINTENANCE_MESSAGE); return; }
+        const token = window.localStorage?.getItem("streamline_auth_token");
+        const blocked = token ? await commercialQuoteBlocked(token, request.signal) : false;
+        if (request.signal.aborted) return;
+        if (blocked) window.alert(COMMERCIAL_QUOTE_MESSAGE);
         else window.location.assign(link.href);
       }).catch(() => {
         if (!request.signal.aborted) window.alert("Unable to check quote availability. Please try again or call 07301827224.");

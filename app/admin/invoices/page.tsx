@@ -55,6 +55,7 @@ type InvoiceAdjustment = {
 
 type Invoice = {
   id: string;
+  commercialContractInvoice?: { contractId: string; month: string } | null;
   invoiceNumber: string;
   bookingId: string | null;
   userId?: string | null;
@@ -1706,6 +1707,15 @@ function AdminInvoicesContent() {
                   ) : <p className="text-sm text-slate-500">Manual invoice - no booking route.</p>}
                 </div>
               </div>
+
+              {selectedInvoice.commercialContractInvoice && selectedInvoice.userId && (
+                <a
+                  className="inline-flex rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-orange-800"
+                  href={`/admin/customers/${selectedInvoice.userId}/contracts?month=${encodeURIComponent(selectedInvoice.commercialContractInvoice.month)}`}
+                >
+                  View contract shifts and billing review
+                </a>
+              )}
 
               {selectedInvoice.invoiceType !== "CONSOLIDATED" && selectedInvoice.status === "DRAFT" ? (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">

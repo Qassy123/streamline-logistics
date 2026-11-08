@@ -6,6 +6,18 @@ export async function checkQuoteAvailability(signal?: AbortSignal): Promise<bool
   if (!response.ok || typeof data.websiteDowntime !== "boolean") throw new Error("Unable to check quote availability. Please try again or call 07301827224.");
   return !data.websiteDowntime;
 }
+export const COMMERCIAL_QUOTE_MESSAGE = "Online quotes are unavailable for your account. Please call 07301827224 to arrange a booking.";
+
+export async function commercialQuoteBlocked(token: string, signal?: AbortSignal) {
+  const response = await fetch(`${API_BASE}/api/quotes/shift-options`, {
+    cache: "no-store", signal, headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 401) return false;
+  const data = await response.json();
+  if (!response.ok || typeof data.blocked !== "boolean") throw new Error("Unable to check your account’s quote access.");
+  return data.blocked;
+}
+
 export function isQuoteFormUrl(href: string, base: string) {
   try { const url = new URL(href, base), origin = new URL(base).origin; return url.origin === origin && ["/quote", "/instant-quote"].includes(url.pathname.replace(/\/$/, "")); }
   catch { return false; }

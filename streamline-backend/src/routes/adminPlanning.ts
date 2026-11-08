@@ -123,6 +123,7 @@ function vehicleComplianceWarnings(vehicle: {
 
 function planningBookingInclude() {
   return {
+    commercialContractShift: { select: { id: true } },
     refundRequests: true,
     user: true,
     quote: true,
@@ -884,11 +885,20 @@ router.patch(
       const updatedBooking =
         await prisma.$transaction(async tx => {
           await fleetMutation(tx, undefined, "Planning schedule updated");
-          const fresh = await tx.booking.findUniqueOrThrow({ where: { id: booking.id } });
+          const fresh = await tx.booking.findUniqueOrThrow({
+            where: { id: booking.id },
+            include: { commercialContractShift: { select: { id: true } } },
+          });
           if (+fresh.updatedAt !== +booking.updatedAt) throw new DriverPortalError(409, "Booking changed. Refresh before rescheduling.");
           if (fresh.status === BookingStatus.IN_PROGRESS || fresh.driverJourneyStartedAt) throw new DriverPortalError(409, "Resolve the active journey before rescheduling.");
           const prospective = { ...fresh, collectionDate: collectionDate ? new Date(collectionDate) : fresh.collectionDate, collectionWindow: req.body.collectionWindow === undefined ? fresh.collectionWindow : getString(req.body.collectionWindow), estimatedStartTime: estimatedStartTime ? new Date(estimatedStartTime) : fresh.estimatedStartTime, estimatedEndTime: estimatedEndTime ? new Date(estimatedEndTime) : fresh.estimatedEndTime };
           if (!Number.isFinite(+prospective.collectionDate) || !prospective.collectionWindow || (prospective.estimatedStartTime && !Number.isFinite(+prospective.estimatedStartTime)) || (prospective.estimatedEndTime && !Number.isFinite(+prospective.estimatedEndTime))) throw new DriverPortalError(400, "Enter valid booking dates and times.");
+          if (fresh.commercialContractShift && (+prospective.collectionDate !== +fresh.collectionDate ||
+              prospective.collectionWindow !== fresh.collectionWindow ||
+              Number(prospective.estimatedStartTime) !== Number(fresh.estimatedStartTime) ||
+              Number(prospective.estimatedEndTime) !== Number(fresh.estimatedEndTime))) {
+            throw new DriverPortalError(409, "This shift follows the agreed commercial contract schedule.");
+          }
           const planned = await bookingWindow(tx, prospective);
           if (!status || !["CANCELLED", "EXPIRED", "COMPLETED"].includes(status)) await assertPlan(tx, { bookingId: fresh.id, quoteId: fresh.quoteId, driverId: fresh.driverId, vehicleId: fresh.vehicleId, ...planned });
           const result = await tx.booking.update({

@@ -2,6 +2,7 @@
 import {adminFetch} from "@/lib/adminFetch";
 
 import Link from "next/link";
+import { useAdminSession } from "@/components/admin/AdminSession";
 import CustomerCompletedJobs from "@/components/admin/CustomerCompletedJobs";
 import { invoiceDisplayStatus } from "@/lib/billingPolicy";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
@@ -318,6 +319,7 @@ function toEditForm(customer: Customer): EditForm {
 }
 
 export default function CustomerAccountPage() {
+  const { admin } = useAdminSession();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const customerId = params.id;
@@ -861,6 +863,13 @@ export default function CustomerAccountPage() {
           {error}
         </div>
       ) : null}
+
+      {admin.sections.includes("commercial-tariffs") && <div className="mt-4">
+        <Link href={`/admin/customers/${customer.id}/contracts`}
+          className="inline-flex rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-900">
+          Commercial Contracts
+        </Link>
+      </div>}
 
       <CustomerCompletedJobs key={customer.id} customerId={customer.id} apiBase={API_BASE} />
 

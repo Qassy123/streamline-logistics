@@ -98,9 +98,10 @@ export async function renderInvoicePdf(
   const credited = invoice.creditNotes.filter(row => row.status === "ISSUED").reduce((n, row) => n.add(row.amount), new Prisma.Decimal(0));
   const outstanding = Prisma.Decimal.max(new Prisma.Decimal(0), invoice.total.sub(paid).sub(credited));
   const issuedAt = invoice.issuedAt || invoice.finalisedAt || invoice.createdAt;
-  const dueDate = user?.accountType === "BUSINESS" ? invoiceTerms("BUSINESS", issuedAt).dueDate : invoice.dueDate;
+  const isContract = invoice.lines.some(line => line.sourceType === "COMMERCIAL_CONTRACT");
+  const dueDate = !isContract && user?.accountType === "BUSINESS" ? invoiceTerms("BUSINESS", issuedAt).dueDate : invoice.dueDate;
   const sources = summary?.invoices || [invoice];
-  const ids = [...new Set(sources.flatMap(source => source.invoiceBookings.map(row => row.bookingId)))];
+  const ids = isContract ? [] : [...new Set(sources.flatMap(source => source.invoiceBookings.map(row => row.bookingId)))];
   const linkedBookings = ids.length
     ? await prisma.booking.findMany({ where: { id: { in: ids } }, include: { quote: true }, orderBy: { collectionDate: "asc" } })
     : [];
@@ -168,7 +169,7 @@ export async function renderInvoicePdf(
   text(status,330,96,right-330,9,true,statusColor,"right");
   y=119;doc.strokeColor(blue).lineWidth(1.5).moveTo(left,y).lineTo(right,y).stroke();y+=20;
   const accountType=invoice.billingAccountType||user?.accountType;
-  const accountLabel=accountType==="TRADE"?"Trade account":accountType==="BUSINESS"?"Business account":user?"Customer account":"Guest customer";
+  const accountLabel=isContract?"Commercial contract":accountType==="TRADE"?"Trade account":accountType==="BUSINESS"?"Business account":user?"Customer account":"Guest customer";
   const meta = [["Issue date", date(summary ? invoice.issuedAt : issuedAt)], ["Due date", date(dueDate)], ["Account type", accountLabel]];
   if (summary) meta.push(["Invoice month", summary.month]);
   if (invoice.invoiceType !== "CONSOLIDATED") meta.splice(2, 0, ["Supply date", date(invoice.supplyDate || primary?.collectionDate)]);
@@ -209,6 +210,11 @@ export async function renderInvoicePdf(
     y+=15;
   };
   for (const { source, bookings } of bookingGroups) {
+    if (isContract) {
+      flow("MONTHLY CONTRACT CHARGES", 10, true);
+      table(source.lines.map(savedLine));
+      continue;
+    }
     const used = new Set<InvoiceForPdf["lines"][number]>();
     if (summary) {
       ensure(120);

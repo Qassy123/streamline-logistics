@@ -22,6 +22,12 @@ async function render(name,data,expected,onePage=false){entries=[];pages=0;const
  assert(!entries.some(entry=>entry.value==='Supply date'));
  bookings=[booking('024')];bookings[0].quote.specialInstructions=Array.from({length:140},(_,i)=>'Instruction '+i+' - handle carefully').join('\n');await render('stress',invoice({invoiceNumber:'04',notes:'Long note '.repeat(220)}),Array.from({length:140},(_,i)=>'Instruction '+i+' - handle carefully'));
  bookings=[];await render('manual-mixed',invoice({invoiceNumber:'05',subtotal:new D(95),vatAmount:new D(15),total:new D(110),creditNotes:[{status:'ISSUED',amount:new D(10)}],lines:[line('Taxable service',100),line('Zero-rated service',20,{vatRate:new D(0),vatAmount:new D(0)}),line('Percentage discount',-25,{chargeType:'DISCOUNT',quantity:new D(1),unitPrice:new D(10),sourceType:'ADJUSTMENT'})]}),['VAT 0%','VAT 20%','Percentage discount','-£25.00','Credit notes','£100.00'],true);
- console.log('6 invoice-format PDF scenarios passed using actual PDFKit and isolated data.');
+ bookings=Array.from({length:24},(_,i)=>booking(String(100+i)));
+ await render('commercial-contract',invoice({invoiceNumber:'06',user:{...user,accountType:'BUSINESS'},
+   notes:'Commercial contract shifts for 2026-11.',subtotal:new D(1200),vatAmount:new D(240),total:new D(1440),
+   lines:[line('8-hour shift - Small Van',1120,{sourceType:'COMMERCIAL_CONTRACT',quantity:new D(4),unitPrice:new D(280),chargeType:'BASE_SERVICE'}),
+     line('Extra mileage (per mile)',80,{sourceType:'COMMERCIAL_CONTRACT',quantity:new D(64),unitPrice:new D('1.25'),chargeType:'MILEAGE'})]}),
+   ['MONTHLY CONTRACT CHARGES','Commercial contract','8-hour shift - Small Van','Extra mileage (per mile)','15 Dec 2026','BACS reference: INV-06'],true);
+ console.log('7 invoice-format PDF scenarios passed using actual PDFKit and isolated data.');
  }finally{PDF.prototype.text=originalText;PDF.prototype.addPage=originalPage;}
 })().catch(e=>{console.error(e);process.exitCode=1});

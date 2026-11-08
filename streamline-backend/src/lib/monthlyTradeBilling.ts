@@ -4,7 +4,7 @@ import { prisma } from "./prisma";
 import { tradeMonth, ukParts, ukMidnight, TRADE_PAYMENT_TERMS } from "./billingPolicy";
 export async function processMonthlyTradeBilling(now = new Date(), bookingId?: string) {
   const current = ukParts(now), cutoff = ukMidnight(current.year, current.month, 1);
-  const candidates = await prisma.booking.findMany({ where: { ...(bookingId ? { id: bookingId } : {}), archivedCustomerId: null, createdAt: { lt: cutoff }, status: "COMPLETED", OR: [{billingAccountType:"TRADE"},{billingAccountType:null,user:{is:{accountType:"TRADE"}}}], invoices: { none: {} }, invoiceBookings: { none: {} } }, select: { id: true, userId: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+  const candidates = await prisma.booking.findMany({ where: { ...(bookingId ? { id: bookingId } : {}), archivedCustomerId: null, createdAt: { lt: cutoff }, status: "COMPLETED", commercialContractShift: null, OR: [{billingAccountType:"TRADE"},{billingAccountType:null,user:{is:{accountType:"TRADE"}}}], invoices: { none: {} }, invoiceBookings: { none: {} } }, select: { id: true, userId: true, createdAt: true }, orderBy: { createdAt: "asc" } });
   
   const created: { invoiceId: string; invoiceNumber: string; userId: string; bookingCount: number; month: string }[] = [], failures: { userId: string; error: string }[] = [];
   for (const candidate of candidates) {
@@ -16,7 +16,7 @@ export async function processMonthlyTradeBilling(now = new Date(), bookingId?: s
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
         const user = await tx.user.findUnique({ where: { id: userId }, include: { billingProfile: true } });
         if (!user) return null;
-        const bookings = await tx.booking.findMany({ where: { id: candidate.id, userId, OR:[{billingAccountType:"TRADE"},{billingAccountType:null,user:{is:{accountType:"TRADE"}}}], archivedCustomerId: null, createdAt: { gte: month.start, lt: month.end }, status: "COMPLETED", invoices: { none: {} }, invoiceBookings: { none: {} } }, orderBy: { createdAt: "asc" } });
+        const bookings = await tx.booking.findMany({ where: { id: candidate.id, userId, OR:[{billingAccountType:"TRADE"},{billingAccountType:null,user:{is:{accountType:"TRADE"}}}], archivedCustomerId: null, createdAt: { gte: month.start, lt: month.end }, status: "COMPLETED", commercialContractShift: null, invoices: { none: {} }, invoiceBookings: { none: {} } }, orderBy: { createdAt: "asc" } });
         if (!bookings.length) return null;
         if (user.billingProfile?.poRequired && bookings.some(b => !b.purchaseOrderNumber)) throw new Error("Required PO reference missing; correct the booking and retry monthly billing.");
         const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" } });

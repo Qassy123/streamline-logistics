@@ -223,7 +223,7 @@ export const assignDriverJob = route(async (req, res) => {
   if (!bookingId || !vehicleId) throw new DriverPortalError(400, "Select the booking and van explicitly.");
   const job = await withBookingLock(bookingId, async tx => {
     await fleetMutation(tx, res.locals.fleetActor, text(req.body?.reason) || "Manual Drivers operation");
-    const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: driverJobInclude });
+    const booking = await tx.booking.findUnique({ where: { id: bookingId }, include: { ...driverJobInclude, commercialContractShift: { select: { id: true } } } });
     if (!booking) throw new DriverPortalError(404, "Booking not found.");
     const earlier = await tx.auditLog.findFirst({ where: { action: "DRIVER_JOB_ASSIGNED", entityType: "Booking", entityId: bookingId,
       newValue: { path: ["requestId"], equals: retryId } } });
@@ -252,6 +252,9 @@ export const assignDriverJob = route(async (req, res) => {
     const start = req.body?.estimatedStartTime == null ? booking.estimatedStartTime : date(req.body.estimatedStartTime, "start time");
     const end = req.body?.estimatedEndTime == null ? booking.estimatedEndTime : date(req.body.estimatedEndTime, "end time");
     if (!start || !end || end <= start) throw new DriverPortalError(400, "Set a valid planned start and end time before assigning the job.");
+    if (booking.commercialContractShift && (+start !== Number(booking.estimatedStartTime) || +end !== Number(booking.estimatedEndTime))) {
+      throw new DriverPortalError(409, "Keep the agreed contract shift time when assigning a driver or van.");
+    }
     if (ukDateKey(start) !== ukDateKey(booking.collectionDate)) throw new DriverPortalError(409, "The start time must match the booking's collection date. Edit the booking date first if needed.");
     if (driver.licenceExpiryDate && ukDateKey(driver.licenceExpiryDate) < ukDateKey(start)) throw new DriverPortalError(409, "The driver's recorded licence has expired for this job date.");
     const warnings = [

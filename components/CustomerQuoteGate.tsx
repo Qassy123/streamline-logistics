@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
+import { commercialQuoteBlocked, COMMERCIAL_QUOTE_MESSAGE } from "@/lib/quoteAvailability";
 const API = "https://streamline-logistics-production.up.railway.app/api/accounts/me";
 export default function CustomerQuoteGate({ children }: { children: ReactNode }) {
- const [status, setStatus] = useState<"CHECKING" | "OPEN" | "SUSPENDED" | "ERROR">("CHECKING");
+ const [status, setStatus] = useState<"CHECKING" | "OPEN" | "SUSPENDED" | "COMMERCIAL" | "ERROR">("CHECKING");
  const [retry, setRetry] = useState(0);
  useEffect(() => {
   let active = true, controller: AbortController | null = null;
@@ -17,7 +18,10 @@ export default function CustomerQuoteGate({ children }: { children: ReactNode })
     if (!active || controller !== current) return;
     if (response.status === 401) { setStatus("OPEN"); return; }
     if (!response.ok || !data.user) throw new Error("Account check failed");
-    setStatus(data.user.accountStatus === "SUSPENDED" ? "SUSPENDED" : data.user.accountStatus && data.user.accountStatus !== "ACTIVE" ? "ERROR" : "OPEN");
+    if (data.user.accountStatus === "SUSPENDED") { setStatus("SUSPENDED"); return; }
+    if (data.user.accountStatus && data.user.accountStatus !== "ACTIVE") { setStatus("ERROR"); return; }
+    const blocked = await commercialQuoteBlocked(token, current.signal);
+    if (active && controller === current) setStatus(blocked ? "COMMERCIAL" : "OPEN");
    } catch { if (active && controller === current) setStatus("ERROR"); }
    finally { window.clearTimeout(timeout); }
   }
@@ -28,7 +32,7 @@ export default function CustomerQuoteGate({ children }: { children: ReactNode })
  }, [retry]);
  if (status === "OPEN") return <>{children}</>;
  return <main className="min-h-screen bg-[#F4F8FF] px-4 py-12 text-[#071D49]"><section className="mx-auto max-w-2xl rounded-2xl border border-amber-300 bg-white p-6" role="status">
-  <h1 className="text-2xl font-bold">{status === "CHECKING" ? "Checking your account…" : status === "SUSPENDED" ? "Your account is suspended" : "Unable to check your account"}</h1>
-  {status !== "CHECKING" && <><p className="mt-4">{status === "SUSPENDED" ? "Online booking is unavailable while your account is suspended. Please contact our team for more information." : "Please try again before filling out your quote, or contact our team."}</p><a className="mt-5 inline-block font-bold underline" href="tel:07301827224">Call 07301827224</a><a className="ml-5 underline" href="/contact">Contact us</a>{status === "ERROR" && <button type="button" className="ml-5 underline" onClick={() => setRetry(value => value + 1)}>Try again</button>}</>}
+  <h1 className="text-2xl font-bold">{status === "CHECKING" ? "Checking your account…" : status === "SUSPENDED" ? "Your account is suspended" : status === "COMMERCIAL" ? "Online quotes are unavailable for your account" : "Unable to check your account"}</h1>
+  {status !== "CHECKING" && <><p className="mt-4">{status === "SUSPENDED" ? "Online booking is unavailable while your account is suspended. Please contact our team for more information." : status === "COMMERCIAL" ? COMMERCIAL_QUOTE_MESSAGE : "Please try again before filling out your quote, or contact our team."}</p><a className="mt-5 inline-block font-bold underline" href="tel:07301827224">Call 07301827224</a><a className="ml-5 underline" href="/contact">Contact us</a>{status === "ERROR" && <button type="button" className="ml-5 underline" onClick={() => setRetry(value => value + 1)}>Try again</button>}</>}
  </section></main>;
 }

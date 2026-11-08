@@ -2,6 +2,7 @@ import {centralAdminAccess} from "../lib/centralAdmin";
 import { reserveInvoiceNumber } from "../lib/invoiceNumber";
 import { TRADE_PAYMENT_TERMS, invoiceTerms, tradeMonth, ukParts, ukMidnight } from "../lib/billingPolicy";
 import { processMonthlyTradeBilling } from "../lib/monthlyTradeBilling";
+import { refreshContractDraft } from "../lib/commercialContracts";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { departmentEmail, departmentSender, emailLayout, sendEmail } from "../lib/email";
@@ -58,6 +59,7 @@ function requireAdmin(req: { headers: { [key: string]: unknown } }) { return cen
 
 function invoiceInclude() {
   return {
+    commercialContractInvoice: { select: { contractId: true, month: true } },
     user: true,
     payments: true,
     adjustments: { orderBy: { createdAt: "asc" } },
@@ -478,6 +480,7 @@ router.get("/admin/draft-candidates", async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
+        commercialContractShift: null,
         invoices: { none: {} },
         invoiceBookings: { none: {} },
         status: { notIn: ["CANCELLED", "EXPIRED", "PENDING_PAYMENT"] },
@@ -659,6 +662,7 @@ router.post("/admin/draft", async (req, res) => {
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
+        commercialContractShift: { select: { id: true } },
         invoices: {
           select: { id: true, invoiceNumber: true },
         },
@@ -680,6 +684,7 @@ router.post("/admin/draft", async (req, res) => {
       },
     });
 
+    if (booking?.commercialContractShift) return res.status(409).json({ error: "This shift is billed through its monthly commercial contract invoice." });
     if (booking?.user?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated as paid receipts from confirmed checkout payments." });
     if (!booking) {
       return res.status(404).json({ error: "Booking not found." });
@@ -1272,6 +1277,9 @@ router.post("/admin/:id/send", async (req, res) => {
     }
 
     if((invoice.billingAccountType || invoice.user?.accountType) === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) return res.status(409).json({error:"This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month."});
+    if (invoice.status === "DRAFT" && invoice.commercialContractInvoice) {
+      return res.status(409).json({ error: "Review and finalise this commercial contract invoice before emailing it." });
+    }
     if (invoice.status === "DRAFT") {
       if (!invoice.lines.length) {
         return res.status(400).json({
@@ -1624,6 +1632,10 @@ router.post("/admin", async (req, res) => {
       });
     }
 
+    if (await prisma.commercialContractShift.findUnique({ where: { bookingId }, select: { id: true } })) {
+      return res.status(409).json({ error: "This shift is billed through its monthly commercial contract invoice." });
+    }
+
     const existingInvoice = await prisma.invoice.findFirst({
       where: {
         OR: [{ invoiceNumber }, { bookingId }],
@@ -1754,6 +1766,7 @@ router.get("/admin/billing-queue", async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: {
         status: "COMPLETED",
+        commercialContractShift: null,
         user: { is: { accountType: "TRADE" } },
         invoiceBookings: { none: {} },
         invoices: { none: {} },
@@ -1776,6 +1789,7 @@ const summaryAccountFilter = {
 };
 const summaryInvoiceFilter: Prisma.InvoiceWhereInput = {
   ...summaryAccountFilter,
+  commercialContractInvoice: null,
   invoiceType: { not: "CONSOLIDATED" },
   status: { in: ["FINALISED", "SENT", "ISSUED", "OVERDUE", "PARTIALLY_PAID", "PAID", "CREDITED"] },
 };
@@ -2167,11 +2181,17 @@ router.post("/admin/:id/finalise", async (req, res) => {
     const updated = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
       await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
-    const invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
+    let invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
       if (invoice?.invoiceType === "CONSOLIDATED") throw new Error("Consolidated invoices can only be emailed.");
     if (!invoice) throw new Error("Invoice not found.");
     if((invoice.billingAccountType || invoice.user?.accountType) === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) throw new Error("This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month.");
     if (invoice.status !== "DRAFT") { if(invoice.pdfStorageKey && ["FINALISED","SENT","ISSUED","OVERDUE","PAID","PARTIALLY_PAID"].includes(invoice.status))return invoice; throw new Error("Only draft invoices can be finalised."); }
+    if (invoice.commercialContractInvoice) {
+      const { contractId, month } = invoice.commercialContractInvoice;
+      const contract = await tx.commercialContract.findUniqueOrThrow({ where: { id: contractId } });
+      await refreshContractDraft(tx, contract, month, invoice.id, true);
+      invoice = await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: invoiceInclude() });
+    }
     if (!invoice.lines.length) throw new Error("Invoice must contain at least one financial charge line.");
     const finalisedAt = new Date();
     const issuedAt = invoice.issuedAt || finalisedAt;
@@ -2220,7 +2240,7 @@ router.post("/admin/:id/finalise", async (req, res) => {
     res.json({ success: true, invoice: updated });
   } catch (error) {
     console.error("Invoice finalise error:", error);
-    res.status(409).json({ error: error instanceof Error && /Cloudinary|scheduled issue date|financial charge line|draft invoice|not found/.test(error.message) ? error.message : "Unable to store the finalised invoice PDF. Check invoice storage configuration and try again; the draft has been retained." });
+    res.status(409).json({ error: error instanceof Error && /Cloudinary|scheduled issue date|financial charge line|draft invoice|not found|Commercial Contracts/.test(error.message) ? error.message : "Unable to store the finalised invoice PDF. Check invoice storage configuration and try again; the draft has been retained." });
   }
 });
 
@@ -2487,6 +2507,7 @@ export async function runInvoiceReminders(){
 
     const invoices = await prisma.invoice.findMany({
       where: {
+        commercialContractInvoice: null,
         dueDate: { not: null },
         status: {
           in: ["SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"],

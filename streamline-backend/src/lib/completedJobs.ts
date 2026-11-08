@@ -5,13 +5,13 @@ export async function reviewJob(id: string, action: "COMPLETE" | "CANCEL", reaso
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
     await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${id} FOR UPDATE`;
-    const booking = await tx.booking.findUnique({ where: { id }, include: { user: true, payments: true } });
+    const booking = await tx.booking.findUnique({ where: { id }, include: { user: true, payments: true, commercialContractShift: { select: { id: true } } } });
     if (!booking || booking.archivedCustomerId) throw new Error("Job not found.");
     const status = action === "COMPLETE" ? "COMPLETED" : "CANCELLED";
     if (booking.status === status) return booking;
     if (["COMPLETED", "CANCELLED", "EXPIRED"].includes(booking.status)) throw new Error("This job already has a final outcome.");
     if (action === "COMPLETE" && booking.status === "PENDING_PAYMENT") throw new Error("Payment must be confirmed before completing this job.");
-    if (action === "COMPLETE" && booking.user?.accountType === "BUSINESS") {
+    if (action === "COMPLETE" && !booking.commercialContractShift && booking.user?.accountType === "BUSINESS") {
       const paid = booking.payments.filter(p => p.status === "PAID").reduce((n,p) => n.add(p.amount), new Prisma.Decimal(0));
       if (paid.lessThan(booking.totalPrice)) throw new Error("Business bookings must be paid in full before work is confirmed.");
     }

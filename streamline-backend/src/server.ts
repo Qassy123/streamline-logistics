@@ -1,6 +1,8 @@
 import {attachCentralAdmin} from "./lib/centralAdmin";
 import {runInvoiceReminders} from "./routes/invoices";
 import {processMonthlyTradeBilling} from "./lib/monthlyTradeBilling";
+import { processCommercialContractBilling } from "./lib/commercialContracts";
+import adminCommercialContractRoutes from "./routes/adminCommercialContracts";
 import { processAdminSms,smsConfiguration } from "./lib/adminSms";
 import accountRecoveryRoutes from "./routes/accountRecovery";
 import { processTradeDecisionEmails } from "./lib/tradeDecisionEmail";
@@ -102,6 +104,7 @@ app.use("/api/driver/pod", driverPodRoutes);
 
 app.use("/api/admin/drivers", adminDriverRoutes);
 app.use("/api/admin/customers", adminCustomerRoutes);
+app.use("/api/admin/commercial-contracts", adminCommercialContractRoutes);
 app.use("/api/admin/planning", adminPlanningRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/admin/notifications", adminNotificationRoutes);
@@ -152,10 +155,12 @@ app.listen(PORT, () => {
 
   setTimeout(() => {
     void processAutomaticBillingCycles();
+    void processCommercialContractBilling().catch(error => console.error("Commercial contract billing scheduler error:", error));
     void processTradeDecisionEmails().catch(error => console.error("Trade decision email retry failed:", error));
 
     setInterval(() => {
       void processAutomaticBillingCycles();
+      void processCommercialContractBilling().catch(error => console.error("Commercial contract billing scheduler error:", error));
       void processTradeDecisionEmails().catch(error => console.error("Trade decision email retry failed:", error));
     }, BILLING_CYCLE_INTERVAL_MS);
   }, BILLING_CYCLE_INITIAL_DELAY_MS);

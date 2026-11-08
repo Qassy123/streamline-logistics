@@ -10,7 +10,7 @@ function money(value: unknown, label: string) { const source = String(value ?? 0
     throw new Error(`${label} must be a valid amount with at most two decimal places.`); const amount = new Prisma.Decimal(source); if (amount.abs().greaterThan(10000000))
     throw new Error(`${label} is too large.`); return amount; }
 const json = (value: unknown) => value === null || value === undefined ? Prisma.JsonNull : value as Prisma.InputJsonValue;
-export const bookingEditInclude = { user: true, quote: true, vehicle: true, driver: true, reservation: true, payments: true, invoices: true, refundRequests: true, pod: true } satisfies Prisma.BookingInclude;
+export const bookingEditInclude = { commercialContractShift: { select: { id: true } }, user: true, quote: true, vehicle: true, driver: true, reservation: true, payments: true, invoices: true, refundRequests: true, pod: true } satisfies Prisma.BookingInclude;
 export async function editBooking(id: string, body: Record<string, unknown>) {
     const current = await prisma.booking.findUnique({ where: { id }, include: bookingEditInclude });
     if (!current || current.archivedCustomerId)
@@ -51,11 +51,13 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
     const scheduleChanged = +collectionDate !== +current.collectionDate || collectionWindow !== current.collectionWindow || nextVehicleId !== current.vehicleId;
     const adjustment = money(body.adjustmentAmount, "Adjustment");
     const manual = body.manualPrice === true || (body.manualPrice === undefined && body.totalPrice !== undefined);
+    if (current.commercialContractShift && (scheduleChanged || manual || !adjustment.isZero() || body.discountRuleId !== undefined))
+        throw new Error("Manage the schedule and billing for this shift in Commercial Contracts.");
     const savedBreakdown = quote?.pricingBreakdown;
     const shiftHours = savedBreakdown && typeof savedBreakdown === "object" && !Array.isArray(savedBreakdown)
         ? savedBreakdown.shiftHours
         : undefined;
-    const calculated = (routeChanged || manual) ? await calculateAdminQuote({ collectionAddress, deliveryAddress, returnAddress, extraDrops, vehicleSize, deliveryType: quote?.deliveryType || current.journeyType || "Same Day Delivery", journeyType: quote?.journeyType || "One Way", discountType: "FIXED", discountValue: body.discountRuleId!==undefined?0:quote?.discountAmount || 0, ...(body.discountRuleId!==undefined?{discountRuleId:body.discountRuleId,discountCustomerId:current.userId}:{}), shiftHours }, shiftHours ? current.userId : null) : null;
+    const calculated = !current.commercialContractShift && (routeChanged || manual) ? await calculateAdminQuote({ collectionAddress, deliveryAddress, returnAddress, extraDrops, vehicleSize, deliveryType: quote?.deliveryType || current.journeyType || "Same Day Delivery", journeyType: quote?.journeyType || "One Way", discountType: "FIXED", discountValue: body.discountRuleId!==undefined?0:quote?.discountAmount || 0, ...(body.discountRuleId!==undefined?{discountRuleId:body.discountRuleId,discountCustomerId:current.userId}:{}), shiftHours }, shiftHours ? current.userId : null) : null;
     const base = manual ? money(body.totalPrice, "Booking charge") : calculated ? new Prisma.Decimal(calculated.totalPrice).add(current.priceAdjustment) : current.totalPrice;
     const total = base.add(adjustment).toDecimalPlaces(2);
     if (total.lessThan(0))

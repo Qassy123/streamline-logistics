@@ -87,6 +87,7 @@ type Vehicle = {
 type BookingRefund = {id:string;amount:string|number;method:string;status:string;lastError?:string|null;manualReference?:string|null};
 type Booking = {
   refundRequests?: BookingRefund[];
+  commercialContractShift?: { id: string } | null;
   id: string;
   reference: string;
   status: string;
@@ -464,6 +465,11 @@ export default function AdminPlanningBoardPage() {
           canonicalVehicles.some((vehicle) => vehicle.id === booking.vehicleId),
       ),
     [bookings, canonicalVehicles],
+  );
+
+  const unassignedContractShifts = bookings.filter(booking =>
+    booking.commercialContractShift && !booking.vehicleId &&
+    ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"].includes(booking.status),
   );
 
   const loadCustomers = useCallback(async () => {
@@ -1762,6 +1768,21 @@ export default function AdminPlanningBoardPage() {
               </div>
             )}
           </section>
+
+          {unassignedContractShifts.length > 0 && (
+            <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+              <h3 className="font-bold text-slate-950">Contract shifts awaiting a van</h3>
+              <div className="mt-2 divide-y divide-slate-200">
+                {unassignedContractShifts.map(booking => (
+                  <a key={booking.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm hover:underline"
+                    href={`/admin/bookings?booking=${encodeURIComponent(booking.id)}`}>
+                    <span className="font-semibold">{bookingCustomerName(booking)} · {booking.reference}</span>
+                    <span>{calendarTimeText(booking)} · Open booking</span>
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
           </div>
 
           {error ? <ErrorBox text={error} /> : null}

@@ -51,7 +51,7 @@ await test('Assigned 8-hour and 12-hour shifts charge only excess route mileage 
  for(const field of ['tariffId','tariffName','extraMileRate','includedMiles','mileageRate']) assert.equal(p.pricingBreakdown[field],undefined);
  assert.equal(display(p).shiftHours,8);
 });
-await test('Planning preview, saved admin quote and authenticated customer quote use the assigned tariff; guests cannot request it',async()=>{
+await test('Planning uses the assigned tariff, customer quotes are blocked and guests use standard rates',async()=>{
  const customerId='commercial-customer', body={customerId,shiftHours:'8'};
  const headers={authorization:'Bearer customer-token'};
  const preview=await quoteCall('post /admin/calculate',{body});
@@ -61,17 +61,15 @@ await test('Planning preview, saved admin quote and authenticated customer quote
  assert.equal(admin.status,201,JSON.stringify(admin.body));
  assert.equal(admin.body.quote.adminPrice,285);
  const customer=await quoteCall('post /',{headers,body:{...body,customerId:'other'}});
- assert.equal(customer.status,201,JSON.stringify(customer.body));
- assert.equal(customer.body.adminPrice,285);
- assert.equal(customer.body.userId,customerId);
- assert.equal(customer.body.pricingBreakdown.shiftHours,8);
+ assert.equal(customer.status,403,JSON.stringify(customer.body));
+ assert.equal(customer.body.code,"COMMERCIAL_QUOTES_UNAVAILABLE");
  assert(!JSON.stringify(customer.body).includes('private-category'));
  for(const route of ['post /','post /admin/guest']){
    const guest=await quoteCall(route,{body});
    assert.equal((guest.body.calculation||guest.body).adminPrice,175);
  }
- assert.equal((await quoteCall('get /shift-options',{headers})).body.required,true);
- assert.equal((await quoteCall('get /shift-options',{query:{customerId}})).body.required,false);
+ assert.equal((await quoteCall('get /shift-options',{headers})).body.blocked,true);
+ assert.equal((await quoteCall('get /shift-options',{query:{customerId}})).body.blocked,false);
 });
 const {setupLiveTariffs}=load('streamline-backend/scripts/setup-live-tariffs.cjs',{});
 await test('Setup adds only quote breakdown storage and the approved global stop price, safely rerunnable',async()=>{let stop=null,creates=0,updates=0,ddl=[];const tx={$executeRawUnsafe:async sql=>ddl.push(sql),tariffCharge:{findFirst:async()=>stop,create:async({data})=>{creates++;stop={id:'stop',...data,amount:dec(data.amount)};},update:async({data})=>{updates++;Object.assign(stop,data,{amount:dec(data.amount)});}}};const p={$transaction:f=>f(tx)};await setupLiveTariffs(p);await setupLiveTariffs(p);assert.equal(creates,1);assert.equal(updates,0);assert.equal(stop.amount.toString(),'45');assert.equal(stop.calculation,'PER_STOP');assert(ddl.some(sql=>sql.includes('ADD COLUMN IF NOT EXISTS "pricingBreakdown" JSONB')));stop.amount=dec(10);await setupLiveTariffs(p);assert.equal(updates,1);assert.equal(stop.amount.toString(),'45');});

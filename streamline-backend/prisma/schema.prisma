@@ -80,6 +80,7 @@ model User {
   billingProfile      BillingProfile?
   creditOverrides     CreditOverride[]
   commercialTariffAssignment CommercialTariffAssignment?
+  commercialContracts CommercialContract[]
 
   @@index([accountType])
   @@index([accountStatus])
@@ -109,6 +110,62 @@ model CommercialTariffRate {
   tariff CommercialTariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
 
   @@id([tariffId, vehicleType])
+}
+
+model CommercialContract {
+  id                String   @id @default(cuid())
+  requestId         String   @unique
+  customerId        String
+  startsOn          DateTime
+  endsOn            DateTime
+  startsAt          String
+  vehicleType       String
+  collectionAddress String
+  deliveryAddress   String
+  purchaseOrder     String?
+  weeklyPattern     Json
+  tariffName        String
+  fare8Hours        Decimal
+  includedMiles8    Decimal
+  fare12Hours       Decimal
+  includedMiles12   Decimal
+  extraMileRate     Decimal
+  createdAt         DateTime @default(now())
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  shifts   CommercialContractShift[]
+  invoices CommercialContractInvoice[]
+
+  @@index([customerId])
+}
+
+model CommercialContractShift {
+  id          String @id @default(cuid())
+  contractId  String
+  bookingId   String @unique
+  serviceDate DateTime
+  hours       Int
+  guaranteed  Boolean
+  actualMiles Decimal?
+  decision    String?
+
+  contract CommercialContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  booking  Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, serviceDate])
+  @@index([serviceDate])
+}
+
+model CommercialContractInvoice {
+  id         String @id @default(cuid())
+  contractId String
+  month      String
+  invoiceId  String @unique
+
+  contract CommercialContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  invoice  Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, month])
 }
 
 model CommercialTariffAssignment {
@@ -383,6 +440,7 @@ model Quote {
 }
 
 model Booking {
+  commercialContractShift CommercialContractShift?
   priceAdjustment Decimal @default(0)
   refundRequests BookingRefund[]
   billingAccountType AccountType?
@@ -602,6 +660,7 @@ model Payment {
 }
 
 model Invoice {
+  commercialContractInvoice CommercialContractInvoice?
   billingAccountType AccountType?
   archivedCustomerId String?
   @@index([archivedCustomerId])

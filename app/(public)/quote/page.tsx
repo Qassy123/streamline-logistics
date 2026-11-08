@@ -1,5 +1,4 @@
 "use client";
-import { QuoteShiftLength, useQuoteShiftOptions } from "@/components/QuoteShiftLength";
 import { collectionChoices,ukClock } from "@/lib/collectionChoices";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import CustomerQuoteGate from "@/components/CustomerQuoteGate";
@@ -414,7 +413,6 @@ function QuotePageForm() {
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
 
-  const shiftOptions = useQuoteShiftOptions(API_URL);
   const [selectedDeliveryType, setSelectedDeliveryType] = useState("");
   const [selectedJourneyType, setSelectedJourneyType] = useState("");
   const [selectedCollectingItem, setSelectedCollectingItem] = useState("");
@@ -1082,7 +1080,6 @@ function QuotePageForm() {
 
     const payload = {
       deliveryType: formData.get("deliveryType"),
-      shiftHours: formData.get("shiftHours"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
       whatAreWeCollecting: selectedCollectingItem || null,
       capacityPercent: showCapacity ? capacityPercent : null,
@@ -1371,9 +1368,6 @@ function QuotePageForm() {
                     <option value="Multi Drop Delivery">Multi Drop Delivery</option>
                   </select>
                 </div>
-
-                <QuoteShiftLength options={shiftOptions}
-                  className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4" />
 
                 {!hideJourneyType && (
                   <div>

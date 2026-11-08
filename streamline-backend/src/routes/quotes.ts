@@ -1205,7 +1205,7 @@ router.get("/shift-options", async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (getAuthToken(req) && !user) return res.status(401).json({ error: "Sign in again to use your account for this quote." });
-    return res.json({ required: Boolean(user && await assignedCommercialTariff(user.id)) });
+    return res.json({ blocked: Boolean(user && await assignedCommercialTariff(user.id)) });
   } catch (error) {
     console.error("Customer quote shift options:", error);
     return res.status(503).json({ error: "Unable to check shift options." });
@@ -1260,6 +1260,13 @@ router.post("/", async (req, res) => {
       });
     }
 
+    if (user && await assignedCommercialTariff(user.id)) {
+      return res.status(403).json({
+        code: "COMMERCIAL_QUOTES_UNAVAILABLE",
+        error: "Online quotes are unavailable for your account. Please call 07301827224 to arrange a booking.",
+      });
+    }
+
     assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
     let distanceMiles: number | null = null;
     let durationMinutes: number | null = null;
@@ -1310,7 +1317,7 @@ router.post("/", async (req, res) => {
       vehicleSize: req.body.vehicleSize,
       distanceMiles,
       extraDropCount,
-    }, { customerId: user?.id, shiftHours: req.body.shiftHours });
+    });
 
     console.log("Quote pricing:", {
       originalRouteAddresses,
