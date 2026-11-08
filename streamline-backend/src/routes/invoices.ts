@@ -1426,10 +1426,12 @@ router.post("/admin/:id/send", async (req, res) => {
         data: { invoiceId: invoice.id, eventType: "INVOICE_SENT", description: `Invoice sent to ${recipient}.` },
       });
 
+      if (invoice.status === "FINALISED") {
+        await transaction.invoice.updateMany({ where: { id: invoice.id, status: "FINALISED" }, data: { status: "SENT" } });
+      }
       return transaction.invoice.update({
         where: { id: invoice.id },
         data: {
-          status: invoice.status === "FINALISED" ? "SENT" : invoice.status,
           finalisedAt: invoice.finalisedAt || new Date(),
           issuedAt: invoice.issuedAt || new Date(),
           sentAt: invoice.sentAt || new Date(),
@@ -1767,6 +1769,7 @@ router.get("/admin/billing-queue", async (req, res) => {
 });
 
 const summaryEvent = "MONTHLY_INVOICE_SUMMARY";
+const summaryPaymentTerms = "Pay the full amount in one bank transfer by the 15th of the invoice month.";
 const summaryAccountFilter = {
   archivedCustomerId: null,
   user: { is: { accountType: "TRADE" as const } },
@@ -1776,6 +1779,11 @@ const summaryInvoiceFilter: Prisma.InvoiceWhereInput = {
   invoiceType: { not: "CONSOLIDATED" },
   status: { in: ["FINALISED", "SENT", "ISSUED", "OVERDUE", "PARTIALLY_PAID", "PAID", "CREDITED"] },
 };
+const summaryBalanceSelect = {
+  id: true, issuedAt: true, finalisedAt: true, createdAt: true, total: true, status: true,
+  allocations: { select: { amount: true } },
+  creditNotes: { select: { amount: true, status: true } },
+} satisfies Prisma.InvoiceSelect;
 
 function invoiceMonth(value: Date) {
   const { year, month } = ukParts(value);
@@ -1784,11 +1792,56 @@ function invoiceMonth(value: Date) {
 
 function summaryMetadata(value: Prisma.JsonValue | null) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { number, month, invoiceIds } = value;
+  const { number, month, invoiceIds, status, amountDue, issuedAt } = value;
   if (typeof number !== "string" || !/^CONS-INV-[0-9]+$/.test(number) ||
-      typeof month !== "string" || !Array.isArray(invoiceIds) ||
-      !invoiceIds.length || !invoiceIds.every((id): id is string => typeof id === "string")) return null;
-  return { number, month, invoiceIds };
+      typeof month !== "string" || !/^[1-9][0-9]{3}-(0[1-9]|1[0-2])$/.test(month) ||
+      !Array.isArray(invoiceIds) || !invoiceIds.length ||
+      !invoiceIds.every((id): id is string => typeof id === "string")) return null;
+  return {
+    number, month, invoiceIds,
+    status: status === "FINALISED" || status === "PAID" ? status : "DRAFT" as const,
+    amountDue: typeof amountDue === "string" ? amountDue : null,
+    issuedAt: typeof issuedAt === "string" ? issuedAt : null,
+  };
+}
+
+type SummaryDetails = NonNullable<ReturnType<typeof summaryMetadata>>;
+type SummaryBalance = Prisma.InvoiceGetPayload<{ select: typeof summaryBalanceSelect }>;
+
+function outstandingForSummary(invoice: SummaryBalance) {
+  const credits = invoice.creditNotes.reduce((total, note) =>
+    note.status === "ISSUED" ? total.add(note.amount) : total, new Prisma.Decimal(0));
+  const payments = invoice.allocations.reduce((total, allocation) => total.add(allocation.amount), new Prisma.Decimal(0));
+  return Prisma.Decimal.max(0, roundMoney(invoice.total.sub(credits).sub(payments)));
+}
+
+function canConsolidate(invoice: SummaryBalance) {
+  return !["PAID", "CREDITED"].includes(invoice.status) && outstandingForSummary(invoice).gt(0);
+}
+
+function combinedBalance(invoices: SummaryBalance[]) {
+  return invoices.reduce((total, invoice) => total.add(outstandingForSummary(invoice)), new Prisma.Decimal(0));
+}
+
+function summaryDueDate(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  return ukMidnight(year, number, 15);
+}
+
+function summaryView(record: { id: string; createdAt: Date }, details: SummaryDetails, invoices: SummaryBalance[]) {
+  const balance = combinedBalance(invoices);
+  return {
+    id: record.id, number: details.number, month: details.month, status: details.status,
+    total: details.amountDue ?? balance.toFixed(2),
+    dueDate: summaryDueDate(details.month).toISOString(),
+    createdAt: record.createdAt.toISOString(), issuedAt: details.issuedAt,
+  };
+}
+
+function findMonthlySummary(db: Prisma.TransactionClient, userId: string, summaryId: string) {
+  return db.invoiceAuditEvent.findFirst({
+    where: { id: summaryId, eventType: summaryEvent, invoice: { ...summaryAccountFilter, userId } },
+  });
 }
 
 router.get("/admin/monthly-summary/:userId", async (req, res) => {
@@ -1798,25 +1851,32 @@ router.get("/admin/monthly-summary/:userId", async (req, res) => {
     const [invoices, summaries] = await Promise.all([
       prisma.invoice.findMany({
         where: { ...summaryInvoiceFilter, userId: req.params.userId },
-        select: { issuedAt: true, finalisedAt: true, createdAt: true },
+        select: summaryBalanceSelect,
       }),
       prisma.invoiceAuditEvent.findMany({
         where: { eventType: summaryEvent, invoice: { ...summaryAccountFilter, userId: req.params.userId } },
         orderBy: { createdAt: "desc" },
-        select: { id: true, metadata: true },
+        select: { id: true, createdAt: true, metadata: true },
       }),
     ]);
-    const months = [...new Set(invoices.map(invoice => invoiceMonth(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)))].sort().reverse();
+    const months = [...new Set(invoices.filter(canConsolidate)
+      .map(invoice => invoiceMonth(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)))].sort().reverse();
+    const byId = new Map(invoices.map(invoice => [invoice.id, invoice]));
     return res.json({
       months,
       summaries: summaries.flatMap(row => {
         const details = summaryMetadata(row.metadata);
-        return details ? [{ id: row.id, number: details.number, month: details.month }] : [];
+        if (!details) return [];
+        const sources = details.invoiceIds.flatMap(id => {
+          const source = byId.get(id);
+          return source ? [source] : [];
+        });
+        return [summaryView(row, details, sources)];
       }),
     });
   } catch (error) {
     console.error("Monthly summary options error:", error);
-    return res.status(500).json({ error: "Unable to load invoice months." });
+    return res.status(500).json({ error: "Unable to load consolidated invoices." });
   }
 });
 
@@ -1829,9 +1889,8 @@ router.post("/admin/monthly-summary/:userId", async (req, res) => {
   const range = { gte: ukMidnight(year, monthNumber, 1), lt: ukMidnight(year, monthNumber + 1, 1) };
   try {
     const result = await prisma.$transaction(async tx => {
-      // Serialize numbering and identical generation requests.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121107)`;
-      const invoices = await tx.invoice.findMany({
+      const invoices = (await tx.invoice.findMany({
         where: {
           ...summaryInvoiceFilter,
           userId: req.params.userId,
@@ -1842,35 +1901,56 @@ router.post("/admin/monthly-summary/:userId", async (req, res) => {
           ],
         },
         orderBy: { id: "asc" },
-        select: { id: true },
-      });
+        select: summaryBalanceSelect,
+      })).filter(canConsolidate);
       if (!invoices.length) return null;
-      const invoiceIds = invoices.map(invoice => invoice.id);
       const records = await tx.invoiceAuditEvent.findMany({
         where: { eventType: summaryEvent },
-        select: { id: true, metadata: true, invoice: { select: { userId: true } } },
+        select: { id: true, createdAt: true, metadata: true, invoice: { select: { userId: true } } },
       });
+      const reserved = new Set<string>();
       let next = 1;
       for (const row of records) {
         const details = summaryMetadata(row.metadata);
         if (!details) continue;
-        if (row.invoice.userId === req.params.userId && details.month === month &&
-            details.invoiceIds.join(",") === invoiceIds.join(",")) {
-          return { id: row.id, number: details.number, month };
-        }
         next = Math.max(next, Number(details.number.slice("CONS-INV-".length)) + 1);
+        if (row.invoice.userId === req.params.userId && details.status === "FINALISED") {
+          details.invoiceIds.forEach(id => reserved.add(id));
+        }
       }
-      const number = `CONS-INV-${String(next).padStart(2, "0")}`;
+      const sources = invoices.filter(invoice => !reserved.has(invoice.id));
+      if (!sources.length) {
+        for (const row of records) {
+          const details = summaryMetadata(row.metadata);
+          if (row.invoice.userId === req.params.userId && details?.month === month &&
+              details.status === "FINALISED" && invoices.every(invoice => details.invoiceIds.includes(invoice.id))) {
+            return summaryView(row, details, invoices);
+          }
+        }
+        return null;
+      }
+      const invoiceIds = sources.map(invoice => invoice.id);
+      for (const row of records) {
+        const details = summaryMetadata(row.metadata);
+        if (row.invoice.userId === req.params.userId && details?.month === month &&
+            details.status === "DRAFT" && details.invoiceIds.join(",") === invoiceIds.join(",")) {
+          return summaryView(row, details, sources);
+        }
+      }
+      const details: SummaryDetails = {
+        number: `CONS-INV-${String(next).padStart(2, "0")}`, month, invoiceIds,
+        status: "DRAFT", amountDue: null, issuedAt: null,
+      };
       const record = await tx.invoiceAuditEvent.create({
         data: {
           invoiceId: invoiceIds[0], eventType: summaryEvent,
-          description: `Created ${number} for ${month} from existing issued invoices.`,
-          metadata: { number, month, invoiceIds }, adminId: admin.admin?.id,
+          description: `Created pending consolidated invoice ${details.number} for ${month}.`,
+          metadata: details, adminId: admin.admin?.id,
         },
       });
-      return { id: record.id, number, month };
+      return summaryView(record, details, sources);
     });
-    if (!result) return res.status(404).json({ error: "No issued invoices were found for that month." });
+    if (!result) return res.status(404).json({ error: "No available finalised invoices with a balance due were found for that month." });
     return res.status(201).json({ summary: result });
   } catch (error) {
     console.error("Monthly summary generation error:", error);
@@ -1879,53 +1959,138 @@ router.post("/admin/monthly-summary/:userId", async (req, res) => {
 });
 
 async function loadMonthlySummaryPdf(userId: string, summaryId: string) {
-  const record = await prisma.invoiceAuditEvent.findFirst({
-    where: { id: summaryId, eventType: summaryEvent, invoice: { ...summaryAccountFilter, userId: userId } },
-  });
+  const record = await findMonthlySummary(prisma, userId, summaryId);
   const details = record && summaryMetadata(record.metadata);
   if (!record || !details) return { ok: false, status: 404, error: "Consolidated invoice not found." } as const;
   const invoices = await prisma.invoice.findMany({
-    where: { ...summaryInvoiceFilter, userId: userId, id: { in: details.invoiceIds } },
+    where: { ...summaryInvoiceFilter, userId, id: { in: details.invoiceIds } },
     include: invoiceInclude(),
     orderBy: [{ issuedAt: "asc" }, { id: "asc" }],
   });
-  if (invoices.length !== details.invoiceIds.length) return { ok: false, status: 409, error: "An original invoice is no longer issued. Generate a new summary for this month." } as const;
+  if (invoices.length !== details.invoiceIds.length) {
+    return { ok: false, status: 409, error: "An included invoice is no longer finalised. Check the individual invoices before continuing." } as const;
+  }
   const first = invoices[0];
   const recipient = first.user?.accountsEmail || first.user?.email;
   const sum = (key: "subtotal" | "vatAmount" | "total") => invoices.reduce((total, invoice) => total.add(invoice[key]), new Prisma.Decimal(0));
   const pdf = await renderInvoicePdf({
     ...first,
-    invoiceNumber: details.number, invoiceType: "CONSOLIDATED",
-    issuedAt: record.createdAt, supplyDate: null, dueDate: null, paymentTerms: null,
+    invoiceNumber: details.number, invoiceType: "CONSOLIDATED", billingAccountType: "TRADE",
+    status: details.status, issuedAt: details.issuedAt ? new Date(details.issuedAt) : null, finalisedAt: null,
+    createdAt: record.createdAt, supplyDate: null, dueDate: summaryDueDate(details.month), paymentTerms: summaryPaymentTerms,
     subtotal: sum("subtotal"), vatAmount: sum("vatAmount"), total: sum("total"),
-    booking: null, invoiceBookings: [], auditEvents: [], notes: null,
+    booking: null, invoiceBookings: [], auditEvents: [], notes: null, customerReference: null, purchaseOrderNumber: null,
     allocations: invoices.flatMap(invoice => invoice.allocations),
     creditNotes: invoices.flatMap(invoice => invoice.creditNotes),
-    lines: invoices.flatMap(invoice => {
-      const references = [...new Set([
-        ...invoice.invoiceBookings.map(row => row.bookingReference),
-        ...(invoice.booking ? [invoice.booking.reference] : []),
-      ])];
-      const heading = [`Invoice ${invoice.invoiceNumber}`, ...references].join(" · ");
-      const total = `Total: £${invoice.total.toFixed(2)}`;
-      const due = invoice.dueDate ? ` · Due ${invoice.dueDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })}` : "";
-      if (!invoice.lines.length) {
-        return [{
-          ...first.lines[0],
-          description: `${heading}\n${total}${due}`,
-          quantity: new Prisma.Decimal(1), unitPrice: invoice.subtotal, netAmount: invoice.subtotal,
-          vatRate: new Prisma.Decimal(0), vatAmount: invoice.vatAmount, grossAmount: invoice.total,
-          chargeType: "BASE_SERVICE" as const,
-        }];
-      }
-      return invoice.lines.map((line, index) => ({
-        ...line,
-        description: index === 0 ? `${heading}\n${total}${due}\n${line.description}` : line.description,
-      }));
-    }),
-  }, details.month);
-  return { ok: true, record, details, recipient, pdf } as const;
+    lines: invoices.flatMap(invoice => invoice.lines),
+  }, { month: details.month, invoices });
+  return { ok: true, record, details, invoices, recipient, pdf } as const;
 }
+
+async function updateMonthlySummary(
+  userId: string, summaryId: string, adminId: string | undefined,
+  payment?: { amount: Prisma.Decimal; paidAt: Date },
+) {
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121107)`;
+    const record = await findMonthlySummary(tx, userId, summaryId);
+    const details = record && summaryMetadata(record.metadata);
+    if (!record || !details) return { error: "Consolidated invoice not found.", status: 404 } as const;
+    if (details.status === "PAID" || (!payment && details.status === "FINALISED")) {
+      return { error: "This consolidated invoice has already been " + (details.status === "PAID" ? "paid." : "finalised."), status: 409 } as const;
+    }
+    if (payment && details.status !== "FINALISED") {
+      return { error: "Finalise this consolidated invoice before recording payment.", status: 409 } as const;
+    }
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id IN (${Prisma.join(details.invoiceIds)}) ORDER BY id FOR UPDATE`;
+    const invoices = await tx.invoice.findMany({
+      where: { ...summaryInvoiceFilter, userId, id: { in: details.invoiceIds } },
+      select: summaryBalanceSelect,
+    });
+    if (invoices.length !== details.invoiceIds.length || invoices.some(invoice => !canConsolidate(invoice))) {
+      return { error: "An included invoice is no longer finalised with a balance due. Check the individual invoices before continuing.", status: 409 } as const;
+    }
+    const amountDue = combinedBalance(invoices);
+    if (payment) {
+      if (!amountDue.eq(details.amountDue ?? 0)) {
+        return { error: "The balance has changed since finalisation. Review the individual invoices before recording this transfer.", status: 409 } as const;
+      }
+      if (!payment.amount.eq(amountDue)) {
+        return { error: `Record one full bank transfer of £${amountDue.toFixed(2)}.`, status: 400 } as const;
+      }
+      const receipt = await tx.payment.create({
+        data: {
+          userId, provider: "MANUAL", paymentMethod: "BANK_TRANSFER", status: "PAID", amount: payment.amount,
+          currency: "GBP", reference: details.number, notes: `Cleared by consolidated invoice ${details.number}.`,
+          paidAt: payment.paidAt,
+        },
+      });
+      await tx.paymentAllocation.createMany({
+        data: invoices.map(invoice => ({ paymentId: receipt.id, invoiceId: invoice.id, amount: outstandingForSummary(invoice), allocatedByAdminId: adminId })),
+      });
+      await tx.invoice.updateMany({
+        where: { id: { in: details.invoiceIds } },
+        data: { status: "PAID", paidAt: payment.paidAt },
+      });
+      await tx.invoiceAuditEvent.createMany({
+        data: invoices.map(invoice => ({
+          invoiceId: invoice.id, eventType: "PAYMENT_RECORDED", adminId,
+          description: `Cleared by full bank transfer for consolidated invoice ${details.number}.`,
+          metadata: { paymentId: receipt.id, summaryId, reference: details.number, amount: outstandingForSummary(invoice).toFixed(2) },
+        })),
+      });
+    } else {
+      const others = await tx.invoiceAuditEvent.findMany({
+        where: { eventType: summaryEvent, invoice: { userId } },
+        select: { id: true, metadata: true },
+      });
+      if (others.some(row => {
+        const other = summaryMetadata(row.metadata);
+        return row.id !== summaryId && other?.status === "FINALISED" && other.invoiceIds.some(id => details.invoiceIds.includes(id));
+      })) return { error: "An included invoice is already on an unpaid consolidated invoice.", status: 409 } as const;
+    }
+    const updated: SummaryDetails = {
+      ...details, status: payment ? "PAID" : "FINALISED",
+      amountDue: amountDue.toFixed(2), issuedAt: details.issuedAt ?? new Date().toISOString(),
+    };
+    await tx.invoiceAuditEvent.update({ where: { id: record.id }, data: { metadata: updated } });
+    return { summary: summaryView(record, updated, invoices) };
+  }, { timeout: 15000 });
+}
+
+router.post("/admin/monthly-summary/:userId/:summaryId/finalise", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  try {
+    const result = await updateMonthlySummary(getString(req.params.userId), getString(req.params.summaryId), admin.admin?.id);
+    if ("error" in result && result.status) return res.status(result.status).json({ error: result.error });
+    return res.json({ summary: result.summary });
+  } catch (error) {
+    console.error("Monthly summary finalisation error:", error);
+    return res.status(500).json({ error: "Unable to finalise the consolidated invoice." });
+  }
+});
+
+router.post("/admin/monthly-summary/:userId/:summaryId/record-payment", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  const value = String(req.body?.amount ?? "");
+  const paidAtValue = getString(req.body?.paidAt);
+  const paidAt = paidAtValue ? new Date(paidAtValue) : new Date();
+  if (!/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0 || Number.isNaN(paidAt.getTime())) {
+    return res.status(400).json({ error: "Enter the full transfer amount and a valid payment date." });
+  }
+  try {
+    const result = await updateMonthlySummary(getString(req.params.userId), getString(req.params.summaryId), admin.admin?.id, {
+      amount: new Prisma.Decimal(value), paidAt,
+    });
+    if ("error" in result && result.status) return res.status(result.status).json({ error: result.error });
+    return res.status(201).json({ summary: result.summary });
+  } catch (error) {
+    console.error("Monthly summary payment error:", error);
+    return res.status(500).json({ error: "Unable to record the consolidated payment." });
+  }
+});
 
 router.get("/admin/monthly-summary/:userId/:summaryId/pdf", async (req, res) => {
   const admin = requireAdmin(req);
@@ -1948,12 +2113,18 @@ router.post("/admin/monthly-summary/:userId/:summaryId/send", async (req, res) =
   try {
     const summary = await loadMonthlySummaryPdf(getString(req.params.userId), getString(req.params.summaryId));
     if (!summary.ok) return res.status(summary.status).json({ error: summary.error });
-    const { record, details, recipient, pdf } = summary;
+    const { record, details, invoices, recipient, pdf } = summary;
+    if (details.status === "DRAFT") return res.status(409).json({ error: "Finalise the consolidated invoice before emailing it." });
+    if (details.status === "FINALISED" && !combinedBalance(invoices).eq(details.amountDue ?? 0)) {
+      return res.status(409).json({ error: "The balance has changed since finalisation. Review the individual invoices before sending." });
+    }
     if (!recipient) return res.status(400).json({ error: "This customer account has no invoice email address." });
     const result = await sendEmail({
       to: recipient,
       subject: `Consolidated invoice ${details.number}`,
-      html: emailLayout("Consolidated invoice", "<p>Your monthly summary is attached. For any balance still due, use the payment reference on the original invoice.</p>", "accounts"),
+      html: emailLayout("Consolidated invoice", details.status === "PAID"
+        ? "<p>Your paid consolidated invoice is attached.</p>"
+        : `<p>Your consolidated invoice is attached. Please pay the full amount in one transfer using BACS reference <strong>${details.number}</strong> by the 15th of the invoice month.</p>`, "accounts"),
       department: "accounts",
       attachments: [{ filename: `${details.number}.pdf`, content: pdf }],
     });
@@ -2064,14 +2235,15 @@ router.post("/admin/:id/credit-notes", async (req, res) => {
 
     const amountValue = getNumber(req.body.amount); const reason = getString(req.body.reason);
     if (amountValue == null || amountValue <= 0 || !reason) return res.status(400).json({ error: "Credit amount and reason are required." });
-    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { creditNotes: true, allocations: true } });
-    if (!invoice) return res.status(404).json({ error: "Invoice not found." });
-    if (["DRAFT", "VOID", "CANCELLED"].includes(invoice.status)) return res.status(400).json({ error: "Credit notes can only be raised against an issued invoice." });
-    const existingCredits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
-    const remaining = invoice.total.sub(existingCredits);
-    const amount = roundMoney(new Prisma.Decimal(amountValue));
-    if (amount.greaterThan(remaining)) return res.status(400).json({ error: "Credit amount exceeds the remaining invoice value." });
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
+      const invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: { creditNotes: true, allocations: true } });
+      if (!invoice) return { error: "Invoice not found.", status: 404 } as const;
+      if (["DRAFT", "VOID", "CANCELLED"].includes(invoice.status)) return { error: "Credit notes can only be raised against an issued invoice.", status: 400 } as const;
+      const existingCredits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
+      const remaining = invoice.total.sub(existingCredits);
+      const amount = roundMoney(new Prisma.Decimal(amountValue));
+      if (amount.greaterThan(remaining)) return { error: "Credit amount exceeds the remaining invoice value.", status: 400 } as const;
       const settings = await tx.companySettings.findFirst(); if (!settings) throw new Error("Company settings are required.");
       const creditNoteNumber = `${settings.creditNotePrefix}-${String(settings.nextCreditNoteNumber).padStart(6, "0")}`;
       const creditNote = await tx.creditNote.create({ data: { creditNoteNumber, invoiceId: invoice.id, status: "ISSUED", amount, reason } });
@@ -2081,6 +2253,7 @@ router.post("/admin/:id/credit-notes", async (req, res) => {
       const updatedInvoice = await tx.invoice.update({ where: { id: invoice.id }, data: fullyCredited ? { status: "CREDITED" } : {}, include: invoiceInclude() });
       return { creditNote, invoice: updatedInvoice };
     });
+    if ("error" in result && result.status) return res.status(result.status).json({ error: result.error });
     res.status(201).json({ success: true, ...result });
   } catch (error) {
     console.error("Credit note error:", error);
@@ -2136,55 +2309,50 @@ router.post("/admin/:id/record-payment", async (req, res) => {
       paidAt = parsedPaidAt;
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: req.params.id },
-      include: {
-        allocations: true,
-        creditNotes: true,
-      },
-    });
-
-    if (!invoice) {
-      return res.status(404).json({ error: "Invoice not found." });
-    }
-
-    if (["DRAFT", "VOID", "CREDITED", "CANCELLED", "PAID"].includes(invoice.status)) {
-      return res.status(400).json({
-        error: "A payment cannot be recorded against this invoice.",
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
+      const invoice = await tx.invoice.findUnique({
+        where: { id: req.params.id },
+        include: {
+          allocations: true,
+          creditNotes: true,
+        },
       });
-    }
 
-    const credits = invoice.creditNotes
-      .filter((creditNote) => creditNote.status === "ISSUED")
-      .reduce(
-        (sum, creditNote) => sum.add(creditNote.amount),
+      if (!invoice) {
+        return { error: "Invoice not found.", status: 404 } as const;
+      }
+
+      if (["DRAFT", "VOID", "CREDITED", "CANCELLED", "PAID"].includes(invoice.status)) {
+        return { error: "A payment cannot be recorded against this invoice.", status: 400 } as const;
+      }
+
+      const credits = invoice.creditNotes
+        .filter((creditNote) => creditNote.status === "ISSUED")
+        .reduce(
+          (sum, creditNote) => sum.add(creditNote.amount),
+          new Prisma.Decimal(0),
+        );
+
+      const alreadyPaid = invoice.allocations.reduce(
+        (sum, allocation) => sum.add(allocation.amount),
         new Prisma.Decimal(0),
       );
 
-    const alreadyPaid = invoice.allocations.reduce(
-      (sum, allocation) => sum.add(allocation.amount),
-      new Prisma.Decimal(0),
-    );
+      const invoiceOutstanding = roundMoney(
+        invoice.total.sub(credits).sub(alreadyPaid),
+      );
 
-    const invoiceOutstanding = roundMoney(
-      invoice.total.sub(credits).sub(alreadyPaid),
-    );
+      if (invoiceOutstanding.lessThanOrEqualTo(0)) {
+        return { error: "This invoice has no outstanding balance.", status: 400 } as const;
+      }
 
-    if (invoiceOutstanding.lessThanOrEqualTo(0)) {
-      return res.status(400).json({
-        error: "This invoice has no outstanding balance.",
-      });
-    }
+      const amount = roundMoney(new Prisma.Decimal(amountValue));
 
-    const amount = roundMoney(new Prisma.Decimal(amountValue));
+      if (amount.greaterThan(invoiceOutstanding)) {
+        return { error: `Payment exceeds the invoice outstanding balance of £${invoiceOutstanding.toFixed(2)}.`, status: 400 } as const;
+      }
 
-    if (amount.greaterThan(invoiceOutstanding)) {
-      return res.status(400).json({
-        error: `Payment exceeds the invoice outstanding balance of £${invoiceOutstanding.toFixed(2)}.`,
-      });
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
       const payment = await tx.payment.create({
         data: {
           bookingId: invoice.bookingId,
@@ -2245,6 +2413,8 @@ router.post("/admin/:id/record-payment", async (req, res) => {
       return { payment, invoice: updatedInvoice };
     });
 
+    if ("error" in result && result.status) return res.status(result.status).json({ error: result.error });
+
     res.status(201).json({
       success: true,
       payment: result.payment,
@@ -2277,25 +2447,28 @@ router.post("/admin/:id/payment-allocations", async (req, res) => {
 
     const amountValue = getNumber(req.body.amount); const paymentId = getString(req.body.paymentId);
     if (!paymentId || amountValue == null || amountValue <= 0) return res.status(400).json({ error: "Payment and allocation amount are required." });
-    const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { allocations: true, creditNotes: true } });
-    const payment = await prisma.payment.findUnique({ where: { id: paymentId }, include: { allocations: true } });
-    if (!invoice || !payment) return res.status(404).json({ error: "Invoice or payment not found." });
-    if (payment.status !== "PAID") return res.status(400).json({ error: "Only paid payments can be allocated." });
-    const allocatedToPayment = payment.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
-    const paymentRemaining = payment.amount.sub(allocatedToPayment); const amount = roundMoney(new Prisma.Decimal(amountValue));
-    if (amount.greaterThan(paymentRemaining)) return res.status(400).json({ error: "Allocation exceeds the unallocated payment amount." });
-    const credits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
-    const alreadyPaid = invoice.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
-    const outstanding = invoice.total.sub(credits).sub(alreadyPaid);
-    if (amount.greaterThan(outstanding)) return res.status(400).json({ error: "Allocation exceeds the invoice outstanding balance." });
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
+      const invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: { allocations: true, creditNotes: true } });
+      const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: { allocations: true } });
+      if (!invoice || !payment) return { error: "Invoice or payment not found.", status: 404 } as const;
+      if (payment.status !== "PAID") return { error: "Only paid payments can be allocated.", status: 400 } as const;
+      const allocatedToPayment = payment.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
+      const paymentRemaining = payment.amount.sub(allocatedToPayment); const amount = roundMoney(new Prisma.Decimal(amountValue));
+      if (amount.greaterThan(paymentRemaining)) return { error: "Allocation exceeds the unallocated payment amount.", status: 400 } as const;
+      const credits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((sum, c) => sum.add(c.amount), new Prisma.Decimal(0));
+      const alreadyPaid = invoice.allocations.reduce((sum, a) => sum.add(a.amount), new Prisma.Decimal(0));
+      const outstanding = invoice.total.sub(credits).sub(alreadyPaid);
+      if (amount.greaterThan(outstanding)) return { error: "Allocation exceeds the invoice outstanding balance.", status: 400 } as const;
       await tx.paymentAllocation.create({ data: { paymentId, invoiceId: invoice.id, amount, allocatedByAdminId: getOptionalString(req.body.adminId), notes: getOptionalString(req.body.notes) } });
       const newPaid = alreadyPaid.add(amount); const newOutstanding = invoice.total.sub(credits).sub(newPaid);
       const status = newOutstanding.lessThanOrEqualTo(0) ? "PAID" : "PARTIALLY_PAID";
       await tx.invoiceAuditEvent.create({ data: { invoiceId: invoice.id, eventType: "PAYMENT_ALLOCATED", description: `Payment of £${amount.toFixed(2)} allocated.` } });
       return tx.invoice.update({ where: { id: invoice.id }, data: { status, paidAt: status === "PAID" ? new Date() : null }, include: invoiceInclude() });
     });
-    res.json({ success: true, invoice: updated });
+    if ("error" in result && result.status) return res.status(result.status).json({ error: result.error });
+    res.json({ success: true, invoice: result });
   } catch (error) {
     console.error("Payment allocation error:", error);
     res.status(500).json({ error: "Unable to allocate payment." });

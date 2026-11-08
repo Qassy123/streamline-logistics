@@ -40,6 +40,7 @@ type AccountStatus = "ACTIVE" | "SUSPENDED" | "INACTIVE";
 
 type Invoice = {
   invoiceType?: string;
+  consolidatedMonth?: string;
   billingAccountType?: string | null;
   id: string;
   invoiceNumber: string;
@@ -1383,40 +1384,20 @@ export default function CustomerAccountPage() {
             />
           </section>
 
-          <aside className="space-y-6">
-            {customer.accountType === "TRADE" && <MonthlyInvoiceSummary key={customer.id} customerId={customer.id} />}
-            {(customer.accountType !== "BUSINESS" || pendingInvoices.length > 0 || finalisedIssuedInvoices.length > 0) && <>
-<InvoiceSection
-              title="Pending Invoices"
-              invoices={pendingInvoices}
-              customerId={customer.id}
-              emptyMessage="No pending invoices."
-            />
-
-            <InvoiceSection
-              title="Finalised & Issued Invoices"
-              collapsible
-              invoices={finalisedIssuedInvoices}
-              customerId={customer.id}
-              emptyMessage="No finalised or issued invoices."
-              onUnfinalise={async (invoice) => {
-                const key = String("session") || "";
-                const response = await adminFetch(`${API_BASE}/api/invoices/admin/${invoice.id}/unfinalise`, { method: "POST", headers: {} });
-                const payload = await response.json();
-                if (!response.ok) { setError(payload.error || "Unable to unfinalise invoice."); return; }
-                window.location.reload();
-              }}
-            />
-
-            </>}
-<InvoiceSection
-              title={customer.accountType === "BUSINESS" ? "Paid Invoices" : "Paid/Cleared Invoices"}
-              collapsible
-              invoices={paidClearedInvoices}
-              customerId={customer.id}
-              emptyMessage="No paid or cleared invoices."
-            />
-          </aside>
+          <CustomerInvoiceBoxes
+            key={customer.id}
+            customer={customer}
+            pending={pendingInvoices}
+            issued={finalisedIssuedInvoices}
+            paid={paidClearedInvoices}
+            onPayment={() => loadCustomer(true)}
+            onUnfinalise={async (invoice) => {
+              const response = await adminFetch(`${API_BASE}/api/invoices/admin/${invoice.id}/unfinalise`, { method: "POST" });
+              const payload = await response.json();
+              if (!response.ok) { setError(payload.error || "Unable to unfinalise invoice."); return; }
+              window.location.reload();
+            }}
+          />
         </div>
       )}
     </div>
@@ -1450,113 +1431,162 @@ function DetailRow({
   );
 }
 
-type MonthlySummary = { id: string; month: string; number: string };
+type MonthlySummary = {
+  id: string;
+  month: string;
+  number: string;
+  status: "DRAFT" | "FINALISED" | "PAID";
+  total: string;
+  dueDate: string;
+  createdAt: string;
+  issuedAt: string | null;
+};
 
-function MonthlyInvoiceSummary({ customerId }: { customerId: string }) {
+function monthLabel(value: string) {
+  return new Date(`${value}-01T12:00:00Z`).toLocaleDateString("en-GB", {
+    month: "long", year: "numeric", timeZone: "Europe/London",
+  });
+}
+
+function CustomerInvoiceBoxes({
+  customer, pending, issued, paid, onPayment, onUnfinalise,
+}: {
+  customer: Customer;
+  pending: Invoice[];
+  issued: Invoice[];
+  paid: Invoice[];
+  onPayment: () => Promise<void>;
+  onUnfinalise: (invoice: Invoice) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [months, setMonths] = useState<string[]>([]);
   const [month, setMonth] = useState("");
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState<MonthlySummary | null>(null);
-  const endpoint = `${API_BASE}/api/invoices/admin/monthly-summary/${encodeURIComponent(customerId)}`;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const isTrade = customer.accountType === "TRADE";
+  const endpoint = `${API_BASE}/api/invoices/admin/monthly-summary/${encodeURIComponent(customer.id)}`;
 
-  async function request(path = "", body?: object) {
+  const request = useCallback(async (path = "", body?: object, signal?: AbortSignal) => {
     const response = await adminFetch(endpoint + path, {
-      cache: "no-store",
+      cache: "no-store", signal,
       ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Unable to manage the consolidated invoice.");
     return data;
+  }, [endpoint]);
+
+  useEffect(() => {
+    if (!isTrade) return;
+    const controller = new AbortController();
+    void request("", undefined, controller.signal).then((data) => {
+      if (controller.signal.aborted) return;
+      setSummaries(data.summaries);
+      setMonths(data.months);
+      setMonth(value => data.months.includes(value) ? value : data.months[0] || "");
+      setError("");
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Unable to load consolidated invoices.");
+    });
+    return () => controller.abort();
+  }, [isTrade, request, customer]);
+
+  function saveSummary(summary: MonthlySummary) {
+    setSummaries(rows => [summary, ...rows.filter(row => row.id !== summary.id)]);
   }
 
-  async function run(action: () => Promise<void>) {
+  async function generate() {
     setBusy(true);
     setError("");
-    try { await action(); }
-    catch (error) { setError(error instanceof Error ? error.message : "Unable to manage the consolidated invoice."); }
-    finally { setBusy(false); }
+    try {
+      const { summary } = await request("", { month });
+      saveSummary(summary);
+      setSelectedId(summary.id);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to generate the consolidated invoice.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function monthLabel(value: string) {
-    return new Date(`${value}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Europe/London" });
-  }
+  const selected = isTrade ? summaries.find(summary => summary.id === selectedId) : undefined;
+  const summaryRows = (status: MonthlySummary["status"]): Invoice[] => isTrade ? summaries.filter(row => row.status === status).map(row => ({
+    ...row, invoiceNumber: row.number, invoiceType: "CONSOLIDATED",
+    subtotal: 0, vatAmount: 0, consolidatedMonth: row.month,
+  })) : [];
+  const pendingRows = [...summaryRows("DRAFT"), ...pending];
+  const issuedRows = [...summaryRows("FINALISED"), ...issued];
+  const paidRows = [...summaryRows("PAID"), ...paid];
 
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-      <button type="button" className="font-semibold text-orange-700" aria-expanded={open} disabled={busy}
-        onClick={() => {
-          if (open) { setOpen(false); return; }
-          setOpen(true);
-          void run(async () => {
-            const data = await request();
-            setMonths(data.months);
-            setSummaries(data.summaries);
-            setMonth(data.months[0] || "");
-          });
-        }}>
-        Consolidated invoices
-      </button>
-      {open && <>
-        <label className="block text-sm font-semibold">
-          Invoice month
-          <select className="mt-1 block w-full rounded-lg border border-slate-300 p-2" value={month}
-            onChange={event => setMonth(event.target.value)} disabled={busy || !months.length}>
-            {!months.length && <option value="">No issued invoices</option>}
-            {months.map(value => <option value={value} key={value}>{monthLabel(value)}</option>)}
-          </select>
-        </label>
-        <button type="button" disabled={!month || busy} className="rounded-lg bg-[#FF6A00] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          onClick={() => void run(async () => {
-            const { summary } = await request("", { month });
-            setSummaries(rows => [summary, ...rows.filter(row => row.id !== summary.id)]);
-            setSelected(summary);
-          })}>
-          Generate consolidated invoice
-        </button>
-        {summaries.map(summary => (
-          <div key={summary.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 text-sm">
-            <span><strong>{summary.number}</strong> · {monthLabel(summary.month)}</span>
-            <button type="button" disabled={busy} className="font-semibold text-orange-700 disabled:opacity-50"
-              onClick={() => setSelected(summary)}>Open invoice</button>
-          </div>
-        ))}
-        {busy && <p role="status" className="text-sm text-slate-500">Working…</p>}
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    <aside className="space-y-6">
+      {isTrade && (
+        <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+          <button type="button" className="font-semibold text-orange-700" aria-expanded={open} disabled={busy}
+            onClick={() => setOpen(value => !value)}>
+            Consolidated invoices
+          </button>
+          {open && <>
+            <label className="block text-sm font-semibold">
+              Invoice month
+              <select className="mt-1 block w-full rounded-lg border border-slate-300 p-2" value={month}
+                onChange={event => setMonth(event.target.value)} disabled={busy || !months.length}>
+                {!months.length && <option value="">No invoices with a balance due</option>}
+                {months.map(value => <option value={value} key={value}>{monthLabel(value)}</option>)}
+              </select>
+            </label>
+            <button type="button" disabled={!month || busy} className="rounded-lg bg-[#FF6A00] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={() => void generate()}>
+              {busy ? "Generating…" : "Generate consolidated invoice"}
+            </button>
+          </>}
+          {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        </section>
+      )}
+      {(customer.accountType !== "BUSINESS" || pendingRows.length > 0 || issuedRows.length > 0) && <>
+        <InvoiceSection title="Pending Invoices" invoices={pendingRows} customerId={customer.id}
+          emptyMessage="No pending invoices." onOpenSummary={setSelectedId} />
+        <InvoiceSection title="Finalised & Issued Invoices" collapsible invoices={issuedRows} customerId={customer.id}
+          emptyMessage="No finalised or issued invoices." onOpenSummary={setSelectedId} onUnfinalise={onUnfinalise} />
       </>}
+      <InvoiceSection title={customer.accountType === "BUSINESS" ? "Paid Invoices" : "Paid/Cleared Invoices"}
+        collapsible invoices={paidRows} customerId={customer.id} emptyMessage="No paid or cleared invoices."
+        onOpenSummary={setSelectedId} />
       {selected && (
         <MonthlySummaryPreview
           key={selected.id}
           summary={selected}
-          monthLabel={monthLabel(selected.month)}
           pdfUrl={`${endpoint}/${encodeURIComponent(selected.id)}/pdf`}
-          onEmail={async () => {
-            const data = await request(`/${encodeURIComponent(selected.id)}/send`, {});
-            return data.message;
+          onAction={async (action, body = {}) => {
+            const data = await request(`/${encodeURIComponent(selected.id)}/${action}`, body);
+            if (data.summary) saveSummary(data.summary);
+            if (action === "record-payment") await onPayment();
+            return data.message || (action === "finalise" ? "Invoice finalised." : "Full payment recorded.");
           }}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelectedId(null)}
         />
       )}
-    </section>
+    </aside>
   );
 }
 
 function MonthlySummaryPreview({
-  summary, monthLabel, pdfUrl, onEmail, onClose,
+  summary, pdfUrl, onAction, onClose,
 }: {
   summary: MonthlySummary;
-  monthLabel: string;
   pdfUrl: string;
-  onEmail: () => Promise<string>;
+  onAction: (action: "send" | "finalise" | "record-payment", body?: object) => Promise<string>;
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewError, setPreviewError] = useState("");
-  const [sending, setSending] = useState(false);
-  const [emailError, setEmailError] = useState("");
+  const [working, setWorking] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState("");
+  const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -1573,9 +1603,11 @@ function MonthlySummaryPreview({
         const pdf = await response.blob();
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(pdf);
+        setPreviewError("");
         setPreviewUrl(objectUrl);
       } catch (error) {
         if (!controller.signal.aborted) {
+          setPreviewUrl("");
           setPreviewError(error instanceof Error ? error.message : "Unable to open the invoice PDF.");
         }
       }
@@ -1585,15 +1617,19 @@ function MonthlySummaryPreview({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [pdfUrl]);
+  }, [pdfUrl, summary.status]);
 
-  async function emailCustomer() {
-    setSending(true);
-    setEmailError("");
+  async function runAction(action: "send" | "finalise" | "record-payment") {
+    setWorking(true);
+    setActionError("");
     setMessage("");
-    try { setMessage(await onEmail()); }
-    catch (error) { setEmailError(error instanceof Error ? error.message : "Unable to email the invoice."); }
-    finally { setSending(false); }
+    try {
+      setMessage(await onAction(action, action === "record-payment" ? { amount, paidAt } : {}));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to update the consolidated invoice.");
+    } finally {
+      setWorking(false);
+    }
   }
 
   return (
@@ -1603,7 +1639,10 @@ function MonthlySummaryPreview({
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-orange-700">Consolidated invoice</p>
           <h2 id="consolidated-preview-title" className="mt-1 text-xl font-bold">{summary.number}</h2>
-          <p className="text-sm text-slate-600">{monthLabel}</p>
+          <p className="text-sm text-slate-600">
+            {monthLabel(summary.month)} · {invoiceDisplayStatus(summary.status)} · {money(summary.total)}
+          </p>
+          <p className="text-sm text-slate-600">Due {formatDate(summary.dueDate)} · BACS reference {summary.number}</p>
         </div>
         <button type="button" onClick={() => dialog.current?.close()} aria-label="Close invoice"
           className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50">
@@ -1619,7 +1658,26 @@ function MonthlySummaryPreview({
         ) : (
           <p role="status" className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">Loading invoice PDF…</p>
         )}
-        {emailError && <p role="alert" className="text-sm text-red-700">{emailError}</p>}
+        {summary.status === "FINALISED" && (
+          <form className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 p-3"
+            onSubmit={event => { event.preventDefault(); void runAction("record-payment"); }}>
+            <label className="text-sm font-semibold">
+              Full transfer amount (£)
+              <input className="mt-1 block w-full rounded-lg border border-slate-300 p-2" type="number" min="0.01"
+                step="0.01" required value={amount} onChange={event => setAmount(event.target.value)} />
+            </label>
+            <label className="text-sm font-semibold">
+              Payment date
+              <input className="mt-1 block w-full rounded-lg border border-slate-300 p-2" type="date"
+                value={paidAt} onChange={event => setPaidAt(event.target.value)} />
+            </label>
+            <button type="submit" disabled={working || !previewUrl}
+              className="rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
+              Record full payment
+            </button>
+          </form>
+        )}
+        {actionError && <p role="alert" className="text-sm text-red-700">{actionError}</p>}
         {message && <p role="status" className="text-sm text-green-700">{message}</p>}
         <div className="flex flex-wrap justify-end gap-3">
           {previewUrl && (
@@ -1628,9 +1686,10 @@ function MonthlySummaryPreview({
               Download PDF
             </a>
           )}
-          <button type="button" disabled={!previewUrl || sending} onClick={() => void emailCustomer()}
+          <button type="button" disabled={!previewUrl || working}
+            onClick={() => void runAction(summary.status === "DRAFT" ? "finalise" : "send")}
             className="rounded-xl bg-[#FF6A00] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">
-            {sending ? "Sending…" : "Email customer"}
+            {working ? "Working…" : summary.status === "DRAFT" ? "Finalise" : "Email customer"}
           </button>
         </div>
       </div>
@@ -1645,7 +1704,9 @@ function InvoiceSection({
   customerId,
   emptyMessage,
   onUnfinalise,
+  onOpenSummary,
 }: {
+  onOpenSummary: (id: string) => void;
   onUnfinalise?: (invoice: Invoice) => Promise<void>;
   collapsible?: boolean;
   title: string;
@@ -1676,15 +1737,9 @@ function InvoiceSection({
         </div>
       ) : (
         <div className="divide-y divide-slate-200">
-          {invoices.map((invoice) => (
-            <div key={invoice.id}>
-            <Link
-              key={invoice.id}
-              href={`/admin/invoices?invoice=${encodeURIComponent(
-                invoice.invoiceNumber,
-              )}`}
-              className="block px-5 py-5 transition hover:bg-slate-50"
-            >
+          {invoices.map((invoice) => {
+            const cardClass = "block w-full px-5 py-5 text-left transition hover:bg-slate-50";
+            const contents = <>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="font-bold text-slate-950">
@@ -1692,7 +1747,8 @@ function InvoiceSection({
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Issued {formatDate(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)}
+                    {invoice.consolidatedMonth && !invoice.issuedAt ? "Created" : "Issued"} {formatDate(invoice.issuedAt || invoice.finalisedAt || invoice.createdAt)}
+                    {invoice.consolidatedMonth && ` · ${monthLabel(invoice.consolidatedMonth)}`}
                   </p>
 
                   {invoice.dueDate ? (
@@ -1721,10 +1777,18 @@ function InvoiceSection({
                 Open Invoice
                 <ArrowRight size={15} />
               </div>
-            </Link>
+            </>;
+            return (
+              <div key={invoice.id}>
+                {invoice.consolidatedMonth ? (
+                  <button type="button" className={cardClass} onClick={() => onOpenSummary(invoice.id)}>{contents}</button>
+                ) : (
+                  <Link href={`/admin/invoices?invoice=${encodeURIComponent(invoice.invoiceNumber)}`} className={cardClass}>{contents}</Link>
+                )}
             {invoice.invoiceType !== "CONSOLIDATED" && onUnfinalise && ["FINALISED", "SENT", "ISSUED", "OVERDUE"].includes(invoice.status) && <button type="button" className="mx-5 mb-4 min-h-11 rounded-xl border px-4 font-semibold text-[#071D49]" onClick={() => { if (window.confirm(`Unfinalise ${invoice.invoiceNumber} and return it to Pending?`)) void onUnfinalise(invoice); }}>Unfinalise</button>}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Container>
