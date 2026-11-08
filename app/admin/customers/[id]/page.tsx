@@ -762,6 +762,8 @@ export default function CustomerAccountPage() {
     );
   }
 
+  const commercialTariffName = customer.commercialTariffAssignment?.tariff.name ?? "Standard Pricing / Tariff";
+
   return (
     <div className="mx-auto w-full max-w-[1600px]">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -879,6 +881,10 @@ export default function CustomerAccountPage() {
                   <option value="PRIVATE">Private Account</option>
                 ) : null}
               </select>
+            </EditRow>
+
+            <EditRow label="Commercial Tariff">
+              <p className="text-sm text-slate-700">{commercialTariffName}</p>
             </EditRow>
 
             <EditRow label="VAT No">
@@ -1239,7 +1245,7 @@ export default function CustomerAccountPage() {
 
             <DetailRow
               label="Commercial Tariff"
-              value={customer.commercialTariffAssignment?.tariff.name ?? "Standard Pricing / Tariff"}
+              value={commercialTariffName}
             />
 
             <DetailRow
