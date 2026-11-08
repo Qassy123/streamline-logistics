@@ -77,6 +77,7 @@ type BillingProfile = {
 type Customer = {
   id: string;
   accountNumber?: string | null;
+  commercialTariffAssignment?: { tariff: { name: string } } | null;
   accountType: AccountType;
   accountStatus: AccountStatus;
   companyName?: string | null;
@@ -1234,6 +1235,11 @@ export default function CustomerAccountPage() {
             <DetailRow
               label="Account Type"
               value={displayAccountType(customer.accountType)}
+            />
+
+            <DetailRow
+              label="Commercial Tariff"
+              value={customer.commercialTariffAssignment?.tariff.name ?? "Standard Pricing / Tariff"}
             />
 
             <DetailRow

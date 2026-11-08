@@ -73,6 +73,9 @@ function customerSelect() {
   return {
     id: true,
     accountNumber: true,
+    commercialTariffAssignment: {
+      select: { tariff: { select: { name: true } } },
+    },
     accountType: true,
     accountStatus: true,
     companyName: true,
