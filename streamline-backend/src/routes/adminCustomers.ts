@@ -69,12 +69,17 @@ function isAccountStatus(value: string): value is AccountStatus {
 
 function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
+const commercialTariffAssignmentSelect = {
+  tariffId: true,
+  tariff: { select: { name: true } },
+} satisfies Prisma.CommercialTariffAssignmentSelect;
+
 function customerSelect() {
   return {
     id: true,
     accountNumber: true,
     commercialTariffAssignment: {
-      select: { tariff: { select: { name: true } } },
+      select: commercialTariffAssignmentSelect,
     },
     accountType: true,
     accountStatus: true,
@@ -1139,6 +1144,19 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const requestedTariff: unknown = req.body.commercialTariffId;
+    if (requestedTariff !== undefined && requestedTariff !== null &&
+        (typeof requestedTariff !== "string" || !requestedTariff.trim())) {
+      return res.status(400).json({ error: "Select a valid commercial tariff or standard pricing." });
+    }
+    const commercialTariffId = typeof requestedTariff === "string" ? requestedTariff.trim() : requestedTariff === null ? null : undefined;
+    if (commercialTariffId && !await prisma.commercialTariff.findUnique({
+      where: { id: commercialTariffId },
+      select: { id: true },
+    })) {
+      return res.status(400).json({ error: "Select a valid commercial tariff." });
+    }
+
     const accountTypeValue = getString(req.body.accountType).toUpperCase();
     const accountStatusValue = getString(req.body.accountStatus).toUpperCase();
 
@@ -1334,7 +1352,7 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    const updatedCustomer = await prisma.user.update({
+    const customerUpdate = {
       where: {
         id: req.params.id,
       },
@@ -1783,7 +1801,25 @@ router.patch("/:id", async (req, res) => {
       },
 
       select: customerSelect(),
-    });
+    } satisfies Prisma.UserUpdateArgs;
+
+    const updatedCustomer = commercialTariffId === undefined
+      ? await prisma.user.update(customerUpdate)
+      : await prisma.$transaction(async (tx) => {
+          const customer = await tx.user.update(customerUpdate);
+          const customerId = existingCustomer.id;
+          if (commercialTariffId === null) {
+            await tx.commercialTariffAssignment.deleteMany({ where: { customerId } });
+            return { ...customer, commercialTariffAssignment: null };
+          }
+          const commercialTariffAssignment = await tx.commercialTariffAssignment.upsert({
+            where: { customerId },
+            create: { customerId, tariffId: commercialTariffId },
+            update: { tariffId: commercialTariffId },
+            select: commercialTariffAssignmentSelect,
+          });
+          return { ...customer, commercialTariffAssignment };
+        });
 
     res.json({
       success: true,

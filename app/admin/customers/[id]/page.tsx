@@ -77,7 +77,7 @@ type BillingProfile = {
 type Customer = {
   id: string;
   accountNumber?: string | null;
-  commercialTariffAssignment?: { tariff: { name: string } } | null;
+  commercialTariffAssignment?: { tariffId?: string; tariff: { name: string } } | null;
   accountType: AccountType;
   accountStatus: AccountStatus;
   companyName?: string | null;
@@ -118,6 +118,7 @@ type CustomerPayload = {
 };
 
 type EditForm = {
+  commercialTariffId: string;
   accountType: AccountType;
   accountStatus: AccountStatus;
   companyName: string;
@@ -244,6 +245,7 @@ function customerDisplayName(customer: Customer) {
 
 function toEditForm(customer: Customer): EditForm {
   return {
+    commercialTariffId: customer.commercialTariffAssignment?.tariffId ?? "",
     accountType: customer.accountType,
     accountStatus: customer.accountStatus,
     companyName:
@@ -332,6 +334,28 @@ export default function CustomerAccountPage() {
     "SUSPEND" | "LIVE" | "DELETE" | null
   >(null);
   const [editing, setEditing] = useState(false);
+  const [tariffOptions, setTariffOptions] = useState<{ id: string; name: string }[] | null>(null);
+  const [tariffOptionsError, setTariffOptionsError] = useState("");
+  const [tariffOptionsAttempt, setTariffOptionsAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!editing) return;
+    const controller = new AbortController();
+
+    async function loadTariffs() {
+      try {
+        const response = await adminFetch("/api/admin/commercial-tariffs/options", { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.tariffs)) throw new Error("Unable to load commercial tariffs.");
+        if (!controller.signal.aborted) setTariffOptions(data.tariffs);
+      } catch {
+        if (!controller.signal.aborted) setTariffOptionsError("Unable to load commercial tariffs.");
+      }
+    }
+
+    void loadTariffs();
+    return () => controller.abort();
+  }, [customerId, editing, tariffOptionsAttempt]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -476,6 +500,9 @@ export default function CustomerAccountPage() {
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             ...form,
+            commercialTariffId: form.commercialTariffId !== (customer?.commercialTariffAssignment?.tariffId ?? "")
+              ? form.commercialTariffId || null
+              : undefined,
             companyName: form.companyName,
             legalEntity: form.companyName,
             tradingName: form.companyName,
@@ -805,6 +832,9 @@ export default function CustomerAccountPage() {
           <button
             type="button"
             onClick={() => {
+              update("commercialTariffId", customer.commercialTariffAssignment?.tariffId ?? "");
+              setTariffOptions(null);
+              setTariffOptionsError("");
               setEditing((current) => !current);
               setError("");
               setMessage("");
@@ -884,7 +914,32 @@ export default function CustomerAccountPage() {
             </EditRow>
 
             <EditRow label="Commercial Tariff">
-              <p className="text-sm text-slate-700">{commercialTariffName}</p>
+              {tariffOptions ? (
+                <select
+                  aria-label="Commercial tariff"
+                  value={form.commercialTariffId}
+                  onChange={(event) => update("commercialTariffId", event.target.value)}
+                  disabled={saving}
+                  className="w-full max-w-xl border border-slate-300 px-3 py-3 text-sm"
+                >
+                  <option value="">Standard Pricing / Tariff</option>
+                  {tariffOptions.map((tariff) => (
+                    <option key={tariff.id} value={tariff.id}>{tariff.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-slate-700">
+                  {commercialTariffName} · {tariffOptionsError ? (
+                    <>
+                      {tariffOptionsError}{" "}
+                      <button type="button" className="font-semibold underline" onClick={() => {
+                        setTariffOptionsError("");
+                        setTariffOptionsAttempt((attempt) => attempt + 1);
+                      }}>Retry</button>
+                    </>
+                  ) : "Loading tariffs…"}
+                </p>
+              )}
             </EditRow>
 
             <EditRow label="VAT No">
