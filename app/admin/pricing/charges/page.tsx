@@ -50,6 +50,8 @@ const emptyForm: FormState = {
   vatApplicable: true,
 };
 
+const chargeNameOrder = new Intl.Collator("en-GB", { sensitivity: "base", numeric: true });
+
 function pretty(value: string) {
   return value
     .toLowerCase()
@@ -116,7 +118,7 @@ export default function ChargesPage() {
         throw new Error(data.message || "Unable to load additional charges.");
       }
 
-      setCharges(data.charges || []);
+      setCharges([...(data.charges ?? [])].sort((a, b) => chargeNameOrder.compare(a.name, b.name)));
       setOptions({
         chargeTypes: data.options?.chargeTypes || [],
         chargeCalculations: data.options?.chargeCalculations || [],
