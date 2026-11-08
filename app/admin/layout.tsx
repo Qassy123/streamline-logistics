@@ -73,6 +73,7 @@ const navigationItems: NavigationItem[] = [
     label: "Pricing / Tariff",
     href: "/admin/pricing",
   },
+  { label: "Commercial Tariffs", href: "/admin/commercial-tariffs" },
   {
     label: "Company Info",
     href: "/admin/settings",

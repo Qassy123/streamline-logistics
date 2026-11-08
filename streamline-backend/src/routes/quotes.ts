@@ -8,7 +8,7 @@ import { Router } from "express";
 import { departmentEmail, departmentSender, emailLayout } from "../lib/email";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { calculateQuotePrice } from "../lib/pricing";
+import { assignedCommercialTariff, calculateQuotePrice } from "../lib/pricing";
 import { calculateGoogleRoute, geocodeGoogleAddress } from "../lib/googleMaps";
 
 const router = Router();
@@ -411,7 +411,7 @@ function applyAdminDiscount(
   };
 }
 
-export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
+export async function calculateAdminQuote(reqBody: Record<string, unknown>, customerId?: string | null) {
   const collectionAddress = getString(reqBody.collectionAddress);
   const deliveryAddress = getString(reqBody.deliveryAddress);
   const vehicleSize = getString(reqBody.vehicleSize);
@@ -447,7 +447,7 @@ export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
     vehicleSize,
     distanceMiles: route.distanceMiles,
     extraDropCount,
-  });
+  }, { customerId, shiftHours: reqBody.shiftHours });
 
   let discountType=getString(reqBody.discountType),discountValue=reqBody.discountValue,discountReason=getOptionalString(reqBody.discountReason);
   const discountRuleId=getString(reqBody.discountRuleId);
@@ -470,6 +470,18 @@ export async function calculateAdminQuote(reqBody: Record<string, unknown>) {
 }
 
 router.get("/admin/discount-options",async(req,res)=>{const admin=requireAdmin(req);if(!admin.authorised)return res.status(admin.status).json({error:admin.error});try{const rows=await planningDiscounts(getString(req.query.customerId)||null);res.json({discounts:rows.map(d=>({id:d.id,label:`${d.name} - ${d.type==="FIXED_AMOUNT"?"GBP ":""}${d.value}${d.type==="PERCENTAGE"?"%":""}`}))});}catch{res.status(500).json({error:"Unable to load discounts."});}});
+router.get("/admin/shift-options", async (req, res) => {
+  const admin = requireAdmin(req);
+  if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
+  const customerId = getOptionalString(req.query.customerId);
+  try {
+    return res.json({ required: Boolean(customerId && await assignedCommercialTariff(customerId)) });
+  } catch (error) {
+    console.error("Admin quote shift options:", error);
+    return res.status(503).json({ error: "Unable to check shift options." });
+  }
+});
+
 router.post("/admin/calculate", async (req, res) => {
   const admin = requireAdmin(req);
 
@@ -480,7 +492,7 @@ router.post("/admin/calculate", async (req, res) => {
   }
 
   try {
-    const calculation = await calculateAdminQuote(req.body || {});
+    const calculation = await calculateAdminQuote(req.body || {}, getOptionalString(req.body?.customerId));
 
     return res.json({
       success: true,
@@ -534,7 +546,7 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     }
 
     if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
-    const calculation = await calculateAdminQuote({...req.body,discountCustomerId:customer.id});
+    const calculation = await calculateAdminQuote({...req.body,discountCustomerId:customer.id}, customer.id);
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(
       (drop, index) => ({
@@ -1188,6 +1200,18 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/shift-options", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (getAuthToken(req) && !user) return res.status(401).json({ error: "Sign in again to use your account for this quote." });
+    return res.json({ required: Boolean(user && await assignedCommercialTariff(user.id)) });
+  } catch (error) {
+    console.error("Customer quote shift options:", error);
+    return res.status(503).json({ error: "Unable to check shift options." });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const quote = await prisma.quote.findUnique({
@@ -1226,6 +1250,9 @@ router.post("/", async (req, res) => {
     }
     const user = await getAuthenticatedUser(req);
 
+    if (getAuthToken(req) && !user) {
+      return res.status(401).json({ error: "Sign in again to use your account for this quote." });
+    }
     if (user && user.accountStatus !== "ACTIVE") {
       return res.status(403).json({
         error:
@@ -1283,7 +1310,7 @@ router.post("/", async (req, res) => {
       vehicleSize: req.body.vehicleSize,
       distanceMiles,
       extraDropCount,
-    });
+    }, { customerId: user?.id, shiftHours: req.body.shiftHours });
 
     console.log("Quote pricing:", {
       originalRouteAddresses,

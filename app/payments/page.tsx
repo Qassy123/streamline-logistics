@@ -129,6 +129,7 @@ export default async function PaymentsPage({
   const businessName = quote.legalEntity || quote.companyName || "Not provided";
   const extraDrops = formatExtraDrops(quote.extraDrops);
   const extraStopsPrice = calculateExtraStopsPrice(quote);
+  const { shiftHours } = quotePriceBreakdown(quote);
   const mileageRate = calculateMileageRate(quote);
 
   return (
@@ -190,18 +191,20 @@ export default async function PaymentsPage({
                 <PriceBreakdownRow
                   icon={<Truck size={22} />}
                   iconClassName="text-violet-600"
-                  label={`Base Fare (${formatValue(quote.vehicleSize)})`}
+                  label={shiftHours ? `${shiftHours}-hour Shift Fare` : `Base Fare (${formatValue(quote.vehicleSize)})`}
                   detail=""
                   value={formatMoney(quote.basePrice)}
                 />
 
-                <PriceBreakdownRow
-                  icon={<MapPinned size={22} />}
-                  iconClassName="text-[#006CFF]"
-                  label="Mileage"
-                  detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMoney(mileageRate)})`}
-                  value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
-                />
+                {!shiftHours && (
+                  <PriceBreakdownRow
+                    icon={<MapPinned size={22} />}
+                    iconClassName="text-[#006CFF]"
+                    label="Mileage"
+                    detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMoney(mileageRate)})`}
+                    value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
+                  />
+                )}
 
                 <PriceBreakdownRow
                   icon={<MapPin size={22} />}

@@ -6,5 +6,6 @@ export function quotePriceBreakdown(price: Price | null | undefined) {
   const baseFare=number(snapshot?.baseFare??price?.basePrice);
   // Existing quotes keep their stored presentation. Newly priced quotes use their saved rate snapshot.
   const mileagePrice=number(snapshot?.mileagePrice??price?.fuelSurcharge);
-  return {baseFare,mileagePrice,mileageRate:snapshot?number(snapshot.mileageRate):number(price?.distanceMiles)>0?mileagePrice/number(price?.distanceMiles):0,extraStopsPrice:snapshot?number(snapshot.extraStopsPrice):Math.max(0,number(price?.adminPrice)-baseFare-mileagePrice)};
+  const shiftHours = snapshot?.shiftHours === 8 || snapshot?.shiftHours === 12 ? snapshot.shiftHours : null;
+  return {shiftHours,baseFare,mileagePrice,mileageRate:snapshot?number(snapshot.mileageRate):number(price?.distanceMiles)>0?mileagePrice/number(price?.distanceMiles):0,extraStopsPrice:snapshot?number(snapshot.extraStopsPrice):Math.max(0,number(price?.adminPrice)-baseFare-mileagePrice)};
 }

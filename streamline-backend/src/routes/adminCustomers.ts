@@ -369,6 +369,15 @@ router.post("/", async (req, res) => {
   }
 
   try {
+    const commercialTariffId = getOptionalString(req.body.commercialTariffId);
+    if (commercialTariffId) {
+      const tariff = await prisma.commercialTariff.findUnique({
+        where: { id: commercialTariffId },
+        select: { id: true },
+      });
+      if (!tariff) return res.status(400).json({ error: "Select a valid commercial tariff." });
+    }
+
     const accountTypeValue =
       getString(req.body.accountType).toUpperCase() || AccountType.BUSINESS;
 
@@ -546,6 +555,9 @@ router.post("/", async (req, res) => {
         username,
         phone,
         passwordHash,
+        ...(commercialTariffId ? {
+          commercialTariffAssignment: { create: { tariff: { connect: { id: commercialTariffId } } } },
+        } : {}),
 
         legalEntity:
           getOptionalString(req.body.legalEntity) || companyName,

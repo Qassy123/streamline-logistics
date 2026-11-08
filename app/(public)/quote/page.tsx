@@ -1,4 +1,5 @@
 "use client";
+import { QuoteShiftLength, useQuoteShiftOptions } from "@/components/QuoteShiftLength";
 import { collectionChoices,ukClock } from "@/lib/collectionChoices";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 import CustomerQuoteGate from "@/components/CustomerQuoteGate";
@@ -413,6 +414,7 @@ function QuotePageForm() {
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [error, setError] = useState("");
 
+  const shiftOptions = useQuoteShiftOptions(API_URL);
   const [selectedDeliveryType, setSelectedDeliveryType] = useState("");
   const [selectedJourneyType, setSelectedJourneyType] = useState("");
   const [selectedCollectingItem, setSelectedCollectingItem] = useState("");
@@ -1080,6 +1082,7 @@ function QuotePageForm() {
 
     const payload = {
       deliveryType: formData.get("deliveryType"),
+      shiftHours: formData.get("shiftHours"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
       whatAreWeCollecting: selectedCollectingItem || null,
       capacityPercent: showCapacity ? capacityPercent : null,
@@ -1269,18 +1272,20 @@ function QuotePageForm() {
               </div>
 
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                <p className="text-slate-500">Base Fare</p>
+                <p className="text-slate-500">{quotePriceBreakdown(quote).shiftHours ? "Shift Fare" : "Base Fare"}</p>
                 <p className="mt-2 text-xl font-bold text-[#071D49]">
                   £{quote.basePrice}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
-                <p className="text-slate-500">Mileage</p>
-                <p className="mt-2 text-xl font-bold text-[#071D49]">
-                  £{quotePriceBreakdown(quote).mileagePrice.toFixed(2)}
-                </p>
-              </div>
+              {!quotePriceBreakdown(quote).shiftHours && (
+                <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+                  <p className="text-slate-500">Mileage</p>
+                  <p className="mt-2 text-xl font-bold text-[#071D49]">
+                    £{quotePriceBreakdown(quote).mileagePrice.toFixed(2)}
+                  </p>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
                 <p className="text-slate-500">Extra Stops</p><p className="mt-2 text-xl font-bold">£{quotePriceBreakdown(quote).extraStopsPrice.toFixed(2)}</p>
@@ -1366,6 +1371,9 @@ function QuotePageForm() {
                     <option value="Multi Drop Delivery">Multi Drop Delivery</option>
                   </select>
                 </div>
+
+                <QuoteShiftLength options={shiftOptions}
+                  className="mt-2 w-full rounded-2xl border border-[#D7E6FF] bg-white px-4 py-4" />
 
                 {!hideJourneyType && (
                   <div>

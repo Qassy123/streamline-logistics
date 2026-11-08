@@ -3,7 +3,7 @@ import {adminFetch} from "@/lib/adminFetch";
 
 import { useRouter } from "next/navigation";
 import PostcodeAddressLookup from "@/components/PostcodeAddressLookup";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react";
 
 const API_BASE =
@@ -41,6 +41,7 @@ type FormState = {
   companyRegistrationNumber: string;
   vatNumber: string;
   accountType: AccountType;
+  commercialTariffId: string;
 };
 
 const initialForm: FormState = {
@@ -69,6 +70,7 @@ const initialForm: FormState = {
   companyRegistrationNumber: "",
   vatNumber: "",
   accountType: "BUSINESS",
+  commercialTariffId: "",
 };
 
 function adminKey() {
@@ -82,6 +84,24 @@ export default function AddNewCustomerPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [tariffOptions, setTariffOptions] = useState<{ id: string; name: string }[] | null>(null);
+  const [tariffError, setTariffError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadTariffs() {
+      try {
+        const response = await adminFetch("/api/admin/commercial-tariffs/options", { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Unable to load commercial tariffs.");
+        if (!controller.signal.aborted) setTariffOptions(data.tariffs);
+      } catch {
+        if (!controller.signal.aborted) setTariffError("Commercial tariffs could not be loaded. Reload the page to try again.");
+      }
+    }
+    void loadTariffs();
+    return () => controller.abort();
+  }, []);
 
   function update<K extends keyof FormState>(
     field: K,
@@ -174,6 +194,7 @@ export default function AddNewCustomerPage() {
 
       const payload = {
         accountType: form.accountType,
+        commercialTariffId: form.commercialTariffId || null,
 
         name: form.accountName.trim(),
         companyName: form.accountName.trim(),
@@ -474,6 +495,21 @@ export default function AddNewCustomerPage() {
                 Trade Credit Account
               </option>
             </select>
+          </ManualRow>
+
+          <ManualRow label="Commercial Tariff">
+            <select
+              aria-label="Commercial tariff"
+              value={form.commercialTariffId}
+              onChange={(event) => update("commercialTariffId", event.target.value)}
+              disabled={!tariffOptions}
+              className="w-full max-w-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-slate-500"
+            >
+              <option value="">{tariffOptions ? "No commercial tariff" : tariffError ? "Unavailable" : "Loading tariffs…"}</option>
+              {tariffOptions?.map((tariff) => <option key={tariff.id} value={tariff.id}>{tariff.name}</option>)}
+            </select>
+            <p className="mt-2 text-xs text-slate-600">Visible to admin only.</p>
+            {tariffError && <p role="alert" className="mt-2 text-sm text-red-700">{tariffError}</p>}
           </ManualRow>
         </div>
 

@@ -15,8 +15,12 @@ await test('Invalid and unauthorised saves never report success',async()=>{const
 await test('Pricing form errors are visible inside the save dialog',()=>{for(const page of ['base-fares','mileage','charges']){const s=src(`app/admin/pricing/${page}/page.tsx`);const form=s.slice(s.indexOf('<form onSubmit={save}'));assert.match(form,/role="alert"/);assert(s.includes('if (saving) return;'));}});
 
 let liveTariff={id:'live',vehicleType:'Small Van',baseFare:dec(30),active:true,vatApplicable:true,mileageBands:[{minimumMiles:dec(0),maximumMiles:null,ratePerMile:dec(1)}]},liveStop={amount:dec(45),calculation:'PER_STOP',vatApplicable:true},vat=20,reads=0;
-const db={tariff:{findFirst:async({where})=>{reads++;return liveTariff?.active&&where.vehicleType.in.includes(liveTariff.vehicleType)?liveTariff:null;}},tariffCharge:{findFirst:async()=>liveStop},companySettings:{findFirst:async()=>({vatRate:dec(vat)})}};
-const live=load('streamline-backend/src/lib/pricing.ts',{'@prisma/client':{Prisma},'./prisma':{prisma:db}}).calculateQuotePrice;
+const db={
+commercialTariffAssignment:{findUnique:async({where})=>where.customerId==='commercial-customer'?{tariffId:'private-category'}:null},
+commercialTariffRate:{findUnique:async({where})=>where.tariffId_vehicleType.vehicleType==='Small Van'?{fare8Hours:dec(240),includedMiles8:dec(100),fare12Hours:dec(350),includedMiles12:dec(180),extraMileRate:dec('1.25')}:null},
+tariff:{findFirst:async({where})=>{reads++;return liveTariff?.active&&where.vehicleType.in.includes(liveTariff.vehicleType)?liveTariff:null;}},tariffCharge:{findFirst:async()=>liveStop},companySettings:{findFirst:async()=>({vatRate:dec(vat)})}};
+const pricing=load('streamline-backend/src/lib/pricing.ts',{'@prisma/client':{Prisma},'./prisma':{prisma:db}});
+const live=pricing.calculateQuotePrice;
 const input={vehicleSize:'Small Van',deliveryType:'Same Day Delivery',journeyType:'One Way',distanceMiles:100,extraDropCount:0};
 await test('GBP 30 base plus 100 miles at GBP 1 equals GBP 130 net, GBP 156 with VAT',async()=>{const p=await live(input);assert.equal(p.basePrice,30);assert.equal(p.adminPrice,130);assert.equal(p.totalPrice,156);assert.equal(p.fuelSurcharge,0);assert.equal(p.pricingBreakdown.mileagePrice,100);});
 await test('Each additional stop adds exactly the saved GBP 45 rate',async()=>{const p=await live({...input,extraDropCount:2});assert.equal(p.adminPrice,220);assert.equal(p.totalPrice,264);assert.equal(p.pricingBreakdown.extraStopsPrice,90);});
@@ -30,10 +34,45 @@ await test('Negative or missing route distance and invalid stop counts fail clos
 const display=load('lib/quotePriceBreakdown.ts',{}).quotePriceBreakdown;
 await test('Every quote display reads its saved mileage and stop breakdown; legacy records retain their stored values',async()=>{const p=await live({...input,extraDropCount:2}),d=display(p);assert.equal(d.baseFare,30);assert.equal(d.mileagePrice,100);assert.equal(d.extraStopsPrice,90);assert.equal(display({basePrice:208,fuelSurcharge:17,adminPrice:225}).mileagePrice,17);for(const file of ['app/(public)/quote/page.tsx','components/admin/AdminCustomerQuoteForm.tsx','app/admin/planning-board/page.tsx','app/admin/customers/[id]/quotes/page.tsx','app/quote/[id]/page.tsx','app/payments/page.tsx'])assert(src(file).includes('quotePriceBreakdown'),file);});
 const quoteRoutes=new Map(),qr={use(){}};for(const v of ['get','post','patch'])qr[v]=(key,handler)=>quoteRoutes.set(v+' '+key,handler);
-const created=[];const quoteDb={...db,user:{findUnique:async()=>({id:'customer',name:'Test',accountStatus:'ACTIVE'})},quote:{create:async({data})=>{created.push(data);return{id:'quote-'+created.length,...data};}}};
-load('streamline-backend/src/routes/quotes.ts',{'express':{Router:()=>qr},'@prisma/client':{Prisma},'../lib/prisma':{prisma:quoteDb},'./prisma':{prisma:quoteDb},'../lib/pricing':{calculateQuotePrice:live},'../lib/googleMaps':{geocodeGoogleAddress:async()=>({coordinates:[0,0],coordinateSource:'google-geocoding'}),calculateGoogleRoute:async()=>({distanceMiles:100,durationMinutes:120})},'../lib/quoteMaintenance':{quoteMaintenance(){}},'../lib/adminQuoteGrouping':{},'../lib/email':{}},{console:{log(){},error(){}}});
-async function quoteCall(key){const out={status:200},res={status(n){out.status=n;return res;},json(v){out.body=v;return res;}};await quoteRoutes.get(key)({headers:{'x-admin-key':'test'},params:{customerId:'customer'},body:{...input,collectionAddress:'A',deliveryAddress:'B',collectionDate:'2099-11-01',collectionWindow:'09:00-11:00',companyName:'Test',customerEmail:'test@example.test',customerName:'Test',customerPhone:'07000000000',extraDrops:[{address:'C'}]}},res);return out;}
+const created=[];const quoteDb={...db,user:{findUnique:async({where})=>({id:where.id,name:'Test',accountStatus:'ACTIVE'})},userSession:{findUnique:async({where})=>where.tokenHash===dep('node:crypto').createHash('sha256').update('customer-token').digest('hex')?{expiresAt:new Date('2099-01-01'),user:{id:'commercial-customer',accountStatus:'ACTIVE'}}:null},quote:{create:async({data})=>{created.push(data);return{id:'quote-'+created.length,...data};}}};
+load('streamline-backend/src/routes/quotes.ts',{'express':{Router:()=>qr},'@prisma/client':{Prisma},'../lib/prisma':{prisma:quoteDb},'./prisma':{prisma:quoteDb},'../lib/pricing':pricing,'../lib/googleMaps':{geocodeGoogleAddress:async()=>({coordinates:[0,0],coordinateSource:'google-geocoding'}),calculateGoogleRoute:async()=>({distanceMiles:100,durationMinutes:120})},'../lib/quoteMaintenance':{quoteMaintenance(){}},'../lib/adminQuoteGrouping':{},'../lib/email':{}},{console:{log(){},error(){}}});
+async function quoteCall(key, override={}){const out={status:200},res={status(n){out.status=n;return res;},json(v){out.body=v;return res;},setHeader(){}};await quoteRoutes.get(key)({headers:{'x-admin-key':'test',...override.headers},params:{customerId:'customer',...override.params},query:override.query||{},body:{...input,collectionAddress:'A',deliveryAddress:'B',collectionDate:'2099-11-01',collectionWindow:'09:00-11:00',companyName:'Test',customerEmail:'test@example.test',customerName:'Test',customerPhone:'07000000000',extraDrops:[{address:'C'}],...override.body}},res);return out;}
 await test('Public, Planning preview, admin customer and guest quotes all use the same saved prices',async()=>{for(const key of ['post /','post /admin/calculate','post /admin/customer/:customerId','post /admin/guest']){const result=await quoteCall(key);assert(result.status<300,key+': '+JSON.stringify(result.body));const value=result.body.calculation||result.body;assert.equal(value.adminPrice,175,key);assert.equal(value.pricingBreakdown.extraStopsPrice,45,key);}assert.equal(created.length,3);assert(created.every(q=>q.pricingBreakdown.baseFare===30));});
+await test('Assigned 8-hour and 12-hour shifts charge only excess route mileage and keep rate data private',async()=>{
+ const account={customerId:'commercial-customer',shiftHours:8};
+ const p=await live({...input,distanceMiles:130},account);
+ assert.equal(p.adminPrice,277.5);
+ assert.equal(p.totalPrice,333);
+ assert.equal((await live({...input,distanceMiles:130},{...account,shiftHours:12})).adminPrice,350);
+ assert.equal((await live({...input,distanceMiles:70},account)).adminPrice,240);
+ assert.equal((await live(input,{customerId:'unassigned',shiftHours:8})).adminPrice,130);
+ await assert.rejects(live(input,{customerId:account.customerId}),/Choose an 8-hour or 12-hour shift/);
+ await assert.rejects(live({...input,vehicleSize:'SWB Van'},account),/price is unavailable/);
+ for(const field of ['tariffId','tariffName','extraMileRate','includedMiles','mileageRate']) assert.equal(p.pricingBreakdown[field],undefined);
+ assert.equal(display(p).shiftHours,8);
+});
+await test('Planning preview, saved admin quote and authenticated customer quote use the assigned tariff; guests cannot request it',async()=>{
+ const customerId='commercial-customer', body={customerId,shiftHours:'8'};
+ const headers={authorization:'Bearer customer-token'};
+ const preview=await quoteCall('post /admin/calculate',{body});
+ assert.equal(preview.status,200,JSON.stringify(preview.body));
+ assert.equal(preview.body.calculation.adminPrice,285);
+ const admin=await quoteCall('post /admin/customer/:customerId',{params:{customerId},body:{...body,customerId:'other'}});
+ assert.equal(admin.status,201,JSON.stringify(admin.body));
+ assert.equal(admin.body.quote.adminPrice,285);
+ const customer=await quoteCall('post /',{headers,body:{...body,customerId:'other'}});
+ assert.equal(customer.status,201,JSON.stringify(customer.body));
+ assert.equal(customer.body.adminPrice,285);
+ assert.equal(customer.body.userId,customerId);
+ assert.equal(customer.body.pricingBreakdown.shiftHours,8);
+ assert(!JSON.stringify(customer.body).includes('private-category'));
+ for(const route of ['post /','post /admin/guest']){
+   const guest=await quoteCall(route,{body});
+   assert.equal((guest.body.calculation||guest.body).adminPrice,175);
+ }
+ assert.equal((await quoteCall('get /shift-options',{headers})).body.required,true);
+ assert.equal((await quoteCall('get /shift-options',{query:{customerId}})).body.required,false);
+});
 const {setupLiveTariffs}=load('streamline-backend/scripts/setup-live-tariffs.cjs',{});
 await test('Setup adds only quote breakdown storage and the approved global stop price, safely rerunnable',async()=>{let stop=null,creates=0,updates=0,ddl=[];const tx={$executeRawUnsafe:async sql=>ddl.push(sql),tariffCharge:{findFirst:async()=>stop,create:async({data})=>{creates++;stop={id:'stop',...data,amount:dec(data.amount)};},update:async({data})=>{updates++;Object.assign(stop,data,{amount:dec(data.amount)});}}};const p={$transaction:f=>f(tx)};await setupLiveTariffs(p);await setupLiveTariffs(p);assert.equal(creates,1);assert.equal(updates,0);assert.equal(stop.amount.toString(),'45');assert.equal(stop.calculation,'PER_STOP');assert(ddl.some(sql=>sql.includes('ADD COLUMN IF NOT EXISTS "pricingBreakdown" JSONB')));stop.amount=dec(10);await setupLiveTariffs(p);assert.equal(updates,1);assert.equal(stop.amount.toString(),'45');});
 

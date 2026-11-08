@@ -163,15 +163,78 @@ export function calculateQuotePriceWithConfig(
   };
 }
 
-/** Every live quote reads the saved tariff. Additional charges are manual. */
-export async function calculateQuotePrice(input: QuotePricingInput) {
-  const aliases: Record<string,string[]> = {
-    "Small Van": ["Small Van"], "SWB Van": ["SWB Van"],
-    "LWB High Roof Van": ["LWB High Roof Van", "LWB Van"],
-    "XLWB High Roof Van": ["XLWB High Roof Van", "XLWB High Roof"],
-    "Luton Tail Lift Van": ["Luton Tail Lift Van", "Luton Tail Lift", "Luton Tail Lift Curtainsider"],
+const vehicleAliases: Record<string, string[]> = {
+  "Small Van": ["Small Van"],
+  "SWB Van": ["SWB Van"],
+  "LWB High Roof Van": ["LWB High Roof Van", "LWB Van"],
+  "XLWB High Roof Van": ["XLWB High Roof Van", "XLWB High Roof"],
+  "Luton Tail Lift Van": ["Luton Tail Lift Van", "Luton Tail Lift", "Luton Tail Lift Curtainsider"],
+};
+
+function canonicalVehicleType(value: string) {
+  return Object.keys(vehicleAliases).find(key => vehicleAliases[key].includes(value)) || value;
+}
+
+export async function assignedCommercialTariff(customerId: string) {
+  const assignment = await prisma.commercialTariffAssignment.findUnique({
+    where: { customerId },
+    select: { tariffId: true },
+  });
+  return assignment?.tariffId ?? null;
+}
+
+async function quoteCharges(input: QuotePricingInput, journeyFare: Prisma.Decimal, vatApplicable: boolean) {
+  const settings = await prisma.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true } });
+  const vatPercent = vatApplicable ? new Prisma.Decimal(settings?.vatRate ?? 20) : new Prisma.Decimal(0);
+  if (vatPercent.lessThan(0) || vatPercent.greaterThan(100)) throw new Error("The saved VAT rate is invalid.");
+  const extraDropCount = input.extraDropCount ?? 0;
+  if (!Number.isInteger(extraDropCount) || extraDropCount < 0 || extraDropCount > 100) throw new Error("Enter a valid extra stop count.");
+  const stopCharge = extraDropCount ? await prisma.tariffCharge.findFirst({
+    where: { tariffId: null, type: "STOP", active: true },
+    orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+  }) : null;
+  if (extraDropCount && (!stopCharge || stopCharge.calculation !== "PER_STOP")) throw new Error("Configure an active per-stop charge in Pricing / Tariff.");
+  const stopRate = stopCharge?.amount ?? new Prisma.Decimal(0);
+  if (stopRate.lessThan(0)) throw new Error("The saved stop price cannot be negative.");
+  const stops = stopRate.mul(extraDropCount).toDecimalPlaces(2);
+  const vat = journeyFare.mul(vatPercent).div(100)
+    .add(stopCharge?.vatApplicable ? stops.mul(new Prisma.Decimal(settings?.vatRate ?? 20)).div(100) : 0)
+    .toDecimalPlaces(2);
+  return { extraDropCount, stopRate, stops, net: journeyFare.add(stops), vat };
+}
+
+async function calculateCommercialQuote(input: QuotePricingInput, tariffId: string, shift: unknown) {
+  const hours = shift === "8" || shift === 8 ? 8 : shift === "12" || shift === 12 ? 12 : null;
+  if (!hours) throw new Error("Choose an 8-hour or 12-hour shift before calculating.");
+  const miles = Number(input.distanceMiles);
+  if (input.distanceMiles == null || !Number.isFinite(miles) || miles < 0) throw new Error("A valid route distance is required to calculate the quote.");
+  const vehicleType = canonicalVehicleType(input.vehicleSize);
+  const rate = await prisma.commercialTariffRate.findUnique({ where: { tariffId_vehicleType: { tariffId, vehicleType } } });
+  if (!rate) throw new Error("A price is unavailable for this van and shift. Please contact the office.");
+  const distance = new Prisma.Decimal(miles).toDecimalPlaces(1);
+  const shiftFare = hours === 8 ? rate.fare8Hours : rate.fare12Hours;
+  const includedMiles = hours === 8 ? rate.includedMiles8 : rate.includedMiles12;
+  const extraMiles = Prisma.Decimal.max(0, distance.sub(includedMiles));
+  const journeyFare = shiftFare.add(extraMiles.mul(rate.extraMileRate).toDecimalPlaces(2));
+  const { extraDropCount, stopRate, stops, net, vat } = await quoteCharges(input, journeyFare, true);
+
+  return {
+    distanceMiles: distance.toNumber(), basePrice: journeyFare.toNumber(), fuelSurcharge: 0,
+    adminPrice: net.toNumber(), vatAmount: vat.toNumber(), totalPrice: net.add(vat).toNumber(),
+    // This snapshot is used by customer quotes, checkout and invoices. Store charges, not commercial rate data.
+    pricingBreakdown: {
+      shiftHours: hours, baseFare: journeyFare.toNumber(), mileagePrice: 0,
+      extraDropCount, extraStopRate: stopRate.toNumber(), extraStopsPrice: stops.toNumber(),
+    },
   };
-  const names=Object.values(aliases).find(values=>values.includes(input.vehicleSize))||[input.vehicleSize];
+}
+
+/** Every live quote reads the saved tariff. Additional charges are manual. */
+export async function calculateQuotePrice(input: QuotePricingInput, account?: { customerId?: string | null; shiftHours?: unknown }) {
+  const tariffId = account?.customerId ? await assignedCommercialTariff(account.customerId) : null;
+  if (tariffId) return calculateCommercialQuote(input, tariffId, account?.shiftHours);
+
+  const names = Object.values(vehicleAliases).find(values => values.includes(input.vehicleSize)) || [input.vehicleSize];
   const tariff=await prisma.tariff.findFirst({
     where:{active:true,vehicleType:{in:names}},
     orderBy:[{updatedAt:"desc"},{id:"asc"}],
@@ -184,19 +247,8 @@ export async function calculateQuotePrice(input: QuotePricingInput) {
   const band=tariff.mileageBands.find(row=>distance.greaterThanOrEqualTo(row.minimumMiles)&&(row.maximumMiles===null||distance.lessThanOrEqualTo(row.maximumMiles)));
   if(!band)throw new Error(`No mileage band covers ${distance.toString()} miles for ${tariff.vehicleType}. Update Mileage in Pricing / Tariff.`);
   if(tariff.baseFare.lessThan(0)||band.ratePerMile.lessThan(0))throw new Error("The saved tariff contains an invalid negative price.");
-  const settings=await prisma.companySettings.findFirst({orderBy:{createdAt:"asc"},select:{vatRate:true}});
-  const vatPercent=tariff.vatApplicable?new Prisma.Decimal(settings?.vatRate??20):new Prisma.Decimal(0);
-  if(vatPercent.lessThan(0)||vatPercent.greaterThan(100))throw new Error("The saved VAT rate is invalid.");
   const base=tariff.baseFare.toDecimalPlaces(2),mileage=distance.mul(band.ratePerMile).toDecimalPlaces(2);
-  const extraDropCount=input.extraDropCount??0;
-  if(!Number.isInteger(extraDropCount)||extraDropCount<0||extraDropCount>100)throw new Error("Enter a valid extra stop count.");
-  const stopCharge=extraDropCount?await prisma.tariffCharge.findFirst({where:{tariffId:null,type:"STOP",active:true},orderBy:[{updatedAt:"desc"},{id:"asc"}]}):null;
-  if(extraDropCount&&(!stopCharge||stopCharge.calculation!=="PER_STOP"))throw new Error("Configure an active per-stop charge in Pricing / Tariff.");
-  const stopRate=stopCharge?.amount??new Prisma.Decimal(0),stops=stopRate.mul(extraDropCount).toDecimalPlaces(2);
-  if(stopRate.lessThan(0))throw new Error("The saved stop price cannot be negative.");
-  const net=base.add(mileage).add(stops);
-  const taxable=base.add(mileage).mul(vatPercent).div(100).add(stopCharge?.vatApplicable?stops.mul(new Prisma.Decimal(settings?.vatRate??20)).div(100):0);
-  const vat=taxable.toDecimalPlaces(2);
+  const { extraDropCount, stopRate, stops, net, vat } = await quoteCharges(input, base.add(mileage), tariff.vatApplicable);
   // Route distance already includes all legs; additional charges other than saved extra stops stay manual.
   return {distanceMiles:distance.toNumber(),basePrice:base.toNumber(),fuelSurcharge:0,adminPrice:net.toNumber(),vatAmount:vat.toNumber(),totalPrice:net.add(vat).toNumber(),pricingBreakdown:{tariffId:tariff.id,baseFare:base.toNumber(),mileageRate:band.ratePerMile.toNumber(),mileagePrice:mileage.toNumber(),extraDropCount,extraStopRate:stopRate.toNumber(),extraStopsPrice:stops.toNumber()}};
 }

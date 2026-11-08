@@ -51,7 +51,11 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
     const scheduleChanged = +collectionDate !== +current.collectionDate || collectionWindow !== current.collectionWindow || nextVehicleId !== current.vehicleId;
     const adjustment = money(body.adjustmentAmount, "Adjustment");
     const manual = body.manualPrice === true || (body.manualPrice === undefined && body.totalPrice !== undefined);
-    const calculated = (routeChanged || manual) ? await calculateAdminQuote({ collectionAddress, deliveryAddress, returnAddress, extraDrops, vehicleSize, deliveryType: quote?.deliveryType || current.journeyType || "Same Day Delivery", journeyType: quote?.journeyType || "One Way", discountType: "FIXED", discountValue: body.discountRuleId!==undefined?0:quote?.discountAmount || 0, ...(body.discountRuleId!==undefined?{discountRuleId:body.discountRuleId,discountCustomerId:current.userId}:{}) }) : null;
+    const savedBreakdown = quote?.pricingBreakdown;
+    const shiftHours = savedBreakdown && typeof savedBreakdown === "object" && !Array.isArray(savedBreakdown)
+        ? savedBreakdown.shiftHours
+        : undefined;
+    const calculated = (routeChanged || manual) ? await calculateAdminQuote({ collectionAddress, deliveryAddress, returnAddress, extraDrops, vehicleSize, deliveryType: quote?.deliveryType || current.journeyType || "Same Day Delivery", journeyType: quote?.journeyType || "One Way", discountType: "FIXED", discountValue: body.discountRuleId!==undefined?0:quote?.discountAmount || 0, ...(body.discountRuleId!==undefined?{discountRuleId:body.discountRuleId,discountCustomerId:current.userId}:{}), shiftHours }, shiftHours ? current.userId : null) : null;
     const base = manual ? money(body.totalPrice, "Booking charge") : calculated ? new Prisma.Decimal(calculated.totalPrice).add(current.priceAdjustment) : current.totalPrice;
     const total = base.add(adjustment).toDecimalPlaces(2);
     if (total.lessThan(0))

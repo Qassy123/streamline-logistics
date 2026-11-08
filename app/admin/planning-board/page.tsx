@@ -644,7 +644,8 @@ export default function AdminPlanningBoardPage() {
   }
 
   async function calculateJourney(payload: AdminQuotePayload) {
-    payload={...payload,...{discountRuleId,discountCustomerId:form.accountId==="GUEST"?null:form.accountId}};
+    const customerId = form.accountId === "GUEST" ? null : form.accountId;
+    payload = { ...payload, customerId, discountRuleId, discountCustomerId: customerId };
     if (!adminKey) throw new Error("Your admin session has expired. Sign in again.");
     setCalculating(true); setError(""); setMessage(""); setCreatedBookingId(null); setSavedDraftReference("");
     try {
@@ -1379,16 +1380,18 @@ export default function AdminPlanningBoardPage() {
                   <div className="grid gap-3">
                     <QuotePriceRow
                       icon={<Truck size={20} />}
-                      label={`Base Fare (${String(customerFormPayload?.vehicleSize || "Vehicle")})`}
+                      label={`${quotePriceBreakdown(calculation).shiftHours ? "Shift Fare" : "Base Fare"} (${String(customerFormPayload?.vehicleSize || "Vehicle")})`}
                       value={money(calculation?.basePrice)}
                     />
-                    <QuotePriceRow
-                      icon={<MapPinned size={20} />}
-                      label={`Mileage (${calculation?.distanceMiles ?? 0} mi  at  ${formatMileageRate(
-                        mileageRate(calculation),
-                      )})`}
-                      value={money(quotePriceBreakdown(calculation).mileagePrice)}
-                    />
+                    {!quotePriceBreakdown(calculation).shiftHours && (
+                      <QuotePriceRow
+                        icon={<MapPinned size={20} />}
+                        label={`Mileage (${calculation?.distanceMiles ?? 0} mi  at  ${formatMileageRate(
+                          mileageRate(calculation),
+                        )})`}
+                        value={money(quotePriceBreakdown(calculation).mileagePrice)}
+                      />
+                    )}
                     <QuotePriceRow
                       icon={<MapPin size={20} />}
                       label={`Extra Stops (${calculation?.extraDropCount ?? 0})`}

@@ -1,4 +1,5 @@
 "use client";
+import { QuoteShiftLength, useQuoteShiftOptions } from "@/components/QuoteShiftLength";
 import {adminFetch} from "@/lib/adminFetch";
 import { collectionChoices,ukClock } from "@/lib/collectionChoices";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
@@ -333,6 +334,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
   apiBase: string; accountId: string; customer: AdminQuoteCustomer | null;
   onCalculate: (payload: AdminQuotePayload) => Promise<void>; onOpenBoard: () => void;
 }) {
+  const shiftOptions = useQuoteShiftOptions(apiBase.replace(/\/$/, "") + "/api/quotes", accountId);
   const [savedRouteVersion, setSavedRouteVersion] = useState(0);
   const isEditingSavedRoute = false;
   const QUOTE_FORM_STORAGE_KEY = "streamline_admin_quote_form_draft_" + accountId;
@@ -971,6 +973,7 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
 
     const payload = {
       deliveryType: formData.get("deliveryType"),
+      shiftHours: formData.get("shiftHours"),
       journeyType: hideJourneyType ? null : selectedJourneyType,
       whatAreWeCollecting: selectedCollectingItem || null,
       capacityPercent: showCapacity ? capacityPercent : null,
@@ -1123,18 +1126,20 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
               </div>
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
-                <p className="text-slate-500">Base Fare</p>
+                <p className="text-slate-500">{quotePriceBreakdown(quote).shiftHours ? "Shift Fare" : "Base Fare"}</p>
                 <p className="mt-2 text-xl font-bold text-[#0F172A]">
                   £{quote.basePrice}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
-                <p className="text-slate-500">Mileage</p>
-                <p className="mt-2 text-xl font-bold text-[#0F172A]">
-                  £{quotePriceBreakdown(quote).mileagePrice.toFixed(2)}
-                </p>
-              </div>
+              {!quotePriceBreakdown(quote).shiftHours && (
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
+                  <p className="text-slate-500">Mileage</p>
+                  <p className="mt-2 text-xl font-bold text-[#0F172A]">
+                    £{quotePriceBreakdown(quote).mileagePrice.toFixed(2)}
+                  </p>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-5">
                 <p className="text-slate-500">Extra Stops</p><p className="mt-2 text-xl font-bold">£{quotePriceBreakdown(quote).extraStopsPrice.toFixed(2)}</p>
@@ -1220,6 +1225,9 @@ export default function AdminCustomerQuoteForm({ apiBase, accountId, customer, o
                     <option value="Multi Drop Delivery">Multi Drop Delivery</option>
                   </select>
                 </div>
+
+                <QuoteShiftLength options={shiftOptions}
+                  className="mt-2 w-full rounded-2xl border border-[#E2E8F0] bg-white px-4 py-4" />
 
                 {!hideJourneyType && (
                   <div>

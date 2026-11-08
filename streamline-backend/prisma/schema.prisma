@@ -79,6 +79,7 @@ model User {
   emailLogs           EmailLog[]
   billingProfile      BillingProfile?
   creditOverrides     CreditOverride[]
+  commercialTariffAssignment CommercialTariffAssignment?
 
   @@index([accountType])
   @@index([accountStatus])
@@ -86,6 +87,38 @@ model User {
   @@index([name])
   @@index([phone])
   @@index([vatNumber])
+}
+
+model CommercialTariff {
+  id          String                       @id @default(cuid())
+  name        String
+  nameKey     String                       @unique
+  rates       CommercialTariffRate[]
+  assignments CommercialTariffAssignment[]
+}
+
+model CommercialTariffRate {
+  tariffId         String
+  vehicleType      String
+  fare8Hours       Decimal @db.Decimal(12, 2)
+  includedMiles8   Decimal @db.Decimal(12, 2)
+  fare12Hours      Decimal @db.Decimal(12, 2)
+  includedMiles12  Decimal @db.Decimal(12, 2)
+  extraMileRate    Decimal @db.Decimal(12, 2)
+
+  tariff CommercialTariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
+
+  @@id([tariffId, vehicleType])
+}
+
+model CommercialTariffAssignment {
+  customerId String @id
+  tariffId   String
+
+  customer User             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tariff   CommercialTariff @relation(fields: [tariffId], references: [id], onDelete: Restrict)
+
+  @@index([tariffId])
 }
 
 model UserSession {

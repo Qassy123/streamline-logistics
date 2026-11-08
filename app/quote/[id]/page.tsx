@@ -166,7 +166,8 @@ export default async function QuoteDetailsPage({
   const subtotal = toNumber(quote.adminPrice);
   const mileageRate = quotePriceBreakdown(quote).mileageRate;
   const extraStopsPrice = quotePriceBreakdown(quote).extraStopsPrice;
-  const baseFareLabel = `Base Fare (${quote.vehicleSize || "Van Size"})`;
+  const { shiftHours } = quotePriceBreakdown(quote);
+  const baseFareLabel = shiftHours ? `${shiftHours}-hour Shift Fare` : `Base Fare (${quote.vehicleSize || "Van Size"})`;
   const extraStopsLabel = `Extra Stops (${extraDrops.length})`;
   const returnAddress =
     quote.returnAddress || quote.collectionAddress || "Not provided";
@@ -389,15 +390,17 @@ export default async function QuoteDetailsPage({
                   value={formatMoney(quote.basePrice)}
                 />
 
-                <PriceBreakdownRow
-                  icon={<MapPinned size={22} />}
-                  iconClassName="text-[#006CFF]"
-                  label="Mileage"
-                  detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMileageRate(
-                    mileageRate,
-                  )})`}
-                  value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
-                />
+                {!shiftHours && (
+                  <PriceBreakdownRow
+                    icon={<MapPinned size={22} />}
+                    iconClassName="text-[#006CFF]"
+                    label="Mileage"
+                    detail={`(${Number(quote.distanceMiles ?? 0).toFixed(1)} mi × ${formatMileageRate(
+                      mileageRate,
+                    )})`}
+                    value={formatMoney(quotePriceBreakdown(quote).mileagePrice)}
+                  />
+                )}
 
                 <PriceBreakdownRow
                   icon={<MapPin size={22} />}

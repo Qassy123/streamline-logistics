@@ -1,4 +1,5 @@
 "use client";
+import { QuoteShiftLength, useQuoteShiftOptions } from "@/components/QuoteShiftLength";
 import {adminFetch} from "@/lib/adminFetch";
 import { quotePriceBreakdown } from "@/lib/quotePriceBreakdown";
 
@@ -123,6 +124,7 @@ type Calculation = {
 };
 type FormState = {
   deliveryType: string;
+  shiftHours: string;
   journeyType: "One Way" | "Return" | "Multi Drop" | "";
   whatAreWeCollecting: string;
   capacityPercent: number | null;
@@ -155,6 +157,7 @@ const emptyAddress: AddressFields = {
 };
 const EMPTY_FORM: FormState = {
   deliveryType: "",
+  shiftHours: "",
   journeyType: "",
   whatAreWeCollecting: "",
   capacityPercent: null,
@@ -250,6 +253,7 @@ async function parseResponse(r: Response) {
 export default function CustomerQuotesPage() {
   const params = useParams<{ id: string }>();
   const customerId = params.id;
+  const shiftOptions = useQuoteShiftOptions(`${API_BASE_URL}/api/quotes`, customerId);
   const formTopRef = useRef<HTMLDivElement | null>(null);
   const [customer, setCustomer] = useState<CustomerSummary | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -379,6 +383,8 @@ export default function CustomerQuotesPage() {
   const payload = useMemo(
     () => ({
       deliveryType: form.deliveryType,
+      customerId,
+      shiftHours: form.shiftHours,
       journeyType: form.journeyType,
       whatAreWeCollecting: form.whatAreWeCollecting,
       capacityPercent: showCollectionCapacity ? form.capacityPercent : null,
@@ -419,7 +425,7 @@ export default function CustomerQuotesPage() {
       discountValue: Number(form.discountValue || 0),
       discountReason: form.discountReason,
     }),
-    [form, showCollectionCapacity, showReturnCapacity, showExtraStops],
+    [customerId, form, showCollectionCapacity, showReturnCapacity, showExtraStops],
   );
 
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
@@ -475,6 +481,7 @@ export default function CustomerQuotesPage() {
 
   function validate() {
     if (!form.deliveryType) return "Delivery type is required.";
+    if (shiftOptions.required && !form.shiftHours) return "Choose an 8-hour or 12-hour shift before calculating.";
     if (!form.journeyType) return "Select One Way, Return, or Multi Drop.";
     if (!form.whatAreWeCollecting) return "Select what is being collected.";
     if (!form.collectionDate) return "Collection date is required.";
@@ -707,6 +714,8 @@ export default function CustomerQuotesPage() {
                 }}
               />
             </div>
+            <QuoteShiftLength options={shiftOptions} value={form.shiftHours} onChange={value => update("shiftHours", value)}
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3" />
             <ChoiceGrid
               label="What are we collecting?"
               options={collectingOptions}
@@ -1028,13 +1037,12 @@ export default function CustomerQuotesPage() {
                   }
                 />
                 <PriceRow
-                  label="Base fare"
+                  label={quotePriceBreakdown(calculation).shiftHours ? "Shift fare" : "Base fare"}
                   value={formatMoney(calculation.basePrice)}
                 />
-                <PriceRow
-                  label="Mileage"
-                  value={formatMoney(quotePriceBreakdown(calculation).mileagePrice)}
-                />
+                {!quotePriceBreakdown(calculation).shiftHours && (
+                  <PriceRow label="Mileage" value={formatMoney(quotePriceBreakdown(calculation).mileagePrice)} />
+                )}
                 <PriceRow
                   label="Extra stops" value={formatMoney(quotePriceBreakdown(calculation).extraStopsPrice)} />
                 <PriceRow label="Subtotal before VAT"

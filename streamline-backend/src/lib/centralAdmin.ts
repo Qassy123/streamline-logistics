@@ -6,7 +6,7 @@ const authenticated=new WeakMap<object,AdminUser>();
 export const adminTokenHash=(token:string)=>crypto.createHash("sha256").update(token).digest("hex");
 export const centralTokenPattern=/^as_[a-f0-9]{64}$/;
 const operational=["customers","guest-bookings","quotes","bookings","planning-board","fleet","drivers","tracking","vehicle-records","driver-hours"];
-const finance=["customers","guest-bookings","trade-accounts","invoices","payments","pricing","reports","notifications","search"];
+const finance=["customers","guest-bookings","trade-accounts","invoices","payments","pricing","commercial-tariffs","reports","notifications","search"];
 export function adminSections(role:string){if(role==="SUPER_ADMIN")return[...new Set([...operational,...finance,"permissions","settings"])];if(role==="READ_ONLY")return[...new Set([...operational,...finance,"settings"])];if(role==="OFFICE_MANAGER")return[...new Set([...operational,...finance,"settings"])];if(role==="DISPATCHER")return operational;if(role==="ACCOUNTS")return finance;return [];}
 function sectionForApi(path:string){
  if(/^\/api\/admin\//.test(path)){const group=path.split("/")[3];return ({planning:"planning-board","fleet-operations":"fleet","tariffs":"pricing",discounts:"pricing",audit:"reports",documents:"reports"} as Record<string,string>)[group]||group;}

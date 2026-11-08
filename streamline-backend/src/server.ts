@@ -47,6 +47,7 @@ import adminPermissionsRoutes from "./routes/adminPermissions";
 import adminSettingsRoutes from "./routes/adminSettings";
 import adminTariffRoutes from "./routes/adminTariffs";
 import adminDiscountRoutes from "./routes/adminDiscounts";
+import adminCommercialTariffRoutes from "./routes/adminCommercialTariffs";
 
 dotenv.config({
   path: path.resolve(process.cwd(), ".env"),
@@ -111,6 +112,7 @@ app.use("/api/admin/search", adminSearchRoutes);
 app.use("/api/admin/permissions", adminPermissionsRoutes);
 app.use("/api/admin/settings", adminSettingsRoutes);
 app.use("/api/admin/tariffs", adminTariffRoutes);
+app.use("/api/admin/commercial-tariffs", adminCommercialTariffRoutes);
 app.use("/api/admin/discounts", adminDiscountRoutes);
 
 /* ---------------------------------
