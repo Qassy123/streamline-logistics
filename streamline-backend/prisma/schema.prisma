@@ -131,6 +131,8 @@ model CommercialContract {
   includedMiles12   Decimal
   extraMileRate     Decimal
   createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now()) @updatedAt
+  endedAt           DateTime?
 
   customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
   shifts   CommercialContractShift[]

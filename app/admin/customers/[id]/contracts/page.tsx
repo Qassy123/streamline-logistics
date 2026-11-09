@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { adminFetch } from "@/lib/adminFetch";
+import PostcodeAddressLookup, { formatPostcodeAddress } from "@/components/PostcodeAddressLookup";
 import { useAdminSession } from "@/components/admin/AdminSession";
 
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -29,7 +30,7 @@ type Shift = {
   decision: "BILL" | "WAIVE" | null;
   review: string | null;
   booking: {
-    id: string; reference: string; status: string; deliveryAddress: string; estimatedStartTime: string | null;
+    id: string; reference: string; status: string; collectionAddress: string; deliveryAddress: string; totalPrice: string; estimatedStartTime: string | null;
     estimatedEndTime: string | null; driverId: string | null; driverJourneyStartedAt: string | null; updatedAt: string;
   };
 };
@@ -39,6 +40,11 @@ type Contract = {
   startsOn: string;
   endsOn: string;
   tariffName: string;
+  collectionAddress: string;
+  deliveryAddress: string;
+  weeklyPattern: number[];
+  updatedAt: string;
+  endedAt: string | null;
   fare8Hours: string;
   fare12Hours: string;
   includedMiles8: string;
@@ -66,13 +72,14 @@ function CommercialContracts() {
   const { admin } = useAdminSession();
   const canEdit = admin.role === "SUPER_ADMIN" || admin.role === "OFFICE_MANAGER";
   const [month, setMonth] = useState(() => {
-    const requested = query.get("month") || "";
+    const requested = query.get("month") || query.get("week")?.slice(0, 7) || "";
     return /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) ? requested : today().slice(0, 7);
   });
   const [overview, setOverview] = useState<Overview>();
   const [creating, setCreating] = useState(false);
+  const [editingContract, setEditingContract] = useState<string | null>(null);
   const [variableDelivery, setVariableDelivery] = useState(false);
-  const [openRota, setOpenRota] = useState<string | null>(null);
+  const [openRota, setOpenRota] = useState<string | null>(() => query.get("contract"));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -159,18 +166,18 @@ function CommercialContracts() {
               <option value="">Select a van</option>
               {overview.vehicleTypes.map(vehicle => <option key={vehicle}>{vehicle}</option>)}
             </select></label>
-            <label className="text-sm font-semibold lg:col-span-2">Collection address<input className={field} name="collectionAddress" maxLength={1500} required /></label>
+            <div className="lg:col-span-2">
+              <ContractAddressField label="Collection address" name="collectionAddress" />
+            </div>
             <div className="space-y-2 lg:col-span-2">
               <label className="flex items-center gap-2 text-sm font-semibold">
                 <input type="checkbox" checked={variableDelivery} onChange={event => setVariableDelivery(event.target.checked)} />
                 Delivery address varies by shift
               </label>
               {variableDelivery ? (
-                <p className="text-sm text-slate-600">Add the delivery address on each booking before assigning a driver.</p>
+                <p className="text-sm text-slate-600">Add the delivery address in Weekly Rota before assigning a driver.</p>
               ) : (
-                <label className="block text-sm font-semibold">Delivery address
-                  <input className={field} name="deliveryAddress" maxLength={1500} required />
-                </label>
+                <ContractAddressField label="Delivery address" name="deliveryAddress" />
               )}
             </div>
             <label className="text-sm font-semibold lg:col-span-2">Purchase order<input className={field} name="purchaseOrder" maxLength={120} required={overview.poRequired} /></label>
@@ -204,12 +211,14 @@ function CommercialContracts() {
         const invoice = contract.invoices[0]?.invoice;
         const editable = canEdit && (!invoice || invoice.status === "DRAFT");
         const pendingReview = contract.shifts.filter(shift => shift.review).length;
+        const active = !contract.endedAt && contract.endsOn.slice(0, 10) >= today();
         return (
           <section key={contract.id} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold">{contract.vehicleType} · {contract.tariffName}</h2>
                 <p className="text-sm text-slate-600">{dateLabel.format(new Date(contract.startsOn))} to {dateLabel.format(new Date(contract.endsOn))}</p>
+                {contract.endedAt && <p className="text-sm font-semibold text-amber-800">Ended {dateLabel.format(new Date(contract.endedAt))}</p>}
                 <p className="mt-1 text-sm text-slate-600">
                   8 hours {money.format(Number(contract.fare8Hours))} / {contract.includedMiles8} miles ·
                   {" "}12 hours {money.format(Number(contract.fare12Hours))} / {contract.includedMiles12} miles ·
@@ -220,17 +229,41 @@ function CommercialContracts() {
                 onClick={() => setOpenRota(current => current === contract.id ? null : contract.id)}>
                 {openRota === contract.id ? "Close Weekly Rota" : "Weekly Rota"}
               </button>
+              {canEdit && active && <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={busy} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                  onClick={() => setEditingContract(current => current === contract.id ? null : contract.id)}>
+                  {editingContract === contract.id ? "Close edit" : "Edit contract"}
+                </button>
+                <button type="button" disabled={busy} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-800"
+                  onClick={async () => {
+                    if (!window.confirm("End this contract and remove its future unstarted shifts? Completed shifts and invoice history will be kept.")) return;
+                    if (await save(`/${contract.id}`, { expectedUpdatedAt: contract.updatedAt }, "DELETE")) {
+                      setEditingContract(null);
+                      setOpenRota(null);
+                    }
+                  }}>End contract</button>
+              </div>}
               {invoice && <Link className="font-bold text-orange-800 underline" href={`/admin/invoices?invoice=${encodeURIComponent(invoice.invoiceNumber)}`}>
                 Invoice {invoice.invoiceNumber} · {money.format(Number(invoice.total))}
               </Link>}
             </div>
+            {editingContract === contract.id && active && (
+              <EditContractForm key={contract.id} contract={contract} busy={busy} onSave={async body => {
+                if (await save(`/${contract.id}`, body, "PATCH")) {
+                  setEditingContract(null);
+                  setOpenRota(null);
+                }
+              }} />
+            )}
             {openRota === contract.id && (
-              <WeeklyRota endpoint={`${endpoint}/${contract.id}/rota`} canEdit={canEdit} onSaved={load} />
+              <WeeklyRota key={`${contract.id}:${query.get("shift") || ""}`} endpoint={`${endpoint}/${contract.id}`} canEdit={canEdit} onSaved={load}
+                initialDate={query.get("contract") === contract.id ? query.get("week") : null}
+                initialShift={query.get("contract") === contract.id ? query.get("shift") : null} />
             )}
             {pendingReview > 0 && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
               {pendingReview} shift(s) need billing review. Guaranteed unused shifts are included at the agreed fare until waived.
             </p>}
-            {canEdit && contract.endsOn.slice(0, 10) >= today() && (
+            {canEdit && active && (
               <form className="flex flex-wrap items-end gap-3" onSubmit={event => {
                 event.preventDefault();
                 const data = new FormData(event.currentTarget);
@@ -263,8 +296,8 @@ function CommercialContracts() {
                       {shift.booking.deliveryAddress ? (
                         <p className="text-slate-600">{shift.booking.deliveryAddress}</p>
                       ) : ["CONFIRMED", "ASSIGNED"].includes(shift.booking.status) ? (
-                        <Link className="font-semibold text-amber-800 underline" href={`/admin/bookings?booking=${encodeURIComponent(shift.booking.id)}`}>
-                          Delivery address needed
+                        <Link className="font-semibold text-amber-800 underline" href={`?month=${month}&contract=${contract.id}&week=${shift.serviceDate.slice(0, 10)}&shift=${shift.id}`} onClick={() => setOpenRota(contract.id)}>
+                          Add delivery address in Weekly Rota
                         </Link>
                       ) : null}
                       {shift.review && <p className="text-amber-800">{shift.review}</p>}
@@ -302,12 +335,14 @@ function CommercialContracts() {
   );
 }
 
-function WeeklyRota({ endpoint, canEdit, onSaved }: {
+function WeeklyRota({ endpoint, canEdit, onSaved, initialDate, initialShift }: {
   endpoint: string;
   canEdit: boolean;
   onSaved: () => Promise<void>;
+  initialDate: string | null;
+  initialShift: string | null;
 }) {
-  const [week, setWeek] = useState(() => mondayOf(today()));
+  const [week, setWeek] = useState(() => mondayOf(initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) ? initialDate : today()));
   function stepWeek(offset: number) {
     setWeek(new Date(Date.parse(`${week}T00:00:00Z`) + offset * 7 * dayMs).toISOString().slice(0, 10));
   }
@@ -321,24 +356,26 @@ function WeeklyRota({ endpoint, canEdit, onSaved }: {
         </label>
         <button type="button" className={button} onClick={() => stepWeek(1)}>Next week</button>
       </div>
-      <RotaWeek key={week} endpoint={endpoint} week={week} canEdit={canEdit} onSaved={onSaved} />
+      <RotaWeek key={week} endpoint={endpoint} week={week} canEdit={canEdit} onSaved={onSaved} initialShift={initialShift} />
     </section>
   );
 }
 
-function RotaWeek({ endpoint, week, canEdit, onSaved }: {
+function RotaWeek({ endpoint, week, canEdit, onSaved, initialShift }: {
   endpoint: string;
   week: string;
   canEdit: boolean;
   onSaved: () => Promise<void>;
+  initialShift: string | null;
 }) {
+  const [editingAddress, setEditingAddress] = useState<string | null>(initialShift);
   const [rota, setRota] = useState<{ shifts: Shift[]; previous: Shift[] }>();
   const [times, setTimes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const loadWeek = useCallback(async (signal?: AbortSignal) => {
-    const response = await adminFetch(`${endpoint}?week=${encodeURIComponent(week)}`, { signal });
+    const response = await adminFetch(`${endpoint}/rota?week=${encodeURIComponent(week)}`, { signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Unable to load the weekly rota.");
     if (!signal?.aborted) {
@@ -370,7 +407,7 @@ function RotaWeek({ endpoint, week, canEdit, onSaved }: {
     setError("");
     setMessage("");
     try {
-      const response = await adminFetch(endpoint, {
+      const response = await adminFetch(`${endpoint}/rota`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ week, shifts: updates }),
       });
       const data = await response.json();
@@ -406,7 +443,47 @@ function RotaWeek({ endpoint, week, canEdit, onSaved }: {
     }
   }
 
+  const editableAddress = rota?.shifts.find(shift => shift.id === editingAddress && isEditable(shift));
+
+  async function saveAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editableAddress) return;
+    const deliveryAddress = new FormData(event.currentTarget).get("deliveryAddress");
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(`${endpoint}/shifts/${encodeURIComponent(editableAddress.id)}/delivery`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryAddress, expectedUpdatedAt: editableAddress.booking.updatedAt }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to save the delivery address.");
+      await loadWeek();
+      setEditingAddress(null);
+      setMessage(`Delivery address saved. Estimated route ${data.distanceMiles.toFixed(1)} miles. Estimated price ${money.format(Number(data.total))} including VAT.`);
+      await onSaved();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save the delivery address.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
+    <>
+      {editableAddress && (
+        <form onSubmit={saveAddress} className="space-y-3 rounded-xl border border-slate-300 bg-white p-4">
+          <h3 className="font-bold">Delivery address for {dateLabel.format(new Date(editableAddress.serviceDate))}</h3>
+          <p className="text-sm text-slate-600">Collection from {editableAddress.booking.collectionAddress}</p>
+          <ContractAddressField key={editableAddress.id} label="Delivery address" name="deliveryAddress"
+            initialAddress={editableAddress.booking.deliveryAddress} disabled={busy} />
+          <div className="flex gap-3">
+            <button className={button} disabled={busy}>{busy ? "Saving…" : "Save address and recalculate"}</button>
+            <button type="button" disabled={busy} onClick={() => setEditingAddress(null)} className="text-sm font-semibold underline">Close address editor</button>
+          </div>
+        </form>
+      )}
     <form onSubmit={saveRota} className="space-y-3">
       <p className="text-sm text-slate-600">Enter the UK start time for each shift. Save the rota to confirm the finish times.</p>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
@@ -434,6 +511,13 @@ function RotaWeek({ endpoint, week, canEdit, onSaved }: {
                 `Finish ${timeLabel.format(finish)}${finish.toLocaleDateString("sv-SE", { timeZone: "Europe/London" }) !== shift.serviceDate.slice(0, 10) ? " (next day)" : ""}`
                 : "Time to be confirmed"}
             </p>
+            <div className="space-y-1 text-sm sm:col-span-4">
+              <p>{shift.booking.deliveryAddress || "Delivery address needed"} · Estimated {money.format(Number(shift.booking.totalPrice))} incl. VAT</p>
+              {isEditable(shift) && <button type="button" disabled={busy || !!updates.length} className="font-semibold text-orange-800 underline"
+                onClick={() => { setEditingAddress(shift.id); setError(""); setMessage(""); }}>
+                {shift.booking.deliveryAddress ? "Edit delivery address" : "Add delivery address"}
+              </button>}
+            </div>
             {shift.booking.status === "CANCELLED" ? (
               <span className="text-sm font-semibold text-amber-800">Cancelled · {shift.decision === "WAIVE" ? "Waived" : shift.decision === "BILL" ? "Charge confirmed" : "Billing review"}</span>
             ) : canEdit && !shift.booking.driverJourneyStartedAt && ["CONFIRMED", "ASSIGNED"].includes(shift.booking.status) ? (
@@ -452,6 +536,66 @@ function RotaWeek({ endpoint, week, canEdit, onSaved }: {
           }))}>Copy previous week</button>
         <button className={button} disabled={busy || !updates.length}>{busy ? "Saving…" : "Save rota"}</button>
       </div>}
+    </form>
+    </>
+  );
+}
+
+function ContractAddressField({ label, name, initialAddress = "", disabled = false }: {
+  label: string; name: string; initialAddress?: string; disabled?: boolean;
+}) {
+  const [address, setAddress] = useState(initialAddress);
+  return (
+    <div className="space-y-2">
+      <PostcodeAddressLookup label={`Find ${label.toLowerCase()} by postcode`} accent="orange" disabled={disabled}
+        onSelect={selected => setAddress(formatPostcodeAddress(selected))} />
+      <label className="block text-sm font-semibold">{label}
+        <input className={field} name={name} value={address} onChange={event => setAddress(event.target.value)}
+          required maxLength={1500} disabled={disabled} />
+      </label>
+    </div>
+  );
+}
+
+function EditContractForm({ contract, busy, onSave }: {
+  contract: Contract;
+  busy: boolean;
+  onSave: (body: object) => Promise<void>;
+}) {
+  const [variableDelivery, setVariableDelivery] = useState(!contract.deliveryAddress);
+  return (
+    <form className="space-y-4 rounded-xl border border-slate-300 p-4" onSubmit={event => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      void onSave({ ...Object.fromEntries(form), variableDelivery, expectedUpdatedAt: contract.updatedAt,
+        weeklyPattern: weekdays.map((_, index) => Number(form.get(`day${index}`))) });
+    }}>
+      <h3 className="font-bold">Edit contract</h3>
+      <p className="text-sm text-slate-600">Changes apply to future unassigned shifts without a van reservation. Existing shift-specific delivery addresses are kept.</p>
+      <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
+        <label className="text-sm font-semibold">End date
+          <input type="date" className={field} name="endsOn" min={today()} defaultValue={contract.endsOn.slice(0, 10)} required />
+        </label>
+        <ContractAddressField label="Collection address" name="collectionAddress" initialAddress={contract.collectionAddress} disabled={busy} />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" checked={variableDelivery} onChange={event => setVariableDelivery(event.target.checked)} />
+            Delivery address varies by shift
+          </label>
+          {!variableDelivery && <ContractAddressField label="Default delivery address" name="deliveryAddress" initialAddress={contract.deliveryAddress} disabled={busy} />}
+        </div>
+      </fieldset>
+      <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+        <legend className="mb-2 text-sm font-bold">Weekly pattern</legend>
+        {weekdays.map((day, index) => (
+          <label key={day} className="text-sm font-semibold">{day}
+            <select className={field} name={`day${index}`} defaultValue={contract.weeklyPattern[index]}>
+              <option value={0}>No shift</option><option value={8}>8 hours</option><option value={12}>12 hours</option>
+            </select>
+          </label>
+        ))}
+      </fieldset>
+      <button className={button} disabled={busy}>Save contract changes</button>
     </form>
   );
 }

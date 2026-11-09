@@ -129,30 +129,7 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
   assert.equal(blocked.code, 409);
   assert.match(blocked.body.error, /delivery address before assigning/);
   assert.equal(driverLookedUp, false);
-  const shiftBooking = {...dispatchBooking, priceAdjustment: D(0), quote: null, extraDrops: null, driverId: null,
-    vehicleId: null, updatedAt: new Date("2026-11-08T12:00:00Z")};
-  const editorDb = {
-    $transaction: async run => run(editorDb),
-    $executeRaw: async () => {},
-    $queryRaw: async () => {},
-    booking: {
-      findUnique: async () => shiftBooking,
-      findUniqueOrThrow: async () => shiftBooking,
-      update: async ({data}) => Object.assign(shiftBooking, {deliveryAddress:data.deliveryAddress, totalPrice:data.totalPrice}),
-    },
-    companySettings: {findFirst: async () => ({vatRate:D(20)})},
-    auditLog: {create: async () => {}},
-  };
-  const {editBooking} = load("streamline-backend/src/lib/bookingChanges.ts", {
-    "./prisma": {prisma:editorDb}, "../routes/quotes": {}, "./fleetOperations": {fleetMutation: async () => {}},
-    "./fleetAvailability": {}, "./bookingFinance": {},
-  });
-  await assert.rejects(editBooking(shiftBooking.id, {deliveryAddress:"  "}), /valid collection and delivery addresses/);
-  const originalTotal = shiftBooking.totalPrice.toFixed(2);
-  const saved = await editBooking(shiftBooking.id, {deliveryAddress:" New destination ", expectedUpdatedAt:shiftBooking.updatedAt.toISOString()});
-  assert.equal(saved.deliveryAddress, "New destination");
-  assert.equal(saved.totalPrice.toFixed(2), originalTotal);
-  dispatchBooking = {...dispatchBooking, deliveryAddress:saved.deliveryAddress};
+  dispatchBooking = {...dispatchBooking, deliveryAddress:"New destination"};
   assert.match((await assign()).body.error, /active driver/);
   assert.equal(driverLookedUp, true);
   assert.equal(pending[1].deliveryAddress, "");
@@ -175,9 +152,18 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
   const rotaBooking = {...untimed, driverId:null, driverJourneyStartedAt:null, reservation:null, updatedAt:new Date("2026-11-08T12:00Z")};
   const previous = {serviceDate:new Date(+futureDate-7*86400000), booking:rows[0]};
   const rotaShift = {id:"rota-shift",hours:12,serviceDate:futureDate,booking:rotaBooking};
+  let distanceMiles = 132;
+  let mapError = false;
+  let audit;
+  class MapsError extends Error { constructor(message, status) { super(message); this.status = status; } }
   const rotaDb = {
+    companySettings:{findFirst:async () => ({vatRate:D(20)})},
+    auditLog:{create:async ({data}) => {audit=data;}},
     commercialContract: {findFirst:async () => ({shifts:[previous,rotaShift]})},
-    commercialContractShift: {findMany:async ({where}) => {
+    commercialContractShift: {
+      findFirst:async ({where}) => where.id === rotaShift.id && where.contract.customerId === "customer" ?
+        {...rotaShift, contract} : null,
+      findMany:async ({where}) => {
       assert.equal(where.contractId,"contract");
       assert.equal(where.contract.customerId,"customer");
       assert.equal(+where.serviceDate.gte,+futureDate);
@@ -187,7 +173,8 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
     booking: {updateMany:async ({where,data}) => {
       assert.equal(where.id,rotaBooking.id);
       assert.equal(where.driverId,null);
-      assert.equal(Object.keys(data).sort().join(","),"collectionWindow,estimatedEndTime,estimatedStartTime,vehicleAvailableAt");
+      if (data.deliveryAddress) assert.equal(Object.keys(data).sort().join(","),"deliveryAddress,totalPrice");
+      else assert.equal(Object.keys(data).sort().join(","),"collectionWindow,estimatedEndTime,estimatedStartTime,vehicleAvailableAt");
       Object.assign(rotaBooking,data);
       return {count:1};
     }},
@@ -195,11 +182,22 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
   let role="OFFICE_MANAGER";
   const rotaHandlers = new Map();
   const rotaRouter = {use() {}};
-  for (const method of ["get","post","patch"]) rotaRouter[method] = (url, fn) => rotaHandlers.set(method+url,fn);
+  for (const method of ["get","post","patch","delete"]) rotaRouter[method] = (url, fn) => rotaHandlers.set(method+url,fn);
   load("streamline-backend/src/routes/adminCommercialContracts.ts",{
     express:{Router:()=>rotaRouter}, "../lib/prisma":{prisma:rotaDb}, "../lib/commercialContracts":billing,
-    "../lib/centralAdmin":{centralAdminAccess:()=>({admin:{role}})},
-    "../lib/fleetOperations":{staffActor:()=>({}),fleetTransaction:async (_actor,_reason,run)=>run(rotaDb)},
+    "../lib/centralAdmin":{centralAdminAccess:()=>({admin:{role,id:"staff"}})},
+    "../lib/googleMaps":{
+      GoogleMapsError:MapsError,
+      geocodeGoogleAddress:async (_address,label) => {
+        if (mapError) throw new MapsError("Check the postcode.",400);
+        return {coordinates:label === "Collection address" ? [1,2] : [3,4]};
+      },
+      calculateGoogleRoute:async coordinates => {
+        assert.equal(JSON.stringify(coordinates),"[[1,2],[3,4]]");
+        return {distanceMiles};
+      },
+    },
+    "../lib/fleetOperations":{staffActor:()=>({}),fleetMutation:async()=>{},fleetTransaction:async (_actor,_reason,run)=>run(rotaDb)},
   });
   const callRota = async (method, body) => {
     const result={status(code){this.code=code;return this;},json(payload){this.body=payload;}};
@@ -223,6 +221,89 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
   rotaBooking.driverId="driver";
   assert.equal((await callRota("patch",payload)).code,409);
   console.log("PASS weekly rota loads both weeks, schedules the existing shift overnight, and rejects stale, out-of-scope, or assigned shifts.");
+  rotaBooking.driverId=null;
+  async function saveAddress(address, customerId="customer") {
+    const result={status(code){this.code=code;return this;},json(body){this.body=body;}};
+    await rotaHandlers.get("patch/:customerId/:contractId/shifts/:shiftId/delivery")({
+      params:{customerId,contractId:contract.id,shiftId:rotaShift.id},
+      body:{deliveryAddress:address,expectedUpdatedAt:rotaBooking.updatedAt.toISOString()},
+    }, result);
+    return result;
+  }
+  assert.equal((await saveAddress("New destination", "wrong-customer")).code,404);
+  mapError=true;
+  assert.equal((await saveAddress("Unmatched")).code,400);
+  assert.equal(rotaBooking.deliveryAddress,"Delivery");
+  assert.equal(rotaBooking.totalPrice.toFixed(2),"480.00");
+  mapError=false;
+  const repriced = await saveAddress("New destination");
+  assert.equal(repriced.body.total,"528.00");
+  assert.equal(repriced.body.distanceMiles,132);
+  assert.equal(rotaBooking.deliveryAddress,"New destination");
+  assert.equal(audit.newValue.distanceMiles,132);
+  distanceMiles=50;
+  assert.equal((await saveAddress("Closer destination")).body.total,"480.00");
+  rotaBooking.driverId="driver";
+  assert.equal((await saveAddress("Assigned")).code,409);
+  assert.equal(rotaBooking.deliveryAddress,"Closer destination");
+  assert.match(source("streamline-backend/src/lib/adminNewNotices.ts"),/NOT EXISTS.*CommercialContractShift.*bookingId/);
+  console.log("PASS rota saves address and tariff estimate together, restores base fare for shorter routes, and hides contract notices.");
+
+
+  const managed = {...contract, startsAt:"", startsOn:futureDate, endsOn:new Date(+futureDate+86400000),
+    endedAt:null, updatedAt:new Date("2026-11-08T12:00Z"), weeklyPattern:[8,8,8,8,8,0,0]};
+  const futureUnassigned={...rotaShift, guaranteed:true, hours:8,booking:{...rotaBooking,status:"CONFIRMED",driverId:null,vehicleId:null,driverJourneyStartedAt:null}};
+  const futureAssigned={...futureUnassigned,id:"assigned",serviceDate:new Date(+futureDate+86400000),
+    booking:{...futureUnassigned.booking,id:"assigned-booking",driverId:"driver",status:"ASSIGNED"}};
+  const historic={...futureUnassigned,id:"completed",serviceDate:new Date("2026-10-01T00:00Z"),
+    booking:{...futureUnassigned.booking,id:"completed-booking",status:"COMPLETED"}};
+  let managedShifts=[historic,futureUnassigned,futureAssigned];
+  const editUpdates=[];
+  const deleted=[];
+  rotaDb.$transaction=async run=>run(rotaDb);
+  rotaDb.$executeRaw=async()=>{};
+  rotaDb.commercialContract.findFirst=async ({where,include})=> {
+    if (where.customerId !== "customer") return null;
+    return {...managed,shifts:managedShifts.filter(shift=>shift.serviceDate>=include.shifts.where.serviceDate.gte)};
+  };
+  rotaDb.commercialContract.update=async ({data})=>Object.assign(managed,data);
+  rotaDb.booking.updateMany=async ({where,data})=>{
+    const match=managedShifts.find(row=>row.booking.id===where.id);
+    editUpdates.push(match.id);
+    Object.assign(match.booking,data);
+    return {count:1};
+  };
+  rotaDb.commercialContractShift.update=async ({where,data})=>Object.assign(managedShifts.find(row=>row.id===where.id),data);
+  rotaDb.booking.deleteMany=async ({where})=>{
+    assert.deepEqual(JSON.parse(JSON.stringify(where.invoices)),{none:{}});
+    const ids=where.OR.map(row=>row.id);
+    deleted.push(...ids);
+    managedShifts=managedShifts.filter(row=>!ids.includes(row.booking.id));
+    return {count:ids.length};
+  };
+  const manage=async (method,body)=>{
+    const result={status(code){this.code=code;return this;},json(payload){this.body=payload;}};
+    await rotaHandlers.get(method+"/:customerId/:contractId")({params:{customerId:"customer",contractId:contract.id},body},result);
+    return result;
+  };
+  const contractVersion={expectedUpdatedAt:managed.updatedAt.toISOString()};
+  const edits={...contractVersion,endsOn:managed.endsOn.toISOString().slice(0,10),collectionAddress:"New collection",
+    deliveryAddress:"Delivery",weeklyPattern:[12,8,8,8,8,0,0]};
+  assert.match((await manage("patch",edits)).body.message,/future unassigned/);
+  assert.deepEqual(editUpdates,[futureUnassigned.id]);
+  assert.equal(futureUnassigned.hours,12);
+  assert.equal(futureAssigned.booking.collectionAddress,"Collection");
+  assert.equal(historic.booking.collectionAddress,"Collection");
+  assert.equal((await manage("delete",contractVersion)).code,409);
+  assert.equal(deleted.length,0);
+  futureAssigned.booking.driverId=null;
+  futureAssigned.booking.status="CONFIRMED";
+  assert.match((await manage("delete",contractVersion)).body.message,/history was kept/);
+  assert.equal(managedShifts.length,1);
+  assert.equal(managedShifts[0].id,historic.id);
+  assert(managed.endedAt);
+  assert.match((await manage("delete",contractVersion)).body.message,/Contract ended/);
+  console.log("PASS contract editing updates future unassigned shifts only, and ending preserves history and refuses assigned work.");
 
   const cancellationHandlers = new Map();
   const cancellationRouter = {use() {}};

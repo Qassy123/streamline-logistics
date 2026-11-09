@@ -35,9 +35,6 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
     const returnAddress = body.returnAddress === undefined ? current.returnAddress : text(body.returnAddress) || null;
     if (!collectionAddress || !deliveryAddress || collectionAddress.length > 1500 || deliveryAddress.length > 1500)
         throw new Error("Enter valid collection and delivery addresses.");
-    if (current.commercialContractShift && deliveryAddress !== current.deliveryAddress &&
-        (current.driverId || !["CONFIRMED", "ASSIGNED"].includes(current.status)))
-        throw new Error("Change the delivery address on an unstarted contract shift before assigning a driver.");
     let extraDrops = body.extraDrops === undefined ? current.extraDrops : body.extraDrops;
     if (typeof extraDrops === "string") {
         try {
@@ -50,7 +47,11 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
     if (extraDrops !== null && (!Array.isArray(extraDrops) || extraDrops.length > 100 || extraDrops.some(drop => !drop || typeof drop !== "object" || !text((drop as Record<string, unknown>).address) || text((drop as Record<string, unknown>).address).length > 1500)))
         throw new Error("Enter valid additional stop addresses.");
     const quote = current.quote, vehicleSize = vehicle?.vehicleType || quote?.vehicleSize || current.vehicleType || "Small Van";
-    const routeChanged = collectionAddress !== current.collectionAddress || deliveryAddress !== current.deliveryAddress || returnAddress !== current.returnAddress || JSON.stringify(extraDrops) !== JSON.stringify(current.extraDrops) || vehicleSize !== quote?.vehicleSize || body.recalculatePrice === true || body.discountRuleId !== undefined;
+    const addressesChanged = collectionAddress !== current.collectionAddress || deliveryAddress !== current.deliveryAddress ||
+        returnAddress !== current.returnAddress || JSON.stringify(extraDrops) !== JSON.stringify(current.extraDrops);
+    if (current.commercialContractShift && addressesChanged)
+        throw new Error("Set contract shift addresses in Commercial Contracts → Weekly Rota.");
+    const routeChanged = addressesChanged || vehicleSize !== quote?.vehicleSize || body.recalculatePrice === true || body.discountRuleId !== undefined;
     const scheduleChanged = +collectionDate !== +current.collectionDate || collectionWindow !== current.collectionWindow || nextVehicleId !== current.vehicleId;
     const adjustment = money(body.adjustmentAmount, "Adjustment");
     const manual = body.manualPrice === true || (body.manualPrice === undefined && body.totalPrice !== undefined);

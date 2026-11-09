@@ -12,7 +12,7 @@ export const contractVehicleTypes = ["Small Van", "SWB Van", "LWB High Roof Van"
 type Tx = Prisma.TransactionClient;
 type ShiftHours = 8 | 12;
 export const contractShiftInclude = {
-  booking: { select: { id: true, reference: true, status: true, deliveryAddress: true, estimatedStartTime: true,
+  booking: { select: { id: true, reference: true, status: true, collectionAddress: true, deliveryAddress: true, totalPrice: true, estimatedStartTime: true,
     estimatedEndTime: true, driverId: true, vehicleId: true, driverJourneyStartedAt: true, updatedAt: true,
     reservation: { select: { id: true, vehicleId: true, status: true } }, } },
 } satisfies Prisma.CommercialContractShiftInclude;
@@ -63,14 +63,20 @@ function rateFor(contract: CommercialContract, hours: number) {
     : { fare: contract.fare12Hours, included: contract.includedMiles12 };
 }
 
+export function contractShiftEstimate(contract: CommercialContract, hours: number, distanceMiles: number, vatRate: Prisma.Decimal) {
+  const { fare, included } = rateFor(contract, hours);
+  const excess = Prisma.Decimal.max(0, new Prisma.Decimal(distanceMiles).sub(included));
+  const net = fare.add(excess.mul(contract.extraMileRate)).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+  return net.add(net.mul(vatRate).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP));
+}
+
 export async function createContractShifts(
   tx: Tx, contract: CommercialContract,
   dates: { serviceDate: Date; hours: ShiftHours }[],
-  guaranteed: boolean, adminId?: string,
+  guaranteed: boolean, adminId?: string, distanceMiles = 0,
 ) {
   const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true } });
   if (!settings) throw new Error("Configure company settings before creating shifts.");
-  const grossMultiplier = settings.vatRate.div(100).add(1);
   const rows = dates.map(({ serviceDate, hours }) => {
     const bookingId = randomUUID();
     return {
@@ -80,7 +86,7 @@ export async function createContractShifts(
         userId: contract.customerId, billingAccountType: "TRADE" as const, vehicleType: contract.vehicleType,
         collectionDate: serviceDate, ...contractShiftTiming(serviceDate, contract.startsAt, hours),
         collectionAddress: contract.collectionAddress, deliveryAddress: contract.deliveryAddress,
-        totalPrice: rateFor(contract, hours).fare.mul(grossMultiplier).toDecimalPlaces(2), purchaseOrderNumber: contract.purchaseOrder,
+        totalPrice: contractShiftEstimate(contract, hours, distanceMiles, settings.vatRate), purchaseOrderNumber: contract.purchaseOrder,
         createdByAdminId: adminId,
       },
     };

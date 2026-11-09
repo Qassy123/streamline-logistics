@@ -202,7 +202,7 @@ async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
 
 function adminBookingInclude() {
   return {
-    commercialContractShift: { select: { id: true } },
+    commercialContractShift: { select: { id: true, contractId: true } },
     refundRequests: true,
     quote: true,
     user: true,
