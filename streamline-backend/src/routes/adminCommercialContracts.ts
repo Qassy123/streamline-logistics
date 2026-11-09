@@ -9,10 +9,14 @@ import {
   createContractShifts, refreshContractDraft, scheduledContractShifts, shiftReview, contractShiftTiming, shiftTimePattern, contractShiftEstimate,
 } from "../lib/commercialContracts";
 
+import { commercialWeekStart, commercialWeekEnd, commercialWeekMonth, readCommercialWeeks, usesWeeklyMileage, reviewContractShift } from "../lib/commercialContracts";
+
 const router = Router();
 const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const invoiceSelect = { invoiceNumber: true, status: true, total: true } as const;
+
+class ContractOverlap extends Error {}
 
 async function contractRouteMiles(collectionAddress: string, deliveryAddress: string) {
   const [collection, delivery] = await Promise.all([
@@ -58,6 +62,9 @@ router.get("/:customerId", async (req, res) => {
       shifts: contract.shifts.map(shift => ({
         ...shift,
         review: shift.serviceDate < contractToday() || shift.booking.status === "CANCELLED" ? shiftReview(shift) : null,
+        ...(usesWeeklyMileage(contract, shift.serviceDate) ? {
+          review: shift.serviceDate < contractToday() || shift.booking.status === "CANCELLED" ? reviewContractShift(shift, true) : null,
+        } : {}),
       })),
     })),
   });
@@ -100,6 +107,9 @@ router.post("/:customerId", async (req, res) => {
         if (saved.customerId !== customerId) throw new Error("This contract request belongs to another customer.");
         return saved;
       }
+      if (req.body?.allowOverlap !== true && await tx.commercialContract.count({
+        where: { customerId, endedAt: null, startsOn: { lte: endsOn }, endsOn: { gte: startsOn } },
+      })) throw new ContractOverlap("Another active contract overlaps these dates. Continue only if the customer needs another van.");
       const customer = await tx.user.findUnique({ where: { id: customerId }, select: {
         accountStatus: true, billingProfile: { select: { poRequired: true } },
         commercialTariffAssignment: { select: { tariff: { select: { name: true, rates: { where: { vehicleType } } } } } },
@@ -108,8 +118,12 @@ router.post("/:customerId", async (req, res) => {
       const rate = tariff?.rates[0];
       if (customer?.accountStatus !== "ACTIVE" || !tariff || !rate) throw new Error("Select a van with saved rates on this customer’s assigned tariff.");
       if (customer.billingProfile?.poRequired && !purchaseOrder) throw new Error("A purchase order is required for this customer.");
+      if (req.body?.renewalRate !== undefined && req.body.renewalRate !== renewalRateKey(tariff.name, rate)) {
+        throw new Error("The renewal rates changed. Reopen the renewal and check the latest rates.");
+      }
       const savedContract = await tx.commercialContract.create({ data: {
         requestId, customerId, startsOn, endsOn, startsAt, vehicleType, collectionAddress, deliveryAddress,
+        weeklyMileageFrom: commercialWeekStart(startsOn),
         purchaseOrder, weeklyPattern: pattern, tariffName: tariff.name,
         fare8Hours: rate.fare8Hours, includedMiles8: rate.includedMiles8,
         fare12Hours: rate.fare12Hours, includedMiles12: rate.includedMiles12, extraMileRate: rate.extraMileRate,
@@ -120,6 +134,7 @@ router.post("/:customerId", async (req, res) => {
     return res.status(201).json({ id: contract.id, message: "Contract and recurring shifts saved." });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) throw error;
+    if (error instanceof ContractOverlap) return res.status(409).json({ code: "CONTRACT_OVERLAP", error: error.message });
     return res.status(error instanceof GoogleMapsError ? error.status : 409).json({ error: error instanceof Error ? error.message : "Unable to create the contract." });
   }
 });
@@ -193,6 +208,11 @@ router.patch("/:customerId/:contractId", async (req, res) => {
     }
     const planned = scheduledContractShifts(new Date(Math.max(+today, +contract.startsOn)), endsOn, pattern);
     const plannedByDay = new Map(planned.map(row => [+row.serviceDate, row.hours]));
+    for (const shift of contract.shifts) {
+      if (shift.hoursOverride && plannedByDay.has(+shift.serviceDate) && (shift.hours === 8 || shift.hours === 12)) {
+        plannedByDay.set(+shift.serviceDate, shift.hours);
+      }
+    }
     const existingDays = new Set(contract.shifts.map(shift => +shift.serviceDate));
     const additions = planned.filter(row => !existingDays.has(+row.serviceDate));
     const removals: ManagedShift[] = [];
@@ -201,6 +221,9 @@ router.patch("/:customerId/:contractId", async (req, res) => {
     for (const shift of contract.shifts) {
       if (!isUpcoming(shift, now)) continue;
       if (hasAllocation(shift)) {
+        if (shift.serviceDate > endsOn && (shift.booking.reference || shift.booking.driver?.name)) {
+          throw new Error(`Release the allocation for ${(await allocationLabels(prisma, [shift]))[0]} before shortening the contract.`);
+        }
         if (shift.serviceDate > endsOn) throw new Error("Unassign future drivers and release van reservations after the new end date first.");
         continue;
       }
@@ -241,6 +264,9 @@ router.patch("/:customerId/:contractId", async (req, res) => {
         });
         if (result.count !== 1) throw new Error("A shift was changed or assigned. Reload before saving.");
         if (hours !== shift.hours) await tx.commercialContractShift.update({ where: { id: shift.id }, data: { hours } });
+        await tx.commercialContractShift.update({
+          where: { id: shift.id }, data: { estimatedMiles: distances.get(address) ?? null },
+        });
       }
       const saved = await tx.commercialContract.update({ where: { id: contractId }, data: { endsOn, collectionAddress, deliveryAddress, weeklyPattern: pattern } });
       if (additions.length) await createContractShifts(tx, saved, additions, true, admin.id, distances.get(deliveryAddress) ?? 0);
@@ -285,6 +311,10 @@ router.delete("/:customerId/:contractId", async (req, res) => {
       if (contract.endedAt) return;
       if (+contract.updatedAt !== Date.parse(text(req.body?.expectedUpdatedAt))) throw new Error("The contract changed. Reload before ending it.");
       const upcoming = contract.shifts.filter(shift => isUpcoming(shift, now));
+      const allocated = upcoming.filter(hasAllocation);
+      if (allocated.some(shift => shift.booking.reference)) {
+        throw new Error(`Release these allocations before ending the contract: ${(await allocationLabels(tx, allocated)).join("; ")}.`);
+      }
       if (upcoming.some(hasAllocation)) throw new Error("Unassign future drivers and release their van reservations before ending this contract.");
       await removeUnallocatedShifts(tx, upcoming);
       await tx.commercialContract.update({ where: { id: contractId }, data: { endedAt: now } });
@@ -417,6 +447,7 @@ router.patch("/:customerId/:contractId/shifts/:shiftId/delivery", async (req, re
         data: { deliveryAddress, totalPrice },
       });
       if (changed.count !== 1) throw new Error("This shift changed. Reload the rota before saving.");
+      await tx.commercialContractShift.update({ where: { id: shift.id }, data: { estimatedMiles: distanceMiles } });
       await tx.auditLog.create({ data: {
         adminId: admin.id, action: "CONTRACT_SHIFT_DELIVERY_UPDATED", entityType: "Booking", entityId: booking.id,
         oldValue: { deliveryAddress: booking.deliveryAddress, totalPrice: booking.totalPrice.toFixed(2) },
@@ -453,6 +484,11 @@ router.patch("/:customerId/:contractId/shifts/:shiftId", async (req, res) => {
         throw new Error("This shift is unavailable for billing review.");
       }
       const month = monthOf(shift.serviceDate);
+      const weekly = usesWeeklyMileage(shift.contract, shift.serviceDate);
+      if (weekly && mileage !== undefined) throw new Error("Enter actual miles for this shift in Weekly Rota.");
+      const mileageMonth = weekly ? commercialWeekMonth(commercialWeekStart(shift.serviceDate)) : null;
+      const weeklyDraft = mileageMonth && mileageMonth !== month ? await contractInvoiceForMonth(tx, contractId, mileageMonth) : null;
+      if (weeklyDraft && weeklyDraft.invoice.status !== "DRAFT") throw new Error("The invoice for this shift’s mileage week has been finalised.");
       const linked = await tx.commercialContractInvoice.findUnique({
         where: { contractId_month: { contractId, month } }, include: { invoice: { select: { status: true } } },
       });
@@ -462,6 +498,7 @@ router.patch("/:customerId/:contractId/shifts/:shiftId", async (req, res) => {
         decision: decision === undefined ? undefined : decision,
       } });
       if (linked) await refreshContractDraft(tx, shift.contract, month, linked.invoiceId);
+      if (weeklyDraft && mileageMonth) await refreshContractDraft(tx, shift.contract, mileageMonth, weeklyDraft.invoiceId);
     });
     return res.json({ message: "Shift billing details saved." });
   } catch (error) {
@@ -469,6 +506,192 @@ router.patch("/:customerId/:contractId/shifts/:shiftId", async (req, res) => {
     return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to save the shift." });
   }
 });
+
+async function allocationLabels(tx: Prisma.TransactionClient, shifts: ManagedShift[]) {
+  const reserved = shifts.flatMap(({ booking }) => !booking.vehicle && booking.reservation ? [booking.reservation.vehicleId] : []);
+  const vans = reserved.length ? await tx.vehicle.findMany({ where: { id: { in: reserved } }, select: { id: true, name: true } }) : [];
+  const names = new Map(vans.map(van => [van.id, van.name]));
+  return shifts.map(({ booking, serviceDate }) => {
+    const van = booking.vehicle?.name || (booking.reservation ? names.get(booking.reservation.vehicleId) : null);
+    const assignment = [booking.driver?.name, van].filter(Boolean).join(", ");
+    return `${monthDate(serviceDate)} ${booking.reference} (${assignment || "allocation in place"})`;
+  });
+}
+
+function contractInvoiceForMonth(tx: Prisma.TransactionClient, contractId: string, month: string) {
+  return tx.commercialContractInvoice.findUnique({
+    where: { contractId_month: { contractId, month } },
+    include: { invoice: { select: { status: true } } },
+  });
+}
+
+router.get("/:customerId/:contractId/weekly-review", async (req, res) => {
+  const { customerId, contractId } = req.params;
+  const contract = await prisma.commercialContract.findFirst({ where: { id: contractId, customerId } });
+  if (!contract) return res.status(404).json({ error: "Commercial contract not found." });
+  const [weeks, invoices] = await Promise.all([
+    readCommercialWeeks(prisma, contract),
+    prisma.commercialContractInvoice.findMany({ where: { contractId }, select: { month: true, invoice: { select: { status: true } } } }),
+  ]);
+  const locked = new Set(invoices.filter(item => item.invoice.status !== "DRAFT").map(item => item.month));
+  return res.json({ weeks: weeks.map(week => ({ ...week, locked: locked.has(week.month) })),
+    suggestedStart: monthDate(commercialWeekStart(contractToday())) });
+});
+
+const monthDate = (date: Date) => date.toISOString().slice(0, 10);
+
+router.post("/:customerId/:contractId/weekly-review/enable", async (req, res) => {
+  const { customerId, contractId } = req.params;
+  if (!contractAdmin(centralAdminAccess(req).admin?.role)) return res.status(403).json({ error: "You do not have permission to enable mileage." });
+  try {
+    const starts = rotaMonday(req.body?.week);
+    const currentMonday = commercialWeekStart(contractToday());
+    if (+starts < +currentMonday || +starts > +currentMonday + weekMs) {
+      return res.status(400).json({ error: "Choose the current or next rota week." });
+    }
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
+      const contract = await tx.commercialContract.findFirst({ where: { id: contractId, customerId } });
+      if (!contract || contract.endedAt || contract.endsOn < starts) throw new Error("Choose an active contract that covers this week.");
+      if (contract.weeklyMileageFrom) return;
+      const daily = await tx.commercialContractShift.count({ where: { contractId, serviceDate: { gte: starts }, actualMiles: { not: null } } });
+      const invoices = await tx.commercialContractInvoice.count({ where: { contractId, month: { gte: monthOf(starts) } } });
+      if (daily || invoices) throw new Error("Mileage or an invoice already exists in this period. Start weekly mileage from the next clear week.");
+      await tx.commercialContract.update({ where: { id: contractId }, data: { weeklyMileageFrom: starts } });
+    });
+    return res.json({ message: "Weekly mileage enabled." });
+  } catch (error) {
+    return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to enable weekly mileage." });
+  }
+});
+
+router.patch("/:customerId/:contractId/weekly-review", async (req, res) => {
+  const { customerId, contractId } = req.params;
+  const { admin } = centralAdminAccess(req);
+  const miles = text(req.body?.actualMiles);
+  if (!admin || !contractAdmin(admin.role)) return res.status(403).json({ error: "You do not have permission to save mileage." });
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(miles)) return res.status(400).json({ error: "Enter actual weekly miles, including zero if no miles were driven." });
+  try {
+    const monday = rotaMonday(req.body?.week);
+    const month = commercialWeekMonth(monday);
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
+      const contract = await tx.commercialContract.findFirst({ where: { id: contractId, customerId } });
+      if (!contract || !usesWeeklyMileage(contract, monday) || commercialWeekEnd(monday) >= contractToday()) {
+        throw new Error("Mileage can be saved once this contract week ends.");
+      }
+      const week = (await readCommercialWeeks(tx, contract, month)).find(row => row.weekStart === monthDate(monday));
+      if (!week) throw new Error("There are no contract shifts for this week.");
+      const expected = req.body?.expectedUpdatedAt ?? null;
+      if ((week.updatedAt?.toISOString() ?? null) !== expected) throw new Error("Mileage was changed by another admin. Reload before saving.");
+      const invoice = await contractInvoiceForMonth(tx, contractId, month);
+      if (invoice && invoice.invoice.status !== "DRAFT") throw new Error("The invoice for this week has been finalised.");
+      const actualMiles = new Prisma.Decimal(miles);
+      await tx.commercialContractWeeklyMileage.upsert({
+        where: { contractId_weekStart: { contractId, weekStart: monday } },
+        create: { contractId, weekStart: monday, actualMiles }, update: { actualMiles },
+      });
+      await tx.auditLog.create({ data: { adminId: admin.id, action: "COMMERCIAL_WEEKLY_MILEAGE", entityType: "CommercialContract", entityId: contractId,
+        oldValue: { week: monthDate(monday), miles: week.actualMiles?.toString() ?? null },
+        newValue: { week: monthDate(monday), miles },
+      } });
+      if (invoice) await refreshContractDraft(tx, contract, month, invoice.invoiceId);
+    });
+    return res.json({ message: "Weekly mileage saved." });
+  } catch (error) {
+    return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to save weekly mileage." });
+  }
+});
+
+router.patch("/:customerId/:contractId/shifts/:shiftId/hours", async (req, res) => {
+  const { customerId, contractId, shiftId } = req.params;
+  const { admin } = centralAdminAccess(req);
+  const hours = req.body?.hours;
+  if (!admin || !contractAdmin(admin.role)) return res.status(403).json({ error: "You do not have permission to edit hours." });
+  if (hours !== 8 && hours !== 12) return res.status(400).json({ error: "Select 8 or 12 hours." });
+  try {
+    const where = { id: shiftId, contractId, contract: { customerId } };
+    const include = { ...contractShiftInclude, contract: true };
+    const shift = await prisma.commercialContractShift.findFirst({ where, include });
+    if (!shift || !isUpcoming(shift, new Date())) throw new Error("Only upcoming shifts can be edited.");
+    if (hasAllocation(shift)) throw new Error(`Release the allocation for ${(await allocationLabels(prisma, [shift]))[0]} first.`);
+    if (shift.booking.updatedAt.toISOString() !== req.body?.expectedUpdatedAt) throw new Error("The shift changed. Reload the rota.");
+    if (hours === shift.hours) return res.json({ message: "Shift hours already saved." });
+    const miles = shift.estimatedMiles != null ? Number(shift.estimatedMiles) : shift.booking.deliveryAddress
+      ? await contractRouteMiles(shift.booking.collectionAddress, shift.booking.deliveryAddress) : 0;
+    await fleetTransaction(staffActor(admin), "Commercial shift hours updated", async tx => {
+      const fresh = await tx.commercialContractShift.findFirst({ where, include });
+      if (!fresh || +fresh.booking.updatedAt !== +shift.booking.updatedAt || !isUpcoming(fresh, new Date()) || hasAllocation(fresh)) {
+        throw new Error("The shift changed or was allocated. Reload the rota.");
+      }
+      const settings = await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true } });
+      if (!settings) throw new Error("Configure company settings before pricing the shift.");
+      const start = fresh.booking.estimatedStartTime;
+      await tx.booking.update({ where: { id: fresh.booking.id }, data: {
+        ...contractShiftTiming(fresh.serviceDate, start ? ukClock.format(start) : "", hours),
+        totalPrice: contractShiftEstimate(fresh.contract, hours, miles, settings.vatRate),
+      } });
+      await tx.commercialContractShift.update({ where: { id: fresh.id }, data: {
+        hours, hoursOverride: true, estimatedMiles: fresh.booking.deliveryAddress ? miles : null,
+      } });
+      await tx.auditLog.create({ data: { adminId: admin.id, action: "COMMERCIAL_SHIFT_HOURS", entityType: "Booking", entityId: fresh.booking.id,
+        oldValue: { hours: fresh.hours }, newValue: { hours } } });
+    });
+    return res.json({ message: "Shift hours and estimate updated." });
+  } catch (error) {
+    return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to update shift hours." });
+  }
+});
+
+router.patch("/:customerId/:contractId/shifts/:shiftId/cancellation-reason", async (req, res) => {
+  const { customerId, contractId, shiftId } = req.params;
+  const { admin } = centralAdminAccess(req);
+  const reason = text(req.body?.reason);
+  if (!admin || !contractAdmin(admin.role)) return res.status(403).json({ error: "You do not have permission to record cancellations." });
+  if (!reason || reason.length > 500) return res.status(400).json({ error: "Enter a cancellation reason of up to 500 characters." });
+  try {
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
+      const shift = await tx.commercialContractShift.findFirst({
+        where: { id: shiftId, contractId, contract: { customerId }, booking: { status: "CANCELLED" } },
+        include: { ...contractShiftInclude, contract: true },
+      });
+      if (!shift) throw new Error("Only a cancelled commercial shift can have a cancellation reason.");
+      await tx.commercialContractShift.update({ where: { id: shift.id }, data: { cancellationReason: reason } });
+      const mileageMonth = commercialWeekMonth(commercialWeekStart(shift.serviceDate));
+      if (usesWeeklyMileage(shift.contract, shift.serviceDate) && mileageMonth !== monthOf(shift.serviceDate)) {
+        const invoice = await contractInvoiceForMonth(tx, contractId, mileageMonth);
+        if (invoice?.invoice.status === "DRAFT") await refreshContractDraft(tx, shift.contract, mileageMonth, invoice.invoiceId);
+      }
+      await tx.auditLog.create({ data: { adminId: admin.id, action: "COMMERCIAL_SHIFT_CANCELLATION_REASON", entityType: "Booking", entityId: shift.booking.id, reason } });
+    });
+    return res.json({ message: "Cancellation reason saved." });
+  } catch (error) {
+    return res.status(409).json({ error: error instanceof Error ? error.message : "Unable to save the cancellation reason." });
+  }
+});
+
+router.get("/:customerId/:contractId/renewal", async (req, res) => {
+  const { customerId, contractId } = req.params;
+  const contract = await prisma.commercialContract.findFirst({ where: { id: contractId, customerId } });
+  if (!contract) return res.status(404).json({ error: "Commercial contract not found." });
+  const customer = await prisma.user.findUnique({ where: { id: customerId }, select: {
+    accountStatus: true, commercialTariffAssignment: { select: { tariff: { select: {
+      name: true, rates: { where: { vehicleType: contract.vehicleType } },
+    } } } },
+  } });
+  const tariff = customer?.commercialTariffAssignment?.tariff;
+  const rate = tariff?.rates[0];
+  if (customer?.accountStatus !== "ACTIVE" || !tariff || !rate) return res.status(409).json({ error: "Assign a current tariff with rates for this van before renewing." });
+  return res.json({ tariff: tariff.name, rate, rateKey: renewalRateKey(tariff.name, rate) });
+});
+
+function renewalRateKey(tariffName: string, rate: {
+  fare8Hours: Prisma.Decimal; fare12Hours: Prisma.Decimal; includedMiles8: Prisma.Decimal;
+  includedMiles12: Prisma.Decimal; extraMileRate: Prisma.Decimal;
+}) {
+  return JSON.stringify([tariffName, rate.fare8Hours, rate.includedMiles8, rate.fare12Hours, rate.includedMiles12, rate.extraMileRate]);
+}
 
 router.use((error: unknown, _req: import("express").Request, res: import("express").Response, _next: import("express").NextFunction) => {
   console.error("Commercial contract error:", error);

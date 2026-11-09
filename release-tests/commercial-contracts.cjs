@@ -22,7 +22,9 @@ let invoice;
 let invoiceLines = [];
 let bookedRows = [];
 let locked = false;
+let weeklyMileageRows = [];
 const prisma = {
+  commercialContractWeeklyMileage: { findMany: async () => weeklyMileageRows },
   $transaction: async run => {
     locked = false;
     return run(prisma);
@@ -33,7 +35,9 @@ const prisma = {
   commercialContract: { findUnique: async () => contract },
   commercialContractShift: {
     createMany: async ({data}) => { assert(data.every(shift => rows.some(booking => booking.id === shift.bookingId))); },
+    updateMany: async () => ({count:1}),
     findMany: async ({where, select}) => {
+      if (!where.serviceDate.lt) return shifts.filter(shift => shift.serviceDate >= where.serviceDate.gte);
       const matches = shifts.filter(shift => shift.serviceDate >= (where.serviceDate.gte || new Date(0)) && shift.serviceDate < where.serviceDate.lt);
       return select ? matches.map(({serviceDate}) => ({serviceDate,contractId:contract.id})) : matches;
     },
@@ -58,6 +62,7 @@ const prisma = {
   },
   invoiceAuditEvent: {create:async()=>{}},
 };
+prisma.commercialContract.findMany = async () => contract.weeklyMileageFrom ? [{ ...contract, shifts }] : [];
 function load(rel, mocks = {}) {
   const module = {exports:{}};
   const js = ts.transpileModule(source(rel), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
@@ -161,6 +166,7 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
     auditLog:{create:async ({data}) => {audit=data;}},
     commercialContract: {findFirst:async () => ({shifts:[previous,rotaShift]})},
     commercialContractShift: {
+      update:async () => {},
       findFirst:async ({where}) => where.id === rotaShift.id && where.contract.customerId === "customer" ?
         {...rotaShift, contract} : null,
       findMany:async ({where}) => {
@@ -384,6 +390,102 @@ function shift(id, day, hours, status, actualMiles, guaranteed = true, decision 
   await billing.refreshContractDraft(prisma,contract,"2026-10",invoice.id,true);
   assert.equal(invoice.subtotal.toFixed(2),"597.50");
   console.log("PASS one pending invoice per contract month, full guaranteed fare pending review, waiver, and excess-only mileage.");
+
+  contract.weeklyMileageFrom = new Date("2026-10-26T00:00:00Z");
+  shifts = [
+    shift("weekly-a","2026-10-26",8,"COMPLETED",140),
+    shift("weekly-b","2026-10-27",8,"COMPLETED",null),
+    shift("weekly-c","2026-10-28",8,"COMPLETED",null),
+    shift("weekly-d","2026-10-29",8,"COMPLETED",null),
+    shift("weekly-e","2026-10-30",8,"COMPLETED",null),
+  ];
+  assert.equal(billing.commercialWeekMonth(contract.weeklyMileageFrom),"2026-11");
+  assert.equal((await billing.readCommercialWeeks(prisma,contract,"2026-10")).length,0);
+  const due = (await billing.readCommercialWeeks(prisma,contract,"2026-11",new Date("2026-11-02T00:00Z")))[0];
+  assert.equal(due.due,true);
+  assert.equal(due.includedMiles.toFixed(0),"500");
+  await assert.rejects(billing.refreshContractDraft(prisma,contract,"2026-11",invoice.id,true),/Review weekly mileage/);
+  weeklyMileageRows=[{weekStart:contract.weeklyMileageFrom,actualMiles:D(540),updatedAt:new Date("2026-11-02T08:00Z")}];
+  const reviewed = (await billing.readCommercialWeeks(prisma,contract,"2026-11",new Date("2026-11-02T09:00Z")))[0];
+  assert.equal(reviewed.due,false);
+  assert.equal(reviewed.excessMiles.toFixed(0),"40");
+  assert.equal(reviewed.netCharge.toFixed(2),"50.00");
+  await billing.refreshContractDraft(prisma,contract,"2026-10",invoice.id,true);
+  assert.equal(invoiceLines.filter(line=>line.chargeType==="MILEAGE").length,0);
+  await billing.processCommercialContractBilling(new Date("2026-12-01T12:00Z"));
+  assert.equal(links.filter(row=>row.month==="2026-11").length,1);
+  assert.equal(invoice.total.toFixed(2),"60.00");
+  assert.match(invoiceLines[0].description,/Weekly excess mileage/);
+  assert.equal(invoiceLines[0].quantity.toFixed(0),"40");
+  await billing.refreshContractDraft(prisma,contract,"2026-11",invoice.id,true);
+  assert.equal(invoice.total.toFixed(2),"60.00");
+  weeklyMileageRows[0].actualMiles=D(480);
+  await billing.refreshContractDraft(prisma,contract,"2026-11",invoice.id,true);
+  assert.equal(invoice.total.toFixed(2),"0.00");
+  console.log("PASS weekly allowances pool, notices clear on review, and cross-month mileage invoices once without reusing daily mileage.");
+
+  const weeklyVersion = { ...contract };
+  let finalisedWeek = false;
+  let persistedWeek;
+  const weeklyTx = {
+    $executeRaw: async () => {},
+    commercialContract: { findFirst: async () => weeklyVersion },
+    commercialContractShift: prisma.commercialContractShift,
+    commercialContractWeeklyMileage: {
+      findMany: async () => persistedWeek ? [persistedWeek] : [],
+      upsert: async ({ create, update }) => {
+        persistedWeek = { ...create, ...update, updatedAt: new Date("2026-11-09T00:00Z") };
+      },
+    },
+    commercialContractInvoice: { findUnique: async () => finalisedWeek ? { invoice: { status: "PAID" } } : null },
+    auditLog: { create: async () => {} },
+  };
+  rotaDb.$transaction = async run => run(weeklyTx);
+  async function saveWeek(actualMiles, expectedUpdatedAt = null) {
+    const result = { status(code) { this.code=code; return this; }, json(body) { this.body=body; } };
+    await rotaHandlers.get("patch/:customerId/:contractId/weekly-review")({
+      params:{customerId:"customer",contractId:"contract"},body:{week:"2026-10-26",actualMiles,expectedUpdatedAt},
+    },result);
+    return result;
+  }
+  assert.equal((await saveWeek("-1")).code,400);
+  role="READ_ONLY";
+  assert.equal((await saveWeek("540")).code,403);
+  role="OFFICE_MANAGER";
+  finalisedWeek=true;
+  assert.equal((await saveWeek("540")).code,409);
+  assert.equal(persistedWeek,undefined);
+  finalisedWeek=false;
+  assert.equal((await saveWeek("540")).body.message,"Weekly mileage saved.");
+  assert.equal(persistedWeek.actualMiles.toFixed(0),"540");
+  assert.equal((await saveWeek("100")).code,409);
+  assert.equal(persistedWeek.actualMiles.toFixed(0),"540");
+
+  const editableShift={...rotaShift, hours:8, estimatedMiles:D(50), contract,
+    booking:{...rotaBooking, status:"CONFIRMED", driverId:null, vehicleId:null, reservation:null}};
+  rotaDb.commercialContractShift.findFirst=async()=>editableShift;
+  rotaDb.commercialContractShift.update=async({data})=>Object.assign(editableShift,data);
+  rotaDb.booking.update=async({data})=>Object.assign(editableShift.booking,data);
+  const shiftAction=async(path,body)=>{
+    const result={status(code){this.code=code;return this;},json(payload){this.body=payload;}};
+    await rotaHandlers.get("patch/:customerId/:contractId/shifts/:shiftId/"+path)({
+      params:{customerId:"customer",contractId:"contract",shiftId:editableShift.id},body,
+    },result);
+    return result;
+  };
+  assert.equal((await shiftAction("hours",{hours:12,expectedUpdatedAt:"stale"})).code,409);
+  assert.equal((await shiftAction("hours",{hours:12,expectedUpdatedAt:editableShift.booking.updatedAt.toISOString()})).body.message,"Shift hours and estimate updated.");
+  assert.equal(editableShift.booking.totalPrice.toFixed(2),"480.00");
+  assert.equal(editableShift.hoursOverride,true);
+  assert.equal(+editableShift.booking.estimatedEndTime-+editableShift.booking.estimatedStartTime,12*3600000);
+  editableShift.booking.status="CANCELLED";
+  weeklyTx.commercialContractShift={...weeklyTx.commercialContractShift,findFirst:async()=>editableShift,
+    update:async({data})=>Object.assign(editableShift,data)};
+  assert.equal((await shiftAction("cancellation-reason",{reason:""})).code,400);
+  assert.equal((await shiftAction("cancellation-reason",{reason:"Customer cancelled"})).body.message,"Cancellation reason saved.");
+  assert.equal(editableShift.cancellationReason,"Customer cancelled");
+  console.log("PASS weekly save locks and permissions, individual hours repricing, and commercial cancellation reason.");
+
 
   let contractShift = {id:"contract-shift"}, completed = false;
   const completionDb = {

@@ -133,9 +133,11 @@ model CommercialContract {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @default(now()) @updatedAt
   endedAt           DateTime?
+  weeklyMileageFrom DateTime?
 
   customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
   shifts   CommercialContractShift[]
+  weeklyMileage CommercialContractWeeklyMileage[]
   invoices CommercialContractInvoice[]
 
   @@index([customerId])
@@ -150,12 +152,26 @@ model CommercialContractShift {
   guaranteed  Boolean
   actualMiles Decimal?
   decision    String?
+  cancellationReason String?
+  estimatedMiles Decimal?
+  hoursOverride Boolean @default(false)
 
   contract CommercialContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
   booking  Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@unique([contractId, serviceDate])
   @@index([serviceDate])
+}
+
+model CommercialContractWeeklyMileage {
+  contractId  String
+  weekStart   DateTime
+  actualMiles Decimal
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  contract CommercialContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@id([contractId, weekStart])
 }
 
 model CommercialContractInvoice {

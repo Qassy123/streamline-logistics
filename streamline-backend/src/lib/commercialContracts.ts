@@ -14,6 +14,8 @@ type ShiftHours = 8 | 12;
 export const contractShiftInclude = {
   booking: { select: { id: true, reference: true, status: true, collectionAddress: true, deliveryAddress: true, totalPrice: true, estimatedStartTime: true,
     estimatedEndTime: true, driverId: true, vehicleId: true, driverJourneyStartedAt: true, updatedAt: true,
+    driver: { select: { name: true } },
+    vehicle: { select: { name: true } },
     reservation: { select: { id: true, vehicleId: true, status: true } }, } },
 } satisfies Prisma.CommercialContractShiftInclude;
 type Shift = Prisma.CommercialContractShiftGetPayload<{ include: typeof contractShiftInclude }>;
@@ -94,9 +96,19 @@ export async function createContractShifts(
   if (rows.some(({ booking }) => booking.estimatedStartTime && booking.estimatedStartTime <= new Date())) throw new Error("The shift start time must be in the future.");
   await tx.booking.createMany({ data: rows.map(row => row.booking) });
   await tx.commercialContractShift.createMany({ data: rows.map(row => row.shift) });
+  if (contract.deliveryAddress && distanceMiles > 0) {
+    await tx.commercialContractShift.updateMany({
+      where: { bookingId: { in: rows.map(row => row.booking.id) } }, data: { estimatedMiles: distanceMiles },
+    });
+  }
 }
 
 export function shiftReview(shift: Shift) {
+  return reviewContractShift(shift);
+}
+
+export function reviewContractShift(shift: Shift, weeklyMileage = false) {
+  if (weeklyMileage && shift.booking.status === "COMPLETED") return null;
   if (shift.decision === "WAIVE") return null;
   if (shift.booking.status === "COMPLETED") return shift.actualMiles === null ? "Record actual mileage." : null;
   if (shift.booking.status === "IN_PROGRESS") return "Complete or close the active shift before billing.";
@@ -110,6 +122,71 @@ function priceShift(contract: CommercialContract, shift: Shift) {
   return { fare: waived ? new Prisma.Decimal(0) : fare, excess, billable: !waived };
 }
 
+export function commercialWeekStart(date: Date) {
+  return new Date(+date - ((date.getUTCDay() + 6) % 7) * dayMs);
+}
+
+export function commercialWeekEnd(monday: Date) {
+  return new Date(+monday + 6 * dayMs);
+}
+
+export function commercialWeekMonth(monday: Date) {
+  return commercialWeekEnd(monday).toISOString().slice(0, 7);
+}
+
+export function usesWeeklyMileage(contract: Pick<CommercialContract, "weeklyMileageFrom">, serviceDate: Date) {
+  return Boolean(contract.weeklyMileageFrom && serviceDate >= contract.weeklyMileageFrom);
+}
+
+export async function readCommercialWeeks(tx: Tx, contract: CommercialContract, month?: string, now = new Date()) {
+  const weeklyFrom = contract.weeklyMileageFrom;
+  if (!weeklyFrom) return [];
+  const range = month ? contractMonthBounds(month) : null;
+  const lower = range ? new Date(Math.max(+weeklyFrom, +range.gte - 6 * dayMs)) : weeklyFrom;
+  const [shifts, saved] = await Promise.all([
+    tx.commercialContractShift.findMany({
+      where: { contractId: contract.id, serviceDate: { gte: lower, ...(range ? { lt: range.lt } : {}) } },
+      include: contractShiftInclude, orderBy: { serviceDate: "asc" },
+    }),
+    tx.commercialContractWeeklyMileage.findMany({
+      where: { contractId: contract.id, weekStart: { gte: lower, ...(range ? { lt: range.lt } : {}) } },
+    }),
+  ]);
+  const groups = new Map<string, Shift[]>();
+  for (const shift of shifts) {
+    const monday = commercialWeekStart(shift.serviceDate);
+    const weekStart = monday.toISOString().slice(0, 10);
+    if (month && commercialWeekMonth(monday) !== month) continue;
+    const group = groups.get(weekStart) ?? [];
+    group.push(shift);
+    groups.set(weekStart, group);
+  }
+  return [...groups.entries()].map(([weekStart, weekShifts]) => {
+    const monday = calendarDate(weekStart);
+    const weekEnd = commercialWeekEnd(monday);
+    const recorded = saved.find(item => +item.weekStart === +monday);
+    const includedMiles = weekShifts.reduce((sum, shift) => priceShift(contract, shift).billable
+      ? sum.add(rateFor(contract, shift.hours).included) : sum, new Prisma.Decimal(0));
+    const estimates = weekShifts.filter(shift => shift.booking.status !== "CANCELLED" && shift.decision !== "WAIVE");
+    const estimatedMiles = estimates.length && estimates.every(shift => shift.estimatedMiles != null)
+      ? estimates.reduce((sum, shift) => sum.add(shift.estimatedMiles!), new Prisma.Decimal(0)) : null;
+    const actualMiles = recorded?.actualMiles ?? null;
+    const excessMiles = actualMiles === null ? null : Prisma.Decimal.max(0, actualMiles.sub(includedMiles));
+    const closed = weekEnd < contractToday(now);
+    const issues = weekShifts.flatMap(shift => {
+      const reason = reviewContractShift(shift, true);
+      return reason ? [{ reference: shift.booking.reference, date: shift.serviceDate, reason }] : [];
+    });
+    return {
+      weekStart, weekEnd: weekEnd.toISOString().slice(0, 10), month: commercialWeekMonth(monday),
+      closed, issues, estimatedMiles, includedMiles, actualMiles, excessMiles,
+      netCharge: excessMiles?.mul(contract.extraMileRate).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP) ?? null,
+      updatedAt: recorded?.updatedAt ?? null,
+      due: closed && (actualMiles === null || issues.length > 0),
+    };
+  });
+}
+
 async function monthShifts(tx: Tx, contractId: string, month: string) {
   return tx.commercialContractShift.findMany({
     where: { contractId, serviceDate: contractMonthBounds(month) },
@@ -119,7 +196,12 @@ async function monthShifts(tx: Tx, contractId: string, month: string) {
 
 export async function refreshContractDraft(tx: Tx, contract: CommercialContract, month: string, invoiceId: string, finalising = false) {
   const shifts = await monthShifts(tx, contract.id, month);
+  const weeks = await readCommercialWeeks(tx, contract, month);
+  if (finalising && weeks.some(week => week.due || !week.closed)) {
+    throw new Error("Review weekly mileage and shift exceptions in Commercial Contracts before finalising this invoice.");
+  }
   if (finalising) {
+    const shiftReview = (shift: Shift) => reviewContractShift(shift, usesWeeklyMileage(contract, shift.serviceDate));
     const unreviewed = shifts.filter(shiftReview);
     if (unreviewed.length) throw new Error(`Review ${unreviewed.length} shift(s) in Commercial Contracts before finalising this invoice.`);
   }
@@ -129,6 +211,9 @@ export async function refreshContractDraft(tx: Tx, contract: CommercialContract,
   const money = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
   const sum = (values: Prisma.Decimal[]) => values.reduce((total, value) => total.add(value), new Prisma.Decimal(0));
   const rows = shifts.map(shift => ({ shift, ...priceShift(contract, shift) }));
+  for (const row of rows) {
+    if (usesWeeklyMileage(contract, row.shift.serviceDate)) row.excess = new Prisma.Decimal(0);
+  }
   const lines: Prisma.InvoiceLineCreateManyInput[] = [];
   function line(description: string, quantity: number | Prisma.Decimal, unitPrice: Prisma.Decimal, chargeType: "BASE_SERVICE" | "MILEAGE") {
     const netAmount = money(unitPrice.mul(quantity));
@@ -142,6 +227,9 @@ export async function refreshContractDraft(tx: Tx, contract: CommercialContract,
   }
   const extra = sum(rows.map(row => row.excess));
   if (extra.gt(0)) line("Extra mileage (per mile)", extra, contract.extraMileRate, "MILEAGE");
+  for (const week of weeks) {
+    if (week.excessMiles?.gt(0)) line(`Weekly excess mileage · week ending ${week.weekEnd}`, week.excessMiles, contract.extraMileRate, "MILEAGE");
+  }
 
   await tx.invoiceLine.deleteMany({ where: { invoiceId, sourceType } });
   if (lines.length) await tx.invoiceLine.createMany({ data: lines });
@@ -170,6 +258,17 @@ export async function processCommercialContractBilling(now = new Date()) {
     prisma.commercialContractShift.findMany({ where: { serviceDate: { lt: cutoff } }, select: { contractId: true, serviceDate: true }, distinct: ["contractId", "serviceDate"] }),
     prisma.commercialContractInvoice.findMany({ select: { contractId: true, month: true } }),
   ]);
+  const weeklyContracts = await prisma.commercialContract.findMany({
+    where: { weeklyMileageFrom: { lt: cutoff } },
+    select: { id: true, weeklyMileageFrom: true, shifts: { where: { serviceDate: { lt: cutoff } }, select: { serviceDate: true } } },
+  });
+  for (const contract of weeklyContracts) {
+    for (const shift of contract.shifts) {
+      if (!usesWeeklyMileage(contract, shift.serviceDate)) continue;
+      const sunday = commercialWeekEnd(commercialWeekStart(shift.serviceDate));
+      if (sunday < cutoff) pastShifts.push({ contractId: contract.id, serviceDate: sunday });
+    }
+  }
   const known = new Set(existing.map(row => `${row.contractId}:${row.month}`));
   for (const shift of pastShifts) {
     const dates = tradeMonth(shift.serviceDate);
