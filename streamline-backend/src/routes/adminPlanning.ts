@@ -456,6 +456,9 @@ router.patch(
         });
       }
 
+      if (!booking.collectionWindow && await prisma.commercialContractShift.findUnique({ where: { bookingId: booking.id }, select: { id: true } })) {
+        return res.status(409).json({ error: "Set the contract shift’s start time in Weekly Rota before assigning a van." });
+      }
       if (req.body.driverId !== undefined && (getString(req.body.driverId) || null) !== booking.driverId) {
         return res.status(409).json({ error: "Assign or remove drivers through Admin â†’ Drivers." });
       }
@@ -704,8 +707,17 @@ router.patch(
         await prisma.$transaction(
           async (transaction) => {
             await fleetMutation(transaction, undefined, "Planning assignment updated");
-            const fresh = await transaction.booking.findUniqueOrThrow({ where: { id: booking.id } });
+            const fresh = await transaction.booking.findUniqueOrThrow({
+              where: { id: booking.id },
+              include: { commercialContractShift: { select: { id: true } } },
+            });
             if (+fresh.updatedAt !== +booking.updatedAt) throw new DriverPortalError(409, "Booking changed. Refresh before assigning.");
+            if (fresh.commercialContractShift && (!fresh.estimatedStartTime || !fresh.estimatedEndTime)) {
+              throw new DriverPortalError(409, "Set the contract shift’s start time in Weekly Rota before assigning a van.");
+            }
+            if (driverId && fresh.commercialContractShift && !fresh.deliveryAddress.trim()) {
+              throw new DriverPortalError(409, "Enter the contract shift’s delivery address before assigning a driver.");
+            }
             const planned = await bookingWindow(transaction, fresh);
             await assertPlan(transaction, { bookingId: booking.id, quoteId: booking.quoteId, driverId: driverId === undefined ? fresh.driverId : driverId, vehicleId: vehicleId === undefined ? fresh.vehicleId : vehicleId, ...planned });
             const effectiveDriverId =

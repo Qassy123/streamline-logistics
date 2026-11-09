@@ -1,11 +1,12 @@
 "use client";
 import {adminFetch} from "@/lib/adminFetch";
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
+import { useAdminSession } from "@/components/admin/AdminSession";
 import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import {existingBookingsGrid,confirmedGridStatuses} from "@/lib/existingBookingsGrid";
 import { calendarInterval, calendarTimeText } from "@/lib/bookingCalendar";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -62,6 +63,7 @@ type Booking = {
   estimatedEndTime?: string | null;
   collectionAddress: string;
   deliveryAddress: string;
+  commercialContractShift?: { id: string } | null;
   returnAddress?: string | null;
   customerReference?: string | null;
   purchaseOrderNumber?: string | null;
@@ -660,12 +662,17 @@ export default function AdminBookingsPage() {
 
       {selectedBooking ? (
         <BookingDetailsModal
+          key={selectedBooking.id}
           booking={selectedBooking}
           vehicles={vehicles}
           drivers={drivers}
           adminKey={adminKey}
           onAssigned={async () => {
             setSelectedBooking(null);
+            await loadBookings(true);
+          }}
+          onDeliverySaved={async (deliveryAddress, updatedAt) => {
+            setSelectedBooking(current => current?.id === selectedBooking.id ? { ...current, deliveryAddress, updatedAt } : current);
             await loadBookings(true);
           }}
           onCancelled={async () => {
@@ -694,6 +701,8 @@ function BookingBlock({
 }) {
   const interval = calendarInterval(booking, selectedDate);
   if(!interval&&booking.collectionDate.slice(0,10)!==selectedDate)return null;
+  const needsDeliveryAddress = booking.commercialContractShift && !booking.deliveryAddress.trim();
+  const timingLabel = interval ? bookingTimeText(booking) : booking.commercialContractShift ? "Time to be confirmed" : "Time not recorded";
   const left = interval ? interval.start / 60 * HOUR_WIDTH : 0;
   const width = interval ? (interval.end - interval.start) / 60 * HOUR_WIDTH : 260;
 
@@ -701,7 +710,7 @@ function BookingBlock({
     <button
       type="button"
       onClick={onClick}
-      title={`${bookingCustomerName(booking)} · ${booking.reference} · ${interval?bookingTimeText(booking):"Time not recorded"}${assignment==="reserved"?" · Van reserved, awaiting assignment":assignment==="unassigned"?" · Awaiting assignment":""}`}
+      title={`${bookingCustomerName(booking)} · ${booking.reference} · ${timingLabel}${assignment==="reserved"?" · Van reserved, awaiting assignment":assignment==="unassigned"?" · Awaiting assignment":""}${needsDeliveryAddress ? " · Delivery address needed" : ""}`}
       className={`absolute z-10 overflow-hidden rounded-xl border-l-4 px-3 py-2 text-left shadow-sm transition hover:z-20 hover:-translate-y-0.5 hover:shadow-md ${statusClasses(
         booking.status,
       )}`}
@@ -717,12 +726,12 @@ function BookingBlock({
       </p>
 
       <p className="mt-1 truncate text-[11px] font-bold opacity-75">
-        {interval?bookingTimeText(booking):"Time not recorded"}{assignment!=="assigned"?" · Awaiting assignment":""}
+        {timingLabel}{assignment!=="assigned"?" · Awaiting assignment":""}
       </p>
 
       {width >= 125 ? (
         <p className="mt-0.5 truncate text-[10px] font-semibold opacity-60">
-          {booking.reference}
+          {needsDeliveryAddress ? "Delivery address needed" : booking.reference}
         </p>
       ) : null}
     </button>
@@ -736,6 +745,7 @@ function BookingDetailsModal({
   adminKey,
   onAssigned,
   onCancelled,
+  onDeliverySaved,
   onClose,
 }: {
   booking: Booking;
@@ -744,8 +754,44 @@ function BookingDetailsModal({
   adminKey: string;
   onAssigned: () => Promise<void>;
   onCancelled: () => Promise<void>;
+  onDeliverySaved: (address: string, updatedAt: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const { admin } = useAdminSession();
+  const needsDeliveryAddress = Boolean(booking.commercialContractShift && !booking.deliveryAddress.trim());
+  const canEditDelivery = booking.commercialContractShift && !booking.driver?.id &&
+    ["CONFIRMED", "ASSIGNED"].includes(booking.status) && admin.role !== "READ_ONLY";
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const [deliveryError, setDeliveryError] = useState("");
+  const [deliverySaved, setDeliverySaved] = useState(false);
+
+  async function saveDeliveryAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const deliveryAddress = String(new FormData(event.currentTarget).get("deliveryAddress") ?? "").trim();
+    setDeliverySaved(false);
+    if (!deliveryAddress) {
+      setDeliveryError("Enter the delivery address for this shift.");
+      return;
+    }
+    setSavingDelivery(true);
+    setDeliveryError("");
+    try {
+      const response = await adminFetch(`${API_BASE}/api/bookings/admin/${encodeURIComponent(booking.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryAddress, expectedUpdatedAt: booking.updatedAt }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to save the delivery address.");
+      await onDeliverySaved(payload.booking.deliveryAddress, payload.booking.updatedAt);
+      setDeliverySaved(true);
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "Unable to save the delivery address.");
+    } finally {
+      setSavingDelivery(false);
+    }
+  }
+
   const requiredVehicleType =
     booking.vehicleType || booking.quote?.vehicleSize || booking.vehicle?.vehicleType || "";
 
@@ -968,10 +1014,22 @@ function BookingDetailsModal({
               value={booking.collectionAddress}
             />
 
-            <DetailItem
-              label="Delivery Address"
-              value={booking.deliveryAddress}
-            />
+            {canEditDelivery ? (
+              <form onSubmit={saveDeliveryAddress} className="space-y-2 rounded-xl border border-slate-200 p-4">
+                <label className="block text-sm font-semibold">Delivery address
+                  <input name="deliveryAddress" defaultValue={booking.deliveryAddress} required maxLength={1500}
+                    disabled={savingDelivery || assigning || cancelling}
+                    className="mt-2 w-full rounded-lg border border-slate-300 p-2" />
+                </label>
+                {deliveryError && <p role="alert" className="text-sm text-red-700">{deliveryError}</p>}
+                {deliverySaved && <p role="status" className="text-sm text-green-700">Delivery address saved for this shift.</p>}
+                <button disabled={savingDelivery || assigning || cancelling} className="rounded-lg bg-[#FF6A00] px-3 py-2 text-sm font-bold text-white disabled:opacity-50">
+                  {savingDelivery ? "Saving…" : "Save delivery address"}
+                </button>
+              </form>
+            ) : (
+              <DetailItem label="Delivery Address" value={needsDeliveryAddress ? "Delivery address needed" : booking.deliveryAddress} />
+            )}
 
             {booking.returnAddress ? (
               <DetailItem
@@ -996,7 +1054,11 @@ function BookingDetailsModal({
           </div>
 
           <BookingPriceBreakdown booking={booking} />
-          {!booking.vehicle?.id || !booking.driver?.id ? <div className="mt-6 border-t border-slate-200 pt-6"><h3 className="text-sm font-bold">Dispatch assignment</h3><p className="mt-2 text-sm text-slate-600">Assign the vehicle and driver through Driver Management.</p><a href="/admin/drivers" className="mt-3 inline-flex min-h-12 items-center rounded-xl bg-[#FF6A00] px-5 font-bold text-white">Open Drivers</a></div> : null}
+          {booking.commercialContractShift && !booking.estimatedStartTime ? (
+            <p className="mt-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Set the start time in the customer’s Weekly Rota before assigning this shift.</p>
+          ) : needsDeliveryAddress ? (
+            <p className="mt-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Add the delivery address before assigning a driver.</p>
+          ) : !booking.vehicle?.id || !booking.driver?.id ? <div className="mt-6 border-t border-slate-200 pt-6"><h3 className="text-sm font-bold">Dispatch assignment</h3><p className="mt-2 text-sm text-slate-600">Assign the vehicle and driver through Driver Management.</p><a href="/admin/drivers" className="mt-3 inline-flex min-h-12 items-center rounded-xl bg-[#FF6A00] px-5 font-bold text-white">Open Drivers</a></div> : null}
 
           {!["CANCELLED", "COMPLETED", "EXPIRED"].includes(booking.status) ? (
             <div className="mt-6 border-t border-slate-200 pt-6">
@@ -1009,7 +1071,7 @@ function BookingDetailsModal({
               <button
                 type="button"
                 onClick={() => void cancelBooking()}
-                disabled={cancelling || assigning}
+                disabled={cancelling || assigning || savingDelivery}
                 className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {cancelling ? "Cancelling Booking..." : "Cancel Booking"}

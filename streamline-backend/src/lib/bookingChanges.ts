@@ -35,6 +35,9 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
     const returnAddress = body.returnAddress === undefined ? current.returnAddress : text(body.returnAddress) || null;
     if (!collectionAddress || !deliveryAddress || collectionAddress.length > 1500 || deliveryAddress.length > 1500)
         throw new Error("Enter valid collection and delivery addresses.");
+    if (current.commercialContractShift && deliveryAddress !== current.deliveryAddress &&
+        (current.driverId || !["CONFIRMED", "ASSIGNED"].includes(current.status)))
+        throw new Error("Change the delivery address on an unstarted contract shift before assigning a driver.");
     let extraDrops = body.extraDrops === undefined ? current.extraDrops : body.extraDrops;
     if (typeof extraDrops === "string") {
         try {
@@ -92,7 +95,7 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
             else
                 await tx.vehicleReservation.create({ data: { bookingId: id, quoteId: current.quoteId, vehicleId: reservedVehicleId, reservedFrom: window.reservedFrom, reservedUntil: window.reservedUntil, status: "CONFIRMED" } });
         }
-        await tx.invoiceBooking.updateMany({ where: { bookingId: id, invoice: { status: "DRAFT" } }, data: { bookingDate: collectionDate, routeDescription: `${collectionAddress} → ${deliveryAddress}`, serviceDescription: vehicleSize, ...(body.purchaseOrderNumber !== undefined ? { poReference: text(body.purchaseOrderNumber) || null } : {}) } });
+        if (!current.commercialContractShift) await tx.invoiceBooking.updateMany({ where: { bookingId: id, invoice: { status: "DRAFT" } }, data: { bookingDate: collectionDate, routeDescription: `${collectionAddress} → ${deliveryAddress}`, serviceDescription: vehicleSize, ...(body.purchaseOrderNumber !== undefined ? { poReference: text(body.purchaseOrderNumber) || null } : {}) } });
         const vatRate = (await tx.companySettings.findFirst({ orderBy: { createdAt: "asc" }, select: { vatRate: true } }))?.vatRate || new Prisma.Decimal(20);
         const net = total.div(new Prisma.Decimal(1).add(vatRate.div(100))).toDecimalPlaces(2), vat = total.sub(net);
         if (quote)
@@ -108,7 +111,7 @@ export async function editBooking(id: string, body: Record<string, unknown>) {
             else
                 await queueBusinessRefund(tx, { ...current, totalPrice: total }, reason);
         }
-        if (billingType === "TRADE" && current.userId)
+        if (!current.commercialContractShift && billingType === "TRADE" && current.userId)
             await refreshTradeBalance(tx, current.userId);
         await tx.auditLog.create({ data: { action: "BOOKING_DETAILS_CORRECTED", entityType: "Booking", entityId: id, reason, oldValue: { total: current.totalPrice.toFixed(2), collectionAddress: current.collectionAddress, deliveryAddress: current.deliveryAddress, start: current.estimatedStartTime?.toISOString() || null, end: current.estimatedEndTime?.toISOString() || null }, newValue: { total: total.toFixed(2), adjustment: adjustment.toFixed(2), distanceMiles: calculated?.distanceMiles || Number(quote?.distanceMiles || 0), collectionAddress, deliveryAddress, start: window?.reservedFrom.toISOString() || current.estimatedStartTime?.toISOString() || null, end: window?.reservedUntil.toISOString() || current.estimatedEndTime?.toISOString() || null } } });
         return tx.booking.findUniqueOrThrow({ where: { id }, include: bookingEditInclude });

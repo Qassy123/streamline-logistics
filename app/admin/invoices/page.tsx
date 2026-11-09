@@ -1709,12 +1709,15 @@ function AdminInvoicesContent() {
               </div>
 
               {selectedInvoice.commercialContractInvoice && selectedInvoice.userId && (
-                <a
-                  className="inline-flex rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-orange-800"
-                  href={`/admin/customers/${selectedInvoice.userId}/contracts?month=${encodeURIComponent(selectedInvoice.commercialContractInvoice.month)}`}
-                >
-                  View contract shifts and billing review
-                </a>
+                <div className="space-y-2 rounded-xl border border-slate-300 p-4">
+                  {selectedInvoice.status === "DRAFT" && (
+                    <p className="text-sm font-semibold text-amber-900">Review any cancelled or unused contract shifts and confirm or waive their charges before finalising.</p>
+                  )}
+                  <a className="inline-flex text-sm font-bold text-orange-800 underline"
+                    href={`/admin/customers/${selectedInvoice.userId}/contracts?month=${encodeURIComponent(selectedInvoice.commercialContractInvoice.month)}`}>
+                    View contract shifts and billing review
+                  </a>
+                </div>
               )}
 
               {selectedInvoice.invoiceType !== "CONSOLIDATED" && selectedInvoice.status === "DRAFT" ? (

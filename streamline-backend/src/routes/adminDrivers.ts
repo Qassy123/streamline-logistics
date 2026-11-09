@@ -139,7 +139,10 @@ router.get("/", route(async (_req, res) => {
 
 router.get("/dispatch", route(async (req, res) => {
   const page = number(req.query.page, 1, 10000), pageSize = number(req.query.pageSize, 25, 100);
-  const where: Prisma.BookingWhereInput = { status: { in: activeStatuses } };
+  const where: Prisma.BookingWhereInput = {
+    status: { in: activeStatuses },
+    NOT: { commercialContractShift: { isNot: null }, OR: [{ deliveryAddress: "" }, { estimatedStartTime: null }] },
+  };
   const category = text(req.query.vehicleType, 100);
   if (category && category !== "ALL") {
     const categoryWhere = dispatchCategoryFilter(category);
@@ -234,6 +237,12 @@ export const assignDriverJob = route(async (req, res) => {
     }
     if (![BookingStatus.CONFIRMED, BookingStatus.ASSIGNED].includes(booking.status as "CONFIRMED" | "ASSIGNED") || booking.driverJourneyStartedAt) {
       throw new DriverPortalError(409, "Only released, unstarted jobs can be assigned. Resolve active or closed jobs first.");
+    }
+    if (booking.commercialContractShift && !booking.deliveryAddress.trim()) {
+      throw new DriverPortalError(409, "Enter the contract shift’s delivery address before assigning a driver.");
+    }
+    if (booking.commercialContractShift && (!booking.estimatedStartTime || !booking.estimatedEndTime)) {
+      throw new DriverPortalError(409, "Set the contract shift’s start time in Weekly Rota before assigning a driver.");
     }
     const expected = text(req.body?.expectedUpdatedAt, 100);
     if (expected && new Date(expected).getTime() !== booking.updatedAt.getTime()) throw new DriverPortalError(409, "This booking changed. Refresh before assigning it.");

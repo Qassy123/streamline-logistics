@@ -12,7 +12,9 @@ export const contractVehicleTypes = ["Small Van", "SWB Van", "LWB High Roof Van"
 type Tx = Prisma.TransactionClient;
 type ShiftHours = 8 | 12;
 export const contractShiftInclude = {
-  booking: { select: { id: true, reference: true, status: true, estimatedStartTime: true } },
+  booking: { select: { id: true, reference: true, status: true, deliveryAddress: true, estimatedStartTime: true,
+    estimatedEndTime: true, driverId: true, vehicleId: true, driverJourneyStartedAt: true, updatedAt: true,
+    reservation: { select: { id: true, vehicleId: true, status: true } }, } },
 } satisfies Prisma.CommercialContractShiftInclude;
 type Shift = Prisma.CommercialContractShiftGetPayload<{ include: typeof contractShiftInclude }>;
 
@@ -27,6 +29,17 @@ export function contractMonthBounds(month: string) {
   if (!/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Select a valid month.");
   const [year, number] = month.split("-").map(Number);
   return { gte: new Date(Date.UTC(year, number - 1, 1)), lt: new Date(Date.UTC(year, number, 1)) };
+}
+
+export const shiftTimePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function contractShiftTiming(serviceDate: Date, startsAt: string, hours: number) {
+  if (!startsAt) return { collectionWindow: "", estimatedStartTime: null, estimatedEndTime: null, vehicleAvailableAt: null };
+  const { reservedFrom: start } = getReservationWindow(serviceDate, `${startsAt}-${startsAt}`);
+  const end = new Date(+start + hours * 3600000);
+  const clock = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  if (clock.format(start) !== startsAt) throw new Error("This start time falls in the UK clock change. Choose a different time.");
+  return { collectionWindow: `${startsAt}-${clock.format(end)}`, estimatedStartTime: start, estimatedEndTime: end, vehicleAvailableAt: end };
 }
 
 export function contractToday(now = new Date()) {
@@ -59,26 +72,20 @@ export async function createContractShifts(
   if (!settings) throw new Error("Configure company settings before creating shifts.");
   const grossMultiplier = settings.vatRate.div(100).add(1);
   const rows = dates.map(({ serviceDate, hours }) => {
-    const collectionWindow = `${contract.startsAt}-${contract.startsAt}`;
-    const { reservedFrom: start } = getReservationWindow(serviceDate, collectionWindow);
-    const end = new Date(+start + hours * 3600000);
-    const clock = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-    if (clock.format(start) !== contract.startsAt) throw new Error("A shift start falls in the UK clock change. Choose a different start time.");
     const bookingId = randomUUID();
     return {
       shift: { contractId: contract.id, bookingId, serviceDate, hours, guaranteed },
       booking: {
         id: bookingId, reference: `CONTRACT-${bookingId}`, status: "CONFIRMED" as const,
         userId: contract.customerId, billingAccountType: "TRADE" as const, vehicleType: contract.vehicleType,
-        collectionDate: serviceDate, collectionWindow: `${contract.startsAt}-${clock.format(end)}`,
+        collectionDate: serviceDate, ...contractShiftTiming(serviceDate, contract.startsAt, hours),
         collectionAddress: contract.collectionAddress, deliveryAddress: contract.deliveryAddress,
-        estimatedStartTime: start, estimatedEndTime: end, vehicleAvailableAt: end,
         totalPrice: rateFor(contract, hours).fare.mul(grossMultiplier).toDecimalPlaces(2), purchaseOrderNumber: contract.purchaseOrder,
         createdByAdminId: adminId,
       },
     };
   });
-  if (rows.some(row => row.booking.estimatedStartTime <= new Date())) throw new Error("The shift start time must be in the future.");
+  if (rows.some(({ booking }) => booking.estimatedStartTime && booking.estimatedStartTime <= new Date())) throw new Error("The shift start time must be in the future.");
   await tx.booking.createMany({ data: rows.map(row => row.booking) });
   await tx.commercialContractShift.createMany({ data: rows.map(row => row.shift) });
 }

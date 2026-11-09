@@ -1777,7 +1777,7 @@ export default function AdminPlanningBoardPage() {
                   <a key={booking.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm hover:underline"
                     href={`/admin/bookings?booking=${encodeURIComponent(booking.id)}`}>
                     <span className="font-semibold">{bookingCustomerName(booking)} · {booking.reference}</span>
-                    <span>{calendarTimeText(booking)} · Open booking</span>
+                    <span>{booking.estimatedStartTime ? calendarTimeText(booking) : "Time to be confirmed"} · Open booking</span>
                   </a>
                 ))}
               </div>

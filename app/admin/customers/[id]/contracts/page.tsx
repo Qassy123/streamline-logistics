@@ -12,6 +12,13 @@ const button = "min-h-10 rounded-lg bg-[#E55300] px-4 py-2 text-sm font-bold tex
 const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 const dateLabel = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "Europe/London" });
 const today = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/London" });
+const timeLabel = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const dayMs = 86400000;
+function mondayOf(day: string) {
+  const date = new Date(`${day}T00:00:00Z`);
+  return new Date(+date - ((date.getUTCDay() + 6) % 7) * dayMs).toISOString().slice(0, 10);
+}
+const shiftStart = (shift: Shift) => shift.booking.estimatedStartTime ? timeLabel.format(new Date(shift.booking.estimatedStartTime)) : "";
 
 type Shift = {
   id: string;
@@ -21,14 +28,16 @@ type Shift = {
   actualMiles: string | null;
   decision: "BILL" | "WAIVE" | null;
   review: string | null;
-  booking: { id: string; reference: string; status: string; estimatedStartTime: string | null };
+  booking: {
+    id: string; reference: string; status: string; deliveryAddress: string; estimatedStartTime: string | null;
+    estimatedEndTime: string | null; driverId: string | null; driverJourneyStartedAt: string | null; updatedAt: string;
+  };
 };
 type Contract = {
   id: string;
   vehicleType: string;
   startsOn: string;
   endsOn: string;
-  startsAt: string;
   tariffName: string;
   fare8Hours: string;
   fare12Hours: string;
@@ -62,6 +71,8 @@ function CommercialContracts() {
   });
   const [overview, setOverview] = useState<Overview>();
   const [creating, setCreating] = useState(false);
+  const [variableDelivery, setVariableDelivery] = useState(false);
+  const [openRota, setOpenRota] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -111,12 +122,13 @@ function CommercialContracts() {
     const form = new FormData(event.currentTarget);
     requestId.current ||= crypto.randomUUID();
     const success = await save("", {
-      ...Object.fromEntries(form), requestId: requestId.current,
+      ...Object.fromEntries(form), requestId: requestId.current, variableDelivery,
       weeklyPattern: weekdays.map((_, index) => Number(form.get(`day${index}`))),
     });
     if (success) {
       requestId.current = "";
       setCreating(false);
+      setVariableDelivery(false);
     }
   }
 
@@ -143,13 +155,24 @@ function CommercialContracts() {
           <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="text-sm font-semibold">Start date<input className={field} name="startsOn" type="date" min={today()} required /></label>
             <label className="text-sm font-semibold">End date<input className={field} name="endsOn" type="date" min={today()} required /></label>
-            <label className="text-sm font-semibold">Shift start (UK time)<input className={field} name="startsAt" type="time" defaultValue="08:00" required /></label>
             <label className="text-sm font-semibold">Van type<select className={field} name="vehicleType" required>
               <option value="">Select a van</option>
               {overview.vehicleTypes.map(vehicle => <option key={vehicle}>{vehicle}</option>)}
             </select></label>
             <label className="text-sm font-semibold lg:col-span-2">Collection address<input className={field} name="collectionAddress" maxLength={1500} required /></label>
-            <label className="text-sm font-semibold lg:col-span-2">Delivery address<input className={field} name="deliveryAddress" maxLength={1500} required /></label>
+            <div className="space-y-2 lg:col-span-2">
+              <label className="flex items-center gap-2 text-sm font-semibold">
+                <input type="checkbox" checked={variableDelivery} onChange={event => setVariableDelivery(event.target.checked)} />
+                Delivery address varies by shift
+              </label>
+              {variableDelivery ? (
+                <p className="text-sm text-slate-600">Add the delivery address on each booking before assigning a driver.</p>
+              ) : (
+                <label className="block text-sm font-semibold">Delivery address
+                  <input className={field} name="deliveryAddress" maxLength={1500} required />
+                </label>
+              )}
+            </div>
             <label className="text-sm font-semibold lg:col-span-2">Purchase order<input className={field} name="purchaseOrder" maxLength={120} required={overview.poRequired} /></label>
           </fieldset>
           <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
@@ -162,10 +185,12 @@ function CommercialContracts() {
               </label>
             ))}
           </fieldset>
+          <p className="text-sm text-slate-600">The weekly pattern repeats between the contract dates. Add the start times in Weekly Rota after saving.</p>
           <button className={button} disabled={busy || !overview.vehicleTypes.length}>Save contract and create shifts</button>
         </form>
       )}
-      <label className="block max-w-xs text-sm font-semibold">View shift month
+      <label className="block max-w-xs text-sm font-semibold">Shift history and billing month
+        <span className="my-1 block font-normal text-slate-600">Filters the shift list and invoice below.</span>
         <input className={field} type="month" value={month} onChange={event => {
           if (!event.target.value) return;
           setOverview(undefined);
@@ -184,17 +209,24 @@ function CommercialContracts() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold">{contract.vehicleType} · {contract.tariffName}</h2>
-                <p className="text-sm text-slate-600">{dateLabel.format(new Date(contract.startsOn))} to {dateLabel.format(new Date(contract.endsOn))} · {contract.startsAt} start</p>
+                <p className="text-sm text-slate-600">{dateLabel.format(new Date(contract.startsOn))} to {dateLabel.format(new Date(contract.endsOn))}</p>
                 <p className="mt-1 text-sm text-slate-600">
                   8 hours {money.format(Number(contract.fare8Hours))} / {contract.includedMiles8} miles ·
                   {" "}12 hours {money.format(Number(contract.fare12Hours))} / {contract.includedMiles12} miles ·
                   {" "}{money.format(Number(contract.extraMileRate))} per extra mile
                 </p>
               </div>
+              <button type="button" className={button} aria-expanded={openRota === contract.id}
+                onClick={() => setOpenRota(current => current === contract.id ? null : contract.id)}>
+                {openRota === contract.id ? "Close Weekly Rota" : "Weekly Rota"}
+              </button>
               {invoice && <Link className="font-bold text-orange-800 underline" href={`/admin/invoices?invoice=${encodeURIComponent(invoice.invoiceNumber)}`}>
                 Invoice {invoice.invoiceNumber} · {money.format(Number(invoice.total))}
               </Link>}
             </div>
+            {openRota === contract.id && (
+              <WeeklyRota endpoint={`${endpoint}/${contract.id}/rota`} canEdit={canEdit} onSaved={load} />
+            )}
             {pendingReview > 0 && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
               {pendingReview} shift(s) need billing review. Guaranteed unused shifts are included at the agreed fare until waived.
             </p>}
@@ -226,8 +258,15 @@ function CommercialContracts() {
                       <p className="font-bold">{dateLabel.format(new Date(shift.serviceDate))} · {shift.hours} hours · {shift.guaranteed ? "Guaranteed" : "Extra"}</p>
                       <p className="text-slate-600">
                         <Link className="font-semibold underline" href={`/admin/bookings?booking=${encodeURIComponent(shift.booking.id)}`}>{shift.booking.reference}</Link>
-                        {" "}· {shift.booking.status.replaceAll("_", " ")}
+                        {" "}· {shift.booking.status.replaceAll("_", " ")} · {shiftStart(shift) || "Time to be confirmed"}
                       </p>
+                      {shift.booking.deliveryAddress ? (
+                        <p className="text-slate-600">{shift.booking.deliveryAddress}</p>
+                      ) : ["CONFIRMED", "ASSIGNED"].includes(shift.booking.status) ? (
+                        <Link className="font-semibold text-amber-800 underline" href={`/admin/bookings?booking=${encodeURIComponent(shift.booking.id)}`}>
+                          Delivery address needed
+                        </Link>
+                      ) : null}
                       {shift.review && <p className="text-amber-800">{shift.review}</p>}
                     </div>
                     {canReview ? (
@@ -260,5 +299,159 @@ function CommercialContracts() {
         );
       })}
     </main>
+  );
+}
+
+function WeeklyRota({ endpoint, canEdit, onSaved }: {
+  endpoint: string;
+  canEdit: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [week, setWeek] = useState(() => mondayOf(today()));
+  function stepWeek(offset: number) {
+    setWeek(new Date(Date.parse(`${week}T00:00:00Z`) + offset * 7 * dayMs).toISOString().slice(0, 10));
+  }
+  return (
+    <section aria-label="Weekly Rota" className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-end gap-2">
+        <button type="button" className={button} onClick={() => stepWeek(-1)}>Previous week</button>
+        <label className="text-sm font-semibold">Week starting Monday
+          <input className={field} type="date" value={week}
+            onChange={event => { if (event.target.value) setWeek(mondayOf(event.target.value)); }} />
+        </label>
+        <button type="button" className={button} onClick={() => stepWeek(1)}>Next week</button>
+      </div>
+      <RotaWeek key={week} endpoint={endpoint} week={week} canEdit={canEdit} onSaved={onSaved} />
+    </section>
+  );
+}
+
+function RotaWeek({ endpoint, week, canEdit, onSaved }: {
+  endpoint: string;
+  week: string;
+  canEdit: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [rota, setRota] = useState<{ shifts: Shift[]; previous: Shift[] }>();
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const loadWeek = useCallback(async (signal?: AbortSignal) => {
+    const response = await adminFetch(`${endpoint}?week=${encodeURIComponent(week)}`, { signal });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Unable to load the weekly rota.");
+    if (!signal?.aborted) {
+      setRota(data);
+      setTimes({});
+    }
+  }, [endpoint, week]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadWeek(controller.signal).catch(error => {
+      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Unable to load the rota.");
+    });
+    return () => controller.abort();
+  }, [loadWeek]);
+
+  const isEditable = (shift: Shift) => canEdit && shift.booking.status === "CONFIRMED" && !shift.booking.driverId && !shift.booking.driverJourneyStartedAt &&
+    shift.serviceDate.slice(0, 10) >= today() &&
+    (!shift.booking.estimatedStartTime || Date.parse(shift.booking.estimatedStartTime) > Date.now());
+  const updates = rota?.shifts.filter(shift => isEditable(shift) && times[shift.id] !== undefined && times[shift.id] !== shiftStart(shift))
+    .map(shift => ({ id: shift.id, startsAt: times[shift.id], expectedUpdatedAt: shift.booking.updatedAt })) ?? [];
+  const previousTimes = new Map(rota?.previous.filter(shift => shiftStart(shift) && shift.booking.status !== "CANCELLED")
+    .map(shift => [new Date(shift.serviceDate).getUTCDay(), shiftStart(shift)]));
+  const copyable = rota?.shifts.filter(shift => isEditable(shift) && previousTimes.has(new Date(shift.serviceDate).getUTCDay())) ?? [];
+
+  async function saveRota(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!updates.length) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(endpoint, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ week, shifts: updates }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to save the weekly rota.");
+      await loadWeek();
+      setMessage(data.message);
+      await onSaved();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save the rota.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelShift(shift: Shift) {
+    const label = dateLabel.format(new Date(shift.serviceDate));
+    if (!window.confirm(`Cancel the shift on ${label}? It will be flagged for monthly billing review.`)) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(`/api/bookings/admin/${encodeURIComponent(shift.booking.id)}/cancel`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to cancel this shift.");
+      setRota(current => current ? { ...current, shifts: current.shifts.map(row => row.id === shift.id ?
+        { ...row, decision: null, booking: { ...row.booking, status: "CANCELLED" } } : row) } : current);
+      setMessage("Shift cancelled and flagged for monthly billing review.");
+      await onSaved();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to cancel this shift.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={saveRota} className="space-y-3">
+      <p className="text-sm text-slate-600">Enter the UK start time for each shift. Save the rota to confirm the finish times.</p>
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {message && <p role="status" className="text-sm text-green-800">{message}</p>}
+      {!rota && !error && <p role="status">Loading weekly rota…</p>}
+      {rota?.shifts.length === 0 && <p className="text-sm text-slate-600">No contract shifts this week.</p>}
+      {rota?.shifts.map(shift => {
+        const date = new Date(shift.serviceDate);
+        const finish = shift.booking.estimatedEndTime ? new Date(shift.booking.estimatedEndTime) : null;
+        const start = times[shift.id] ?? shiftStart(shift);
+        return (
+          <div key={shift.id} className="grid items-center gap-2 border-b border-slate-200 pb-2 sm:grid-cols-4">
+            <Link className="text-sm font-semibold underline" href={`/admin/bookings?booking=${encodeURIComponent(shift.booking.id)}`}>
+              {dateLabel.format(date)} · {shift.hours} hours
+            </Link>
+            {isEditable(shift) ? (
+              <input aria-label={`Start time for ${dateLabel.format(date)}`} type="time" className={field} value={start} disabled={busy}
+                onChange={event => {
+                  const value = event.target.value;
+                  setTimes(current => ({ ...current, [shift.id]: value }));
+                }} />
+            ) : <span className="text-sm">{start || "Time to be confirmed"}</span>}
+            <p className="text-sm text-slate-600">
+              {start !== shiftStart(shift) ? "Finish time confirmed on save" : finish ?
+                `Finish ${timeLabel.format(finish)}${finish.toLocaleDateString("sv-SE", { timeZone: "Europe/London" }) !== shift.serviceDate.slice(0, 10) ? " (next day)" : ""}`
+                : "Time to be confirmed"}
+            </p>
+            {shift.booking.status === "CANCELLED" ? (
+              <span className="text-sm font-semibold text-amber-800">Cancelled · {shift.decision === "WAIVE" ? "Waived" : shift.decision === "BILL" ? "Charge confirmed" : "Billing review"}</span>
+            ) : canEdit && !shift.booking.driverJourneyStartedAt && ["CONFIRMED", "ASSIGNED"].includes(shift.booking.status) ? (
+              <button type="button" disabled={busy} onClick={() => void cancelShift(shift)}
+                className="justify-self-start rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-800 disabled:opacity-50">
+                Cancel shift
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+      {canEdit && !!rota?.shifts.length && <div className="flex flex-wrap gap-2">
+        <button type="button" className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+          disabled={busy || !copyable.length} onClick={() => setTimes(current => ({
+            ...current, ...Object.fromEntries(copyable.map(shift => [shift.id, previousTimes.get(new Date(shift.serviceDate).getUTCDay())!])),
+          }))}>Copy previous week</button>
+        <button className={button} disabled={busy || !updates.length}>{busy ? "Saving…" : "Save rota"}</button>
+      </div>}
+    </form>
   );
 }

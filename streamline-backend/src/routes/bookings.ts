@@ -202,6 +202,7 @@ async function autoSaveRouteFromConfirmedBooking(bookingId: string) {
 
 function adminBookingInclude() {
   return {
+    commercialContractShift: { select: { id: true } },
     refundRequests: true,
     quote: true,
     user: true,
@@ -642,7 +643,7 @@ router.post("/admin/:id/cancel", async (req, res) => {
   try {
     const current = await prisma.booking.findUnique({
       where: { id: req.params.id },
-      include: { reservation: true },
+      include: { reservation: true, commercialContractShift: { include: { contract: true } } },
     });
 
     if (!current) {
@@ -665,6 +666,27 @@ router.post("/admin/:id/cancel", async (req, res) => {
     }
 
     const booking = await prisma.$transaction(async (transaction) => {
+      const shift = current.commercialContractShift;
+      let draftInvoiceId: string | undefined;
+      const month = shift?.serviceDate.toISOString().slice(0, 7);
+      if (shift && month) {
+        const [{ fleetMutation }, { DriverPortalError }] = await Promise.all([
+          import("../lib/fleetOperations"), import("../lib/driverPortal"),
+        ]);
+        await fleetMutation(transaction, admin.admin ? { id: admin.admin.id, label: admin.admin.name } : undefined, "Commercial contract shift cancelled");
+        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
+        await transaction.$queryRaw`SELECT id FROM "Booking" WHERE id = ${current.id} FOR UPDATE`;
+        const fresh = await transaction.booking.findUniqueOrThrow({ where: { id: current.id }, select: { updatedAt: true, status: true, driverJourneyStartedAt: true } });
+        if (+fresh.updatedAt !== +current.updatedAt || !["CONFIRMED", "ASSIGNED"].includes(fresh.status) || fresh.driverJourneyStartedAt) {
+          throw new DriverPortalError(409, "Only an unstarted shift can be cancelled here. Refresh the booking before retrying.");
+        }
+        const linked = await transaction.commercialContractInvoice.findUnique({
+          where: { contractId_month: { contractId: shift.contractId, month } }, include: { invoice: { select: { status: true } } },
+        });
+        if (linked && linked.invoice.status !== "DRAFT") throw new DriverPortalError(409, "This shift’s invoice has already been finalised.");
+        draftInvoiceId = linked?.invoiceId;
+        await transaction.commercialContractShift.update({ where: { id: shift.id }, data: { decision: null } });
+      }
       const updated = await transaction.booking.update({
         where: { id: current.id },
         data: {
@@ -750,11 +772,18 @@ router.post("/admin/:id/cancel", async (req, res) => {
         }
       }
 
+      if (shift && month && draftInvoiceId) {
+        const { refreshContractDraft } = await import("../lib/commercialContracts");
+        await refreshContractDraft(transaction, shift.contract, month, draftInvoiceId);
+      }
       return updated;
     });
 
     return res.json({ success: true, booking });
   } catch (error) {
+    if (error instanceof Error && error.name === "DriverPortalError" && "status" in error && typeof error.status === "number") {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error("Admin booking cancellation error:", error);
 
     return res.status(500).json({
