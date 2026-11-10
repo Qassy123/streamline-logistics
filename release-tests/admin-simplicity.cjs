@@ -58,6 +58,25 @@ await test('Dispatch category filters all records before pagination and retains 
 await test('Quote page provides account choice and three simple section boxes',()=>{const m=view('app/admin/quotes/page.tsx');const html=render(React.createElement(m.default));for(const label of ['Choose an account','Guest customers','Completed quotes','Current quotes','Future quotes'])assert(html.includes(label));});
 await test('Drivers display separates required van categories and keeps job selection',()=>{const jobs=[{id:'s',reference:'SMALL-JOB',status:'CONFIRMED',vehicleType:'Small Van',collectionDate:'2026-10-25',collectionWindow:'19:00-21:00',collectionAddress:'A',deliveryAddress:'B'},{id:'l',reference:'LWB-JOB',status:'CONFIRMED',vehicleType:'LWB High Roof Van',collectionDate:'2026-10-25',collectionWindow:'19:00-21:00',collectionAddress:'A',deliveryAddress:'B'}];const data={jobs,vehicles:[],incidents:[],evidenceReviews:[],defects:[],pagination:{total:2,totalPages:1}};const m=view('app/admin/drivers/page.tsx',['ASSIGN',data,false,false,'','', '','',1,false,'ALL'],{'@/lib/dispatchCategories':categories,'@/components/PostcodeAddressLookup':()=>null},{},'\nexport { DriverDispatch };');const html=render(React.createElement(m.DriverDispatch,{adminKey:'test',drivers:[],version:0,onSaved:async()=>{},onRejected(){}}));assert.match(html,/>Small Van<\/h3>/);assert.match(html,/>LWB High Roof Van<\/h3>/);assert.match(html,/SMALL-JOB/);assert.match(html,/LWB-JOB/);assert.match(html,/Select job/);assert.match(html,/Manual assignment/);});
 await test('Guest page starts with current bookings and a closed Previous bookings section',()=>{const m=view('app/admin/guest-bookings/page.tsx');const html=render(React.createElement(m.default));assert.match(html,/Current and future bookings/);assert.match(html,/<summary[^>]*>Previous bookings<\/summary>/);assert(!/<details[^>]* open/.test(html));});
-await test('Admin navigation adds Quotes without adding separate Audit or Documents tabs',()=>{const m=view('app/admin/layout.tsx',[],{'next/navigation':{usePathname:()=>'/admin/quotes'},'@/components/admin/InvoiceReviewNotifications':()=>null,'@/components/admin/NewRecordNotifications':()=>null});const html=render(React.createElement(m.default,null,'TEST'));assert.match(html,/href="\/admin\/quotes"/);assert.match(html,/href="\/admin\/reports"/);assert(!html.includes('href="/admin/documents"'));assert(!html.includes('href="/admin/audit-log"'));});
+await test('Admin navigation preserves its links with Ask Streamline off or on',()=>{
+  const mocks={
+    'next/navigation':{usePathname:()=>'/admin/quotes'},
+    '@/components/admin/InvoiceReviewNotifications':()=>null,
+    '@/components/admin/NewRecordNotifications':()=>null,
+    '@/components/admin/AskStreamline':()=>React.createElement('button',null,'Ask Streamline'),
+  };
+  const renderNavigation=env=>{
+    const layout=view('app/admin/layout.tsx',[],mocks,{process:{env}});
+    return render(React.createElement(layout.default,null,'TEST'));
+  };
+  const html=renderNavigation({});
+  const enabled=renderNavigation({NEXT_PUBLIC_ADMIN_ASSISTANT_ENABLED:'true'});
+  assert.match(html,/href="\/admin\/quotes"/);
+  assert.match(html,/href="\/admin\/reports"/);
+  assert(!html.includes('href="/admin/documents"'));
+  assert(!html.includes('href="/admin/audit-log"'));
+  assert(!html.includes('Ask Streamline'));
+  assert.equal(enabled.replace('<button>Ask Streamline</button>',''),html);
+});
 console.log(`${count} approved admin-simplicity checks passed (isolated persistence/providers; no live writes).`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,4 +1,5 @@
 import {attachCentralAdmin} from "./lib/centralAdmin";
+import adminAssistantRoutes from "./routes/adminAssistant";
 import {runInvoiceReminders} from "./routes/invoices";
 import {processMonthlyTradeBilling} from "./lib/monthlyTradeBilling";
 import { processCommercialContractBilling } from "./lib/commercialContracts";
@@ -103,6 +104,7 @@ app.use("/api/driver/pod", driverPodRoutes);
 ---------------------------------- */
 
 app.use("/api/admin/drivers", adminDriverRoutes);
+app.use("/api/admin/assistant", adminAssistantRoutes);
 app.use("/api/admin/customers", adminCustomerRoutes);
 app.use("/api/admin/commercial-contracts", adminCommercialContractRoutes);
 app.use("/api/admin/planning", adminPlanningRoutes);

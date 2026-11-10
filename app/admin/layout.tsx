@@ -1,6 +1,7 @@
 "use client";
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 import InvoiceReviewNotifications from "@/components/admin/InvoiceReviewNotifications";
+import AskStreamline from "@/components/admin/AskStreamline";
 
 import AdminSessionGate,{useAdminSession,canAdminPage} from "@/components/admin/AdminSession";
 import Link from "next/link";
@@ -144,6 +145,7 @@ function AdminLayoutContent({
         <nav className="border-b border-slate-200 bg-white">
           <div className="w-full overflow-x-auto">
             <div className="mx-auto flex min-w-max max-w-[1800px] gap-2 px-4 py-3 sm:px-6">
+              {process.env.NEXT_PUBLIC_ADMIN_ASSISTANT_ENABLED === "true" && <AskStreamline key={admin.id} />}
               {navigationItems.filter(item=>canAdminPage(admin,item.href)).map((item) => {
                 const active = isNavigationItemActive(
                   pathname,

@@ -14,6 +14,7 @@ function sectionForApi(path:string){
 }
 export function canAdminRequest(role:string,path:string,method:string){
  if(role==="SUPER_ADMIN")return true;
+ if(path==="/api/admin/assistant")return adminSections(role).length>0&&["GET","POST"].includes(method);
  if(role==="DISPATCHER"&&(/^\/api\/bookings\/admin\/.*\/refunds(?:\/|$)/.test(path)||/\/confirm-payment$/.test(path)))return false;
  const section=sectionForApi(path),read=["GET","HEAD","OPTIONS"].includes(method);
  if(!section)return true; if(!adminSections(role).includes(section))return false;
