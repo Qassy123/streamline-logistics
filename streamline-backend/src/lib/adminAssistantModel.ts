@@ -23,7 +23,7 @@ const monthFormat = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "
 export async function askAssistantModel(
   config: NonNullable<ReturnType<typeof assistantConfig>>,
   prompt: string,
-  json = false,
+  responseJsonSchema?: Record<string, unknown>,
 ) {
   // Only text is sent. The UTF-8 limit leaves room below the input reservation for framing.
   if (Buffer.byteLength(prompt, "utf8") > inputLimit - 512) throw new Error("Assistant prompt exceeds limit");
@@ -46,7 +46,7 @@ export async function askAssistantModel(
       generationConfig: {
         maxOutputTokens: outputLimit,
         thinkingConfig: { thinkingLevel: "MINIMAL" },
-        ...(json ? { responseMimeType: "application/json" } : {}),
+        ...(responseJsonSchema ? { responseMimeType: "application/json", responseJsonSchema } : {}),
       },
     }),
     signal: AbortSignal.timeout(12000),
