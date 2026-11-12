@@ -8,6 +8,13 @@ import { adminFetch } from "@/lib/adminFetch";
 
 const endpoint = "/api/admin/assistant";
 
+type GuideSuggestion = {
+  id: string;
+  title: string;
+  answer: string;
+  links: { href: string; label: string }[];
+};
+
 export default function AskStreamline() {
   const pagePath = usePathname();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -15,6 +22,8 @@ export default function AskStreamline() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [links, setLinks] = useState<{ href: string; label: string }[]>([]);
+  const [suggestions, setSuggestions] = useState<GuideSuggestion[]>([]);
+  const [selectedGuide, setSelectedGuide] = useState<GuideSuggestion | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -34,6 +43,8 @@ export default function AskStreamline() {
     setError("");
     setAnswer("");
     setLinks([]);
+    setSuggestions([]);
+    setSelectedGuide(null);
     try {
       const response = await adminFetch(endpoint, {
         method: "POST",
@@ -44,6 +55,7 @@ export default function AskStreamline() {
       if (!response.ok) throw new Error(data.error || "Ask Streamline is unavailable.");
       setAnswer(data.answer);
       setLinks(data.links);
+      setSuggestions(data.suggestions ?? []);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Ask Streamline is unavailable.");
     } finally {
@@ -52,6 +64,9 @@ export default function AskStreamline() {
   }
 
   if (!enabled) return null;
+
+  const visibleAnswer = selectedGuide?.answer ?? (suggestions.length ? "" : answer);
+  const visibleLinks = selectedGuide?.links ?? links;
 
   return (
     <>
@@ -87,8 +102,24 @@ export default function AskStreamline() {
           {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}
           <div aria-live="polite" className="space-y-3 text-sm">
             {pending && <p className="mt-4 text-[#4B5D7A]">Checking your question…</p>}
-            {answer && <p className="mt-5 whitespace-pre-wrap break-words rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 leading-relaxed sm:p-5">{answer}</p>}
-            {links.map(link => (
+            {suggestions.length > 0 && (
+              <div className="mt-5 space-y-2 rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 sm:p-5">
+                <p className="font-semibold">Which process do you want explained?</p>
+                <ul className="space-y-2">
+                  {suggestions.map(guide => (
+                    <li key={guide.id}>
+                      <button type="button" aria-pressed={selectedGuide?.id === guide.id}
+                        onClick={() => setSelectedGuide(guide)}
+                        className="min-h-11 w-full rounded-lg border border-[#7FB6FF] bg-white px-3 py-2 text-left font-semibold text-[#0B2A63] hover:bg-[#EAF2FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006CFF] aria-pressed:bg-[#D7E6FF]">
+                        {guide.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {visibleAnswer && <p className="mt-5 whitespace-pre-wrap break-words rounded-xl border border-[#D7E6FF] bg-[#F4F8FF] p-4 leading-relaxed sm:p-5">{visibleAnswer}</p>}
+            {visibleLinks.map(link => (
               <Link key={link.href} href={link.href} onClick={() => dialog.current?.close()}
                 className="inline-flex min-h-11 items-center gap-2 rounded font-semibold text-[#0B2A63] underline underline-offset-4 hover:text-[#006CFF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#006CFF]">
                 {link.label}<span aria-hidden="true">→</span>

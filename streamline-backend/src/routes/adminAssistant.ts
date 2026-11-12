@@ -52,6 +52,13 @@ const intentSchema = z.object({
 const ukDate = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" })
   .format(new Date());
 
+function workflowReply(guide: ReturnType<typeof adminAssistantWorkflows>[number]) {
+  return {
+    answer: [guide.title, ...guide.steps.map((step, index) => `${index + 1}. ${step}`)].join("\n\n"),
+    links: [{ label: "Open admin page", href: guide.href }],
+  };
+}
+
 type Row = Record<string, unknown>;
 function object(value: unknown): Row {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Row : {};
@@ -236,19 +243,19 @@ router.post("/", async (req, res) => {
     const parsed = intentSchema.safeParse(JSON.parse(selected));
     if (parsed.success && parsed.data.kind === "workflow") {
       const guide = workflows.find(workflow => workflow.id === parsed.data.workflow);
-      if (guide) {
-        return res.json({
-          answer: [guide.title, ...guide.steps.map((step, index) => `${index + 1}. ${step}`)].join("\n\n"),
-          links: [{ label: "Open admin page", href: guide.href }],
-        });
-      }
+      if (guide) return res.json(workflowReply(guide));
       const section = parsed.data.section || currentSection;
-      const topics = workflows.filter(workflow => workflow.section === section).map(workflow => workflow.title);
+      const suggestions = workflows.filter(workflow => workflow.section === section).map(workflow => ({
+        id: workflow.id,
+        title: workflow.title,
+        ...workflowReply(workflow),
+      }));
       return res.json({
-        answer: topics.length
-          ? `Which process do you want explained? I have verified guides for:\n${topics.map(topic => `• ${topic}`).join("\n")}`
+        answer: suggestions.length
+          ? `Which process do you want explained? I have verified guides for:\n${suggestions.map(guide => `• ${guide.title}`).join("\n")}`
           : "I don’t have verified steps for that process. Try naming the admin task you want to understand.",
         links: [],
+        suggestions,
       });
     }
     if (!parsed.success || !Object.prototype.hasOwnProperty.call(allowed, parsed.data.section)) {
