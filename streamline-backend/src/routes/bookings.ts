@@ -24,7 +24,7 @@ const PAYMENT_RESERVATION_MINUTES = 30;
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
-async function generateBookingReference(
+export async function generateBookingReference(
   transaction: Prisma.TransactionClient | typeof prisma = prisma,
 ) {
   const latestBooking = await transaction.booking.findFirst({
@@ -125,7 +125,7 @@ async function getAuthenticatedUser(req: {
       tokenHash: hashToken(token),
     },
     include: {
-      user: true,
+      user: { include: { commercialTariffAssignment: { select: { customerId: true } } } },
     },
   });
 
@@ -422,7 +422,7 @@ router.get("/admin/list", async (req, res) => {
     const vehicleId = getString(req.query.vehicleId);
     const driverId = getString(req.query.driverId);
 
-    const where: Prisma.BookingWhereInput = {};
+    const where: Prisma.BookingWhereInput = { NOT: { status: "CANCELLED", commercialAllocation: { not: Prisma.DbNull } } };
 
     if (search) {
       where.OR = [
@@ -852,6 +852,9 @@ router.post("/admin/from-quote/:quoteId", async (req, res) => {
         error: "Quote not found",
       });
     }
+    if (!quote.booking && quote.userId && await prisma.commercialTariffAssignment.findUnique({ where: { customerId: quote.userId } })) {
+      return res.status(403).json({ error: "New commercial bookings must be allocated as shifts." });
+    }
     if(!quote.booking)assertFutureCollection(quote.collectionDate,quote.collectionWindow);
 
     if ((!quote.userId || !quote.user) && quote.booking) {
@@ -1215,9 +1218,13 @@ router.get("/me", async (req, res) => {
       });
     }
 
+    const commercial = Boolean(user.commercialTariffAssignment);
     const bookings = await prisma.booking.findMany({
       where: {
         userId: user.id,
+        ...(commercial ? { status: { notIn: ["CANCELLED", "EXPIRED"] }, OR: [
+          { commercialAllocation: { not: Prisma.DbNull } }, { commercialContractShift: { isNot: null } },
+        ] } : {}),
       },
       orderBy: {
         createdAt: "desc",
@@ -1238,7 +1245,7 @@ router.get("/me", async (req, res) => {
     });
 
     res.setHeader("Cache-Control","no-store");
-    res.json({ bookings, accountName: user.companyName || user.legalEntity || user.name, serverTime: new Date().toISOString() });
+    res.json({ bookings: bookings.map(({ commercialAllocation: _allocation, ...booking }) => booking), ...(commercial ? { commercial: true } : {}), accountName: user.companyName || user.legalEntity || user.name, serverTime: new Date().toISOString() });
   } catch (error) {
     console.error("Fetch user bookings error:", error);
 
@@ -1261,6 +1268,7 @@ router.get("/me/tracking", async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: {
         userId: user.id,
+        NOT: { status: "CANCELLED", commercialAllocation: { not: Prisma.DbNull } },
       },
       orderBy: {
         createdAt: "desc",
@@ -1280,7 +1288,7 @@ router.get("/me/tracking", async (req, res) => {
     });
 
     res.json({
-      bookings,
+      bookings: bookings.map(({ commercialAllocation: _allocation, ...booking }) => booking),
     });
   } catch (error) {
     console.error("Fetch tracking error:", error);
@@ -1305,7 +1313,7 @@ router.get("/me/invoices", async (req, res) => {
       where: {
         userId: user.id,
         archivedCustomerId: null,
-        status: {not:"DRAFT"}, ...(user.accountType === "BUSINESS" ? {OR:[{status:"PAID" as const},{billingAccountType:"TRADE" as const}]} : {}),
+        status: {not:"DRAFT"}, NOT: { commercialPeriod: { not: null }, status: "VOID" }, ...(user.accountType === "BUSINESS" ? {OR:[{status:"PAID" as const},{billingAccountType:"TRADE" as const},...(user.commercialTariffAssignment ? [{commercialPeriod:{not:null}}] : [])]} : {}),
       },
       orderBy: {
         createdAt: "desc",
@@ -1361,10 +1369,9 @@ router.get("/me/invoices", async (req, res) => {
     const now = new Date();
 
     const customerInvoices = invoices.map((invoice) => {
-      const amountPaid = invoice.allocations.reduce(
-        (sum, allocation) => sum.add(allocation.amount),
-        new Prisma.Decimal(0),
-      );
+      const amountPaid = invoice.commercialPeriod && invoice.status === "PAID"
+        ? invoice.total
+        : invoice.allocations.reduce((sum, allocation) => sum.add(allocation.amount), new Prisma.Decimal(0));
       const creditedAmount = invoice.creditNotes
         .filter((creditNote) => creditNote.status !== "CANCELLED")
         .reduce(
@@ -1528,6 +1535,9 @@ router.post("/from-quote/:quoteId", async (req, res) => {
       return res.status(404).json({
         error: "Quote not found",
       });
+    }
+    if (!quote.booking && quote.userId && await prisma.commercialTariffAssignment.findUnique({ where: { customerId: quote.userId } })) {
+      return res.status(403).json({ error: "New commercial bookings must be allocated as shifts." });
     }
     if(!quote.booking)assertFutureCollection(quote.collectionDate,quote.collectionWindow);
 

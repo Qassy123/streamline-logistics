@@ -7,7 +7,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { departmentEmail, departmentSender, emailLayout, sendEmail } from "../lib/email";
 import { prisma } from "../lib/prisma";
-import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer, renderInvoicePdf } from "../lib/invoicePdf";
+import { generateAndStoreInvoicePdf, getStoredInvoicePdfBuffer, renderCommercialAllocationInvoicePdf, renderInvoicePdf } from "../lib/invoicePdf";
 
 import { getManualInvoiceDetails, parseManualInvoiceInput } from "../lib/manualInvoice";
 
@@ -57,7 +57,7 @@ function isInvoiceStatus(value: string): value is InvoiceStatusValue {
 
 function requireAdmin(req: { headers: { [key: string]: unknown } }) { return centralAdminAccess(req); }
 
-function invoiceInclude() {
+export function invoiceInclude() {
   return {
     commercialContractInvoice: { select: { contractId: true, month: true } },
     user: true,
@@ -81,6 +81,18 @@ function invoiceInclude() {
   } satisfies Prisma.InvoiceInclude;
 }
 
+async function lockEditableAllocationInvoice(tx: Prisma.TransactionClient, snapshot: { id: string; userId: string | null; updatedAt: Date }) {
+  await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${snapshot.userId} FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${snapshot.id} FOR UPDATE`;
+  const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: snapshot.id } });
+  const group = invoice.commercialGroupId ? await tx.invoice.findUniqueOrThrow({
+    where: { id: invoice.commercialGroupId }, select: { status: true },
+  }) : null;
+  if (invoice.status !== "DRAFT" || group && group.status !== "DRAFT" || +invoice.updatedAt !== +snapshot.updatedAt) {
+    throw new Error("This invoice changed. Refresh it before applying another adjustment.");
+  }
+}
+
 function roundMoney(value: Prisma.Decimal) {
   return value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 }
@@ -94,7 +106,8 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-async function sendInvoiceEmail(input: {
+export async function sendInvoiceEmail(input: {
+  paid?: boolean;
   to: string;
   invoiceNumber: string;
   accountName: string;
@@ -184,7 +197,7 @@ async function sendInvoiceEmail(input: {
       from: fromEmail,
       reply_to: departmentEmail("accounts"),
       to: [input.to],
-      subject: `Invoice ${input.invoiceNumber} - Streamline Logistics Group`,
+      subject: `${input.paid ? "Paid invoice" : "Invoice"} ${input.invoiceNumber} - Streamline Logistics Group`,
       attachments: input.pdfBuffer
         ? [
             {
@@ -225,8 +238,8 @@ async function sendInvoiceEmail(input: {
               <td style="padding:8px;border-bottom:1px solid #e2e8f0;text-align:right"><strong>${money(input.total)}</strong></td>
             </tr>
             <tr>
-              <td style="padding:8px">Due date</td>
-              <td style="padding:8px;text-align:right"><strong>${escapeHtml(dueText)}</strong></td>
+              <td style="padding:8px">${input.paid ? "Status" : "Due date"}</td>
+              <td style="padding:8px;text-align:right"><strong>${input.paid ? "PAID" : escapeHtml(dueText)}</strong></td>
             </tr>
           </table>
 
@@ -328,7 +341,7 @@ async function sendInvoiceReminderEmail(input: {
 router.get("/admin/review-queue", async (req,res) => {
   const admin = requireAdmin(req); if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoices = await prisma.invoice.findMany({ where: { status: "DRAFT", invoiceType: { not: "CONSOLIDATED" }, checkedAt: null, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}}] }, orderBy: { createdAt: "asc" }, select: { id: true, invoiceNumber: true, total: true, issuedAt: true, userId: true, user: { select: { companyName: true, name: true, accountNumber: true } } } });
+    const invoices = await prisma.invoice.findMany({ where: { status: "DRAFT", commercialPeriod: null, invoiceType: { not: "CONSOLIDATED" }, checkedAt: null, archivedCustomerId: null, OR: [{billingAccountType:"TRADE"},{userId:null},{user:{is:{accountType:{not:"BUSINESS"}}}}] }, orderBy: { createdAt: "asc" }, select: { id: true, invoiceNumber: true, total: true, issuedAt: true, userId: true, user: { select: { companyName: true, name: true, accountNumber: true } } } });
     res.setHeader("Cache-Control", "no-store"); res.json({ invoices,count: invoices.length });
   } catch { res.status(500).json({ error: "Unable to load invoice notifications." }); }
 });
@@ -354,7 +367,7 @@ router.get("/admin/:id/pdf", async (req, res) => {
   try {
     const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
     if (!invoice) return res.status(404).json({ error: "Invoice not found." });
-    const buffer = await renderInvoicePdf(invoice);
+    const buffer = invoice.commercialPeriod ? await renderCommercialAllocationInvoicePdf(invoice) : await renderInvoicePdf(invoice);
     res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer);
   } catch { res.status(500).json({ error: "Unable to render invoice PDF." }); }
 });
@@ -379,7 +392,7 @@ router.get("/admin/list", async (req, res) => {
     const overdueOnly =
       getString(req.query.overdueOnly).toLowerCase() === "true";
 
-    const where: Prisma.InvoiceWhereInput = {};
+    const where: Prisma.InvoiceWhereInput = { commercialPeriod: null };
 
     if (search) {
       where.OR = [
@@ -480,7 +493,7 @@ router.get("/admin/draft-candidates", async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
-        commercialContractShift: null,
+        commercialContractShift: null, commercialAllocation: { equals: Prisma.DbNull },
         invoices: { none: {} },
         invoiceBookings: { none: {} },
         status: { notIn: ["CANCELLED", "EXPIRED", "PENDING_PAYMENT"] },
@@ -608,7 +621,8 @@ router.patch("/admin/:id/manual", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true } });
+    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true, commercialPeriod: true } });
+    if (invoiceType?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (invoiceType?.invoiceType === "CONSOLIDATED") {
       return res.status(409).json({ error: "Consolidated invoices can only be emailed." });
     }
@@ -684,6 +698,7 @@ router.post("/admin/draft", async (req, res) => {
       },
     });
 
+    if (booking?.commercialAllocation) return res.status(409).json({ error: "Generate this invoice from Shift Allocation." });
     if (booking?.commercialContractShift) return res.status(409).json({ error: "This shift is billed through its monthly commercial contract invoice." });
     if (booking?.user?.accountType === "BUSINESS") return res.status(409).json({ error: "Business invoices are generated as paid receipts from confirmed checkout payments." });
     if (!booking) {
@@ -970,6 +985,12 @@ router.post("/admin/:id/adjustments", async (req, res) => {
       });
     }
 
+    const commercial = invoice.commercialPeriod ? await import("../lib/commercialAllocation") : null;
+    const adjustmentBase = commercial
+      ? invoice.lines.filter(line => line.sourceType !== commercial.surchargeSource)
+        .reduce((sum, line) => sum.add(line.netAmount), new Prisma.Decimal(0))
+      : invoice.subtotal;
+
     let name = "";
     let calculation = "";
     let quantity = new Prisma.Decimal(1);
@@ -1003,7 +1024,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
         quantity = new Prisma.Decimal(requestedQuantity);
         netAmount = roundMoney(charge.amount.mul(quantity));
       } else if (charge.calculation === "PERCENTAGE") {
-        netAmount = roundMoney(invoice.subtotal.mul(charge.amount).div(100));
+        netAmount = roundMoney(adjustmentBase.mul(charge.amount).div(100));
       } else {
         netAmount = roundMoney(charge.amount);
       }
@@ -1038,13 +1059,13 @@ router.post("/admin/:id/adjustments", async (req, res) => {
       vatApplicable = invoice.vatAmount.greaterThan(0);
 
       if (discount.type === "FIXED_AMOUNT") {
-        const cappedValue = discount.value.greaterThan(invoice.subtotal)
-          ? invoice.subtotal
+        const cappedValue = discount.value.greaterThan(adjustmentBase)
+          ? adjustmentBase
           : discount.value;
         netAmount = roundMoney(cappedValue.negated());
       } else {
         netAmount = roundMoney(
-          invoice.subtotal.mul(discount.value).div(100).negated(),
+          adjustmentBase.mul(discount.value).div(100).negated(),
         );
       }
     }
@@ -1069,7 +1090,7 @@ router.post("/admin/:id/adjustments", async (req, res) => {
     const baseSubtotal = roundMoney(
       invoice.subtotal.sub(existingAdjustmentNetTotal),
     );
-    const baseVat = invoice.lines.some((line) => line.sourceType === "MANUAL")
+    const baseVat = invoice.lines.some((line) => ["MANUAL", "COMMERCIAL_ALLOCATION"].includes(line.sourceType ?? ""))
       ? roundMoney(invoice.vatAmount.sub(existingAdjustmentVatTotal))
       : roundMoney(baseSubtotal.mul(vatRate).div(100));
 
@@ -1090,6 +1111,8 @@ router.post("/admin/:id/adjustments", async (req, res) => {
     }
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
+      if (invoice.commercialPeriod) await lockEditableAllocationInvoice(transaction, invoice);
+
       const adjustment = await transaction.invoiceAdjustment.create({
         data: {
           invoiceId: invoice.id,
@@ -1130,16 +1153,17 @@ router.post("/admin/:id/adjustments", async (req, res) => {
         },
       });
 
-      return transaction.invoice.update({
+      const updated = await transaction.invoice.update({
         where: { id: invoice.id },
         data: {
           checkedAt: null,
-          subtotal: nextSubtotal,
-          vatAmount: nextVat,
-          total: nextTotal,
+          ...(commercial ? await commercial.refreshAllocationInvoiceTotals(transaction, invoice.id)
+            : { subtotal: nextSubtotal, vatAmount: nextVat, total: nextTotal }),
         },
         include: invoiceInclude(),
       });
+      if (commercial && updated.commercialGroupId) await commercial.refreshAllocationGroupTotals(transaction, updated.commercialGroupId);
+      return updated;
     });
 
     res.json({
@@ -1193,6 +1217,7 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
       });
     }
 
+    const commercial = invoice.commercialPeriod ? await import("../lib/commercialAllocation") : null;
     const remainingAdjustments = await prisma.invoiceAdjustment.findMany({
       where: {
         invoiceId: invoice.id,
@@ -1214,7 +1239,7 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
         allAdjustmentNetTotal._sum.netAmount ?? new Prisma.Decimal(0),
       ),
     );
-    const baseVat = invoice.lines.some((line) => line.sourceType === "MANUAL")
+    const baseVat = invoice.lines.some((line) => ["MANUAL", "COMMERCIAL_ALLOCATION"].includes(line.sourceType ?? ""))
       ? roundMoney(invoice.vatAmount.sub(invoice.adjustments.reduce((sum, item) => sum.add(item.vatAmount), new Prisma.Decimal(0))))
       : roundMoney(baseSubtotal.mul(vatRate).div(100));
     const remainingAdjustmentVatTotal = remainingAdjustments.reduce(
@@ -1229,6 +1254,8 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
     const nextTotal = roundMoney(nextSubtotal.add(nextVat));
 
     const updatedInvoice = await prisma.$transaction(async (transaction) => {
+      if (invoice.commercialPeriod) await lockEditableAllocationInvoice(transaction, invoice);
+
       await transaction.invoiceLine.deleteMany({
         where: { invoiceId: invoice.id, sourceType: "ADJUSTMENT", sourceId: adjustment.id },
       });
@@ -1237,16 +1264,17 @@ router.delete("/admin/:id/adjustments/:adjustmentId", async (req, res) => {
         data: { invoiceId: invoice.id, eventType: "ADJUSTMENT_REMOVED", description: `${adjustment.name} removed from draft invoice.` },
       });
 
-      return transaction.invoice.update({
+      const updated = await transaction.invoice.update({
         where: { id: invoice.id },
         data: {
           checkedAt: null,
-          subtotal: nextSubtotal,
-          vatAmount: nextVat,
-          total: nextTotal,
+          ...(commercial ? await commercial.refreshAllocationInvoiceTotals(transaction, invoice.id)
+            : { subtotal: nextSubtotal, vatAmount: nextVat, total: nextTotal }),
         },
         include: invoiceInclude(),
       });
+      if (commercial && updated.commercialGroupId) await commercial.refreshAllocationGroupTotals(transaction, updated.commercialGroupId);
+      return updated;
     });
 
     res.json({
@@ -1272,6 +1300,7 @@ router.post("/admin/:id/send", async (req, res) => {
       include: invoiceInclude(),
     });
 
+    if (invoice?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (!invoice) {
       return res.status(404).json({ error: "Invoice not found." });
     }
@@ -1494,7 +1523,8 @@ router.patch("/admin/:id", async (req, res) => {
   }
 
   try {
-    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true } });
+    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true, commercialPeriod: true } });
+    if (invoiceType?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (invoiceType?.invoiceType === "CONSOLIDATED") {
       return res.status(409).json({ error: "Consolidated invoices can only be emailed." });
     }
@@ -1632,6 +1662,9 @@ router.post("/admin", async (req, res) => {
       });
     }
 
+    if (await prisma.booking.count({ where: { id: bookingId, commercialAllocation: { not: Prisma.DbNull } } })) {
+      return res.status(409).json({ error: "Generate this invoice from Shift Allocation." });
+    }
     if (await prisma.commercialContractShift.findUnique({ where: { bookingId }, select: { id: true } })) {
       return res.status(409).json({ error: "This shift is billed through its monthly commercial contract invoice." });
     }
@@ -1766,7 +1799,7 @@ router.get("/admin/billing-queue", async (req, res) => {
     const bookings = await prisma.booking.findMany({
       where: {
         status: "COMPLETED",
-        commercialContractShift: null,
+        commercialContractShift: null, commercialAllocation: { equals: Prisma.DbNull },
         user: { is: { accountType: "TRADE" } },
         invoiceBookings: { none: {} },
         invoices: { none: {} },
@@ -1790,6 +1823,7 @@ const summaryAccountFilter = {
 const summaryInvoiceFilter: Prisma.InvoiceWhereInput = {
   ...summaryAccountFilter,
   commercialContractInvoice: null,
+  commercialPeriod: null,
   invoiceType: { not: "CONSOLIDATED" },
   status: { in: ["FINALISED", "SENT", "ISSUED", "OVERDUE", "PARTIALLY_PAID", "PAID", "CREDITED"] },
 };
@@ -2163,6 +2197,7 @@ router.post(["/admin/:id/reopen", "/admin/:id/unfinalise"], async (req, res) => 
     const invoice = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${getString(req.params.id)} FOR UPDATE`;
       const row = await tx.invoice.findUnique({ where: { id: getString(req.params.id) }, include: invoiceInclude() });
+      if (row?.commercialPeriod) throw new Error("Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen.");
       if (row?.invoiceType === "CONSOLIDATED") throw new Error("Consolidated invoices can only be emailed.");
       if (!row) throw new Error("Invoice not found.");
       if (row.status === "DRAFT") return row;
@@ -2182,7 +2217,8 @@ router.post("/admin/:id/finalise", async (req, res) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(73121012)`;
       await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${req.params.id} FOR UPDATE`;
     let invoice = await tx.invoice.findUnique({ where: { id: req.params.id }, include: invoiceInclude() });
-      if (invoice?.invoiceType === "CONSOLIDATED") throw new Error("Consolidated invoices can only be emailed.");
+      if (invoice?.commercialPeriod) throw new Error("Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen.");
+    if (invoice?.invoiceType === "CONSOLIDATED") throw new Error("Consolidated invoices can only be emailed.");
     if (!invoice) throw new Error("Invoice not found.");
     if((invoice.billingAccountType || invoice.user?.accountType) === "TRADE" && invoice.issuedAt && invoice.issuedAt > new Date()) throw new Error("This Trade invoice can be finalised on its scheduled issue date, the 1st of the following month.");
     if (invoice.status !== "DRAFT") { if(invoice.pdfStorageKey && ["FINALISED","SENT","ISSUED","OVERDUE","PAID","PARTIALLY_PAID"].includes(invoice.status))return invoice; throw new Error("Only draft invoices can be finalised."); }
@@ -2240,7 +2276,7 @@ router.post("/admin/:id/finalise", async (req, res) => {
     res.json({ success: true, invoice: updated });
   } catch (error) {
     console.error("Invoice finalise error:", error);
-    res.status(409).json({ error: error instanceof Error && /Cloudinary|scheduled issue date|financial charge line|draft invoice|not found|Commercial Contracts/.test(error.message) ? error.message : "Unable to store the finalised invoice PDF. Check invoice storage configuration and try again; the draft has been retained." });
+    res.status(409).json({ error: error instanceof Error && /Shift Allocation|Cloudinary|scheduled issue date|financial charge line|draft invoice|not found|Commercial Contracts/.test(error.message) ? error.message : "Unable to store the finalised invoice PDF. Check invoice storage configuration and try again; the draft has been retained." });
   }
 });
 
@@ -2248,7 +2284,8 @@ router.post("/admin/:id/credit-notes", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true } });
+    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true, commercialPeriod: true } });
+    if (invoiceType?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (invoiceType?.invoiceType === "CONSOLIDATED") {
       return res.status(409).json({ error: "Consolidated invoices can only be emailed." });
     }
@@ -2289,7 +2326,8 @@ router.post("/admin/:id/record-payment", async (req, res) => {
   }
 
   try {
-    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true } });
+    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true, commercialPeriod: true } });
+    if (invoiceType?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (invoiceType?.invoiceType === "CONSOLIDATED") {
       return res.status(409).json({ error: "Consolidated invoices can only be emailed." });
     }
@@ -2460,7 +2498,8 @@ router.post("/admin/:id/payment-allocations", async (req, res) => {
   const admin = requireAdmin(req);
   if (!admin.authorised) return res.status(admin.status).json({ error: admin.error });
   try {
-    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true } });
+    const invoiceType = await prisma.invoice.findUnique({ where: { id: req.params.id }, select: { invoiceType: true, commercialPeriod: true } });
+    if (invoiceType?.commercialPeriod) return res.status(409).json({ error: "Manage this commercial invoice from the customer’s Shift Allocation and Invoices screen." });
     if (invoiceType?.invoiceType === "CONSOLIDATED") {
       return res.status(409).json({ error: "Consolidated invoices can only be emailed." });
     }
@@ -2508,6 +2547,7 @@ export async function runInvoiceReminders(){
     const invoices = await prisma.invoice.findMany({
       where: {
         commercialContractInvoice: null,
+        commercialPeriod: null,
         dueDate: { not: null },
         status: {
           in: ["SENT", "PARTIALLY_PAID", "OVERDUE", "ISSUED"],
@@ -2659,7 +2699,7 @@ router.get("/admin/credit-exposure/:userId", async (req, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.params.userId }, include: { tradeAccount: true, billingProfile: true } });
     if (!user) return res.status(404).json({ error: "Customer not found." });
-    const invoices = await prisma.invoice.findMany({ where: { userId: user.id, status: { notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"] } }, include: { allocations: true, creditNotes: true } });
+    const invoices = await prisma.invoice.findMany({ where: { userId: user.id, status: { notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"] }, NOT: { commercialPeriod: { not: null }, invoiceType: "CONSOLIDATED" } }, include: { allocations: true, creditNotes: true } });
     const outstandingInvoices = invoices.reduce((sum, invoice) => { const paid = invoice.allocations.reduce((a, x) => a.add(x.amount), new Prisma.Decimal(0)); const credits = invoice.creditNotes.filter((c) => c.status === "ISSUED").reduce((a, x) => a.add(x.amount), new Prisma.Decimal(0)); const remaining = invoice.total.sub(paid).sub(credits); return sum.add(remaining.greaterThan(0) ? remaining : 0); }, new Prisma.Decimal(0));
     const uninvoiced = await prisma.booking.aggregate({ where: { userId: user.id, status: "COMPLETED", invoices: { none: {} }, invoiceBookings: { none: {} } }, _sum: { totalPrice: true } });
     const committed = await prisma.booking.aggregate({ where: { userId: user.id, status: { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS"] }, invoices: { none: {} }, invoiceBookings: { none: {} } }, _sum: { totalPrice: true } });

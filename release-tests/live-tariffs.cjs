@@ -51,15 +51,15 @@ await test('Assigned 8-hour and 12-hour shifts charge only excess route mileage 
  for(const field of ['tariffId','tariffName','extraMileRate','includedMiles','mileageRate']) assert.equal(p.pricingBreakdown[field],undefined);
  assert.equal(display(p).shiftHours,8);
 });
-await test('Planning uses the assigned tariff, customer quotes are blocked and guests use standard rates',async()=>{
+await test('New quotes are blocked for commercial accounts in both admin and the customer portal',async()=>{
  const customerId='commercial-customer', body={customerId,shiftHours:'8'};
  const headers={authorization:'Bearer customer-token'};
  const preview=await quoteCall('post /admin/calculate',{body});
- assert.equal(preview.status,200,JSON.stringify(preview.body));
- assert.equal(preview.body.calculation.adminPrice,285);
+ assert.equal(preview.status,403,JSON.stringify(preview.body));
+ assert.match(preview.body.error,/Shift Allocation/);
  const admin=await quoteCall('post /admin/customer/:customerId',{params:{customerId},body:{...body,customerId:'other'}});
- assert.equal(admin.status,201,JSON.stringify(admin.body));
- assert.equal(admin.body.quote.adminPrice,285);
+ assert.equal(admin.status,403,JSON.stringify(admin.body));
+ assert.match(admin.body.error,/Shift Allocation/);
  const customer=await quoteCall('post /',{headers,body:{...body,customerId:'other'}});
  assert.equal(customer.status,403,JSON.stringify(customer.body));
  assert.equal(customer.body.code,"COMMERCIAL_QUOTES_UNAVAILABLE");

@@ -12,6 +12,7 @@ import { getPhoneTrackingState, pausePhoneTracking, startPhoneTracking, stopPhon
 type Evidence = { goodsCondition?: string | null; damageNotes?: string | null; recipientName: string | null; signatureUrl: string | null; photoUrls: string[]; notes: string | null; outcome: string; reviewStatus: string; exceptionReason: string | null; reviewNotes: string | null; receivedAt: string };
 type Stop = { id: string; sequence: number; type: "COLLECTION" | "DROP" | "DELIVERY" | "RETURN"; label: string; address: string; contactName: string | null; contactPhone: string | null; notes: string | null; status: string; completedAt: string | null; evidence: Evidence | null };
 type Job = {
+  commercialShift?: boolean;
   id: string; reference: string; status: string; assignedAt: string | null; acknowledgedAt: string | null; journeyStartedAt: string | null;
   collectionDate: string; collectionWindow: string; collectionAddress: string; deliveryAddress: string;
   customerReference: string | null; purchaseOrderNumber: string | null; dispatchNotes: string | null; vehicle: PortalVehicle | null;
@@ -57,7 +58,7 @@ function previewJob(job: Job, actions: QueuedDriverAction[], drafts: DriverDraft
 function availableAction(job: Job): { action: Action; label: string; stopId?: string } | null {
   if (closed(job) || !job.assignedAt) return null;
   if (!job.acknowledgedAt) return { action: "ACCEPT", label: "Acknowledge assigned job" };
-  if (!job.journeyStartedAt) return { action: "START", label: "Start journey to collection" };
+  if (!job.journeyStartedAt) return { action: "START", label: job.commercialShift ? "Start commercial shift" : "Start journey to collection" };
   const stop = job.nextStop; if (!stop || stop.evidence?.reviewStatus === "PENDING") return null;
   if (stop.status === "PENDING") return { action: "EN_ROUTE", label: `Travel to ${stop.label.toLowerCase()}`, stopId: stop.id };
   if (stop.status === "EN_ROUTE") return { action: "ARRIVE", label: `Arrived at ${stop.label.toLowerCase()}`, stopId: stop.id };

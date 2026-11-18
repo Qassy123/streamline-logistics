@@ -1,6 +1,7 @@
 "use client";
 import {adminFetch} from "@/lib/adminFetch";
 
+import CommercialShiftAllocation from "@/components/admin/CommercialShiftAllocation";
 import Link from "next/link";
 import { useAdminSession } from "@/components/admin/AdminSession";
 import CustomerCompletedJobs from "@/components/admin/CustomerCompletedJobs";
@@ -871,6 +872,9 @@ export default function CustomerAccountPage() {
         </Link>
       </div>}
 
+      {customer.commercialTariffAssignment && admin.sections.includes("commercial-tariffs") && (
+        <div className="mt-5"><CommercialShiftAllocation key={customer.id} customerId={customer.id} mode="invoices" canWrite={admin.role !== "READ_ONLY"} /></div>
+      )}
       <CustomerCompletedJobs key={customer.id} customerId={customer.id} apiBase={API_BASE} />
 
       {editing ? (

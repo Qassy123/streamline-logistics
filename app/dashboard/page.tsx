@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -28,6 +29,7 @@ type AccountUser = {
   email?: string | null;
   accountType?: "BUSINESS" | "TRADE";
   accountStatus?: string;
+  commercialTariff?: string;
   creditFacilityOnHold?: boolean;
   holdReason?: string | null;
   companyName?: string | null;
@@ -80,6 +82,15 @@ const upgradeCard = {
   icon: TrendingUp,
 };
 
+function CommercialBrand() {
+  return <div className="flex min-h-32 items-center justify-center rounded-3xl bg-[#071D49] p-4">
+    <div className="relative h-24 w-full max-w-sm overflow-hidden">
+      <Image src="/images/logos/header-logo.png" alt="Streamline Logistics Group. Fast. Reliable. Dependable."
+        fill sizes="384px" className="object-cover" />
+    </div>
+  </div>;
+}
+
 function formatStatus(value?: string | null) {
   if (!value) return "Not applied";
 
@@ -131,11 +142,12 @@ export default function DashboardPage() {
     }
   }
 
+  const commercial = Boolean(user?.commercialTariff);
   const isTradeAccount =
     user?.accountType === "TRADE" || user?.tradeAccount?.status === "APPROVED";
 
   const hasTradeApplication = Boolean(user?.tradeAccount);
-  const showUpgrade = !isTradeAccount && !hasTradeApplication;
+  const showUpgrade = !commercial && !isTradeAccount && !hasTradeApplication;
   const tradeStatus = user?.tradeAccount?.status;
   const statusNotice = user?.accountStatus === "SUSPENDED" || tradeStatus === "SUSPENDED"
     ? { title: "Your account is suspended", text: "Please contact our team for more information. Online booking is unavailable while your account is suspended." }
@@ -150,10 +162,12 @@ export default function DashboardPage() {
     : null;
 
   const cards = useMemo(() => {
+    if (commercial) return baseCards.filter(card => card.title !== "Saved Routes").map(card => card.title === "Bookings"
+      ? { ...card, title: "Shifts", text: "View shifts in progress, upcoming shifts and completed shifts." } : card);
     if (!showUpgrade) return baseCards;
 
     return [...baseCards, upgradeCard];
-  }, [showUpgrade]);
+  }, [commercial, showUpgrade]);
 
   const businessName =
     user?.legalEntity || user?.companyName || user?.name || "Your account";
@@ -194,13 +208,13 @@ export default function DashboardPage() {
 
                   {!loading && (
                     <span className="rounded-full border border-[#2D8CFF]/40 bg-[#006CFF]/15 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-white">
-                      {isTradeAccount ? "Trade Account" : "Business Account"}
+                      {commercial ? "Commercial" : isTradeAccount ? "Trade Account" : "Business Account"}
                     </span>
                   )}
                 </div>
 
                 <p className="mt-4 max-w-3xl text-sm leading-7 text-white/75 sm:text-base">
-                  Access bookings, tracking, invoices, saved routes and account settings.
+                  {commercial ? "Access shifts, tracking, invoices and account settings." : "Access bookings, tracking, invoices, saved routes and account settings."}
                 </p>
               </div>
 
@@ -213,10 +227,10 @@ export default function DashboardPage() {
                   <StatusLine
                     icon={<BadgeCheck size={17} />}
                     label="Account type"
-                    value={isTradeAccount ? "Trade Account" : "Business Account"}
+                    value={commercial ? "Commercial" : isTradeAccount ? "Trade Account" : "Business Account"}
                   />
 
-                  <StatusLine
+                  {commercial ? <StatusLine icon={<ShieldCheck size={17} />} label="Tariff" value={user?.commercialTariff ?? ""} /> : <StatusLine
                     icon={tradeStatusIcon}
                     label="Trade status for credit account"
                     value={tradeStatusValue}
@@ -225,9 +239,9 @@ export default function DashboardPage() {
                         ? "text-red-300"
                         : "text-[#2D8CFF]"
                     }
-                  />
+                  />}
 
-                  {isTradeAccount && (
+                  {!commercial && isTradeAccount && (
                     <StatusLine
                       icon={<Clock size={17} />}
                       label="Payment terms"
@@ -240,7 +254,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-6 p-5 sm:p-8">
-            {statusNotice && (
+            {statusNotice && (!commercial || user?.accountStatus === "SUSPENDED") && (
               <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-lg shadow-black/5">
                 <div className="flex items-start gap-4">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
@@ -260,7 +274,7 @@ export default function DashboardPage() {
               </section>
             )}
 
-            {isTradeAccount && (
+            {!commercial && isTradeAccount && (
               <section className="rounded-3xl border border-[#D7E6FF] bg-[#F4F8FF] p-5 shadow-lg shadow-black/5">
                 <div className="grid gap-4 md:grid-cols-3">
                   <AccountMetric
@@ -281,6 +295,7 @@ export default function DashboardPage() {
               </section>
             )}
 
+            {commercial && <CommercialBrand />}
             {showUpgrade && (
               <section className="relative overflow-hidden rounded-3xl border border-[#7FB5FF] bg-[linear-gradient(120deg,_#F4F8FF_0%,_#EAF2FF_45%,_#DDEBFF_100%)] p-5 shadow-lg shadow-[#006CFF]/10 animate-pulse">
                 <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#006CFF]/20 blur-2xl animate-ping" />
@@ -321,7 +336,7 @@ export default function DashboardPage() {
               </section>
             )}
 
-            <section aria-label="Your booking sections" className="grid gap-3 sm:grid-cols-3">{[["CURRENT","Current bookings"],["FUTURE","Future bookings"],["COMPLETED","Completed bookings"]].map(([value,label])=><Link key={value} href={`/dashboard/bookings?section=${value}`} className="rounded-2xl border border-[#D7E6FF] bg-white p-5 font-bold text-[#071D49] hover:border-[#006CFF]">{label} →</Link>)}</section>
+            <section aria-label={commercial ? "Your shifts" : "Your booking sections"} className="grid gap-3 sm:grid-cols-3">{(commercial ? [["CURRENT","Shifts in progress"],["FUTURE","Upcoming shifts"],["COMPLETED","Completed shifts"]] : [["CURRENT","Current bookings"],["FUTURE","Future bookings"],["COMPLETED","Completed bookings"]]).map(([value,label])=><Link key={value} href={`/dashboard/bookings?section=${value}`} className="rounded-2xl border border-[#D7E6FF] bg-white p-5 font-bold text-[#071D49] hover:border-[#006CFF]">{label} →</Link>)}</section>
             <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               {cards.map((card) => {
                 const Icon = card.icon;
@@ -351,6 +366,7 @@ export default function DashboardPage() {
                   </Link>
                 );
               })}
+              {commercial && <CommercialBrand />}
             </section>
           </div>
         </section>

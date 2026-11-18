@@ -1,5 +1,6 @@
 "use client";
 import {adminFetch} from "@/lib/adminFetch";
+import CommercialShiftAllocation from "@/components/admin/CommercialShiftAllocation";
 import NewRecordNotifications from "@/components/admin/NewRecordNotifications";
 import BookingPriceBreakdown from "@/components/admin/BookingPriceBreakdown";
 import {existingBookingsGrid,confirmedGridStatuses} from "@/lib/existingBookingsGrid";
@@ -62,6 +63,7 @@ type Booking = {
   estimatedEndTime?: string | null;
   collectionAddress: string;
   deliveryAddress: string;
+  commercialAllocation?: unknown;
   commercialContractShift?: { id: string; contractId: string } | null;
   userId?: string | null;
   returnAddress?: string | null;
@@ -660,7 +662,19 @@ export default function AdminBookingsPage() {
         )}
       </section>
 
-      {selectedBooking ? (
+      {selectedBooking?.commercialAllocation && (selectedBooking.userId || selectedBooking.user?.id) ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Commercial shift">
+          <div className="mx-auto max-w-[1400px] rounded-2xl bg-white p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <strong>{selectedBooking.reference}</strong>
+              <button type="button" aria-label="Close shift" className="grid size-11 place-items-center rounded-lg border"
+                onClick={() => { setSelectedBooking(null); void loadBookings(true); }}><X size={20} /></button>
+            </div>
+            <CommercialShiftAllocation key={selectedBooking.id} customerId={(selectedBooking.userId || selectedBooking.user?.id)!} mode="shift" bookingId={selectedBooking.id}
+              onCancelled={async () => { setSelectedBooking(null); await loadBookings(true); }} />
+          </div>
+        </div>
+      ) : selectedBooking ? (
         <BookingDetailsModal
           key={selectedBooking.id}
           booking={selectedBooking}

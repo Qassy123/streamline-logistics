@@ -492,7 +492,11 @@ router.post("/admin/calculate", async (req, res) => {
   }
 
   try {
-    const calculation = await calculateAdminQuote(req.body || {}, getOptionalString(req.body?.customerId));
+    const customerId = getOptionalString(req.body?.customerId);
+    if (customerId && await assignedCommercialTariff(customerId)) {
+      return res.status(403).json({ error: "Create a commercial shift in Shift Allocation instead." });
+    }
+    const calculation = await calculateAdminQuote(req.body || {}, customerId);
 
     return res.json({
       success: true,
@@ -546,6 +550,9 @@ router.post("/admin/customer/:customerId", async (req, res) => {
     }
 
     if(req.body.collectionDate && req.body.collectionWindow)assertFutureCollection(req.body.collectionDate,req.body.collectionWindow);
+    if (await assignedCommercialTariff(customer.id)) {
+      return res.status(403).json({ error: "Create a commercial shift in Shift Allocation instead." });
+    }
     const calculation = await calculateAdminQuote({...req.body,discountCustomerId:customer.id}, customer.id);
 
     const extraDrops = normaliseExtraDrops(req.body.extraDrops).map(

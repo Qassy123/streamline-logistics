@@ -1,4 +1,4 @@
-import { renderInvoicePdf } from "../lib/invoicePdf";
+import { renderInvoicePdf, renderCommercialAllocationInvoicePdf } from "../lib/invoicePdf";
 import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
@@ -54,6 +54,7 @@ async function getAuthenticatedUser(req: { headers: { authorization?: string } }
         include: {
           tradeAccount: true,
           billingProfile: true,
+          commercialTariffAssignment: { select: { tariff: { select: { name: true } } } },
         },
       },
     },
@@ -199,6 +200,7 @@ async function getTradeBillingPosition(userId: string) {
 
   const invoices = await prisma.invoice.findMany({
     where: {
+      NOT: { commercialPeriod: { not: null }, invoiceType: "CONSOLIDATED" },
       userId,
       status: {
         notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"],
@@ -646,9 +648,9 @@ router.post("/logout", async (req, res) => {
 router.get("/me/invoices/:id/pdf", async (req, res) => {
   const user = await getAuthenticatedUser(req);
   if (!user || user.accountStatus !== "ACTIVE") return res.status(401).json({ error: "Please log in." });
-  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, userId: user.id, archivedCustomerId: null, status: {not:"DRAFT"}, ...(user.accountType === "BUSINESS" ? {OR:[{status:"PAID" as const},{billingAccountType:"TRADE" as const}]} : {}) }, include: { user: true, adjustments: true, lines: true, invoiceBookings: true, allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true, booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } });
+  const invoice = await prisma.invoice.findFirst({ where: { id: req.params.id, userId: user.id, archivedCustomerId: null, status: {not:"DRAFT"}, NOT: { commercialPeriod: { not: null }, status: "VOID" }, ...(user.accountType === "BUSINESS" ? {OR:[{status:"PAID" as const},{billingAccountType:"TRADE" as const},...(user.commercialTariffAssignment ? [{commercialPeriod:{not:null}}] : [])]} : {}) }, include: { user: true, adjustments: true, lines: true, invoiceBookings: true, allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true, booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } });
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
-  try { const buffer = await renderInvoicePdf(invoice); res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer); }
+  try { const buffer = invoice.commercialPeriod ? await renderCommercialAllocationInvoicePdf(invoice) : await renderInvoicePdf(invoice); res.setHeader("Cache-Control", "no-store"); res.type("application/pdf").send(buffer); }
   catch { res.status(500).json({ error: "Unable to render invoice PDF." }); }
 });
 
@@ -667,8 +669,9 @@ router.get("/me", async (req, res) => {
         ? await getTradeBillingPosition(user.id)
         : null;
 
+    const commercial = user.commercialTariffAssignment;
     res.json({
-      user: publicUser(user, tradeBilling || undefined),
+      user: { ...publicUser(user, tradeBilling || undefined), ...(commercial ? { commercialTariff: commercial.tariff.name } : {}) },
     });
   } catch (error) {
     console.error("Get current user error:", error);

@@ -82,7 +82,7 @@ export async function syncTradeBookingPrice(tx: Tx, booking: {
     }
 }
 export async function refreshTradeBalance(tx: Tx, userId: string) {
-    const invoices = await tx.invoice.findMany({ where: { userId, status: { notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"] } }, include: { allocations: true, creditNotes: true } });
+    const invoices = await tx.invoice.findMany({ where: { userId, status: { notIn: ["PAID", "VOID", "CREDITED", "CANCELLED"] }, NOT: { commercialPeriod: { not: null }, invoiceType: "CONSOLIDATED" } }, include: { allocations: true, creditNotes: true } });
     let exposure = invoices.reduce((sum, invoice) => { const paid = invoice.allocations.reduce((n, p) => n.add(p.amount), zero()); const credited = invoice.creditNotes.filter(n => n.status === "ISSUED").reduce((n, p) => n.add(p.amount), zero()); return sum.add(Prisma.Decimal.max(0, invoice.total.sub(paid).sub(credited))); }, zero());
     const open = await tx.booking.aggregate({ where: { userId, status: { in: ["CONFIRMED", "ASSIGNED", "IN_PROGRESS", "COMPLETED"] }, invoices: { none: {} }, invoiceBookings: { none: {} } }, _sum: { totalPrice: true } });
     exposure = exposure.add(open._sum.totalPrice || 0);

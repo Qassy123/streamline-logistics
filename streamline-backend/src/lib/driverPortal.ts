@@ -150,6 +150,7 @@ export function safeDriverJob(booking: PortalBooking) {
   }));
   return {
     id: booking.id, reference: booking.reference, status: booking.status,
+    ...(booking.commercialAllocation ? { commercialShift: true } : {}),
     collectionDate: booking.collectionDate, collectionWindow: booking.collectionWindow,
     estimatedStartTime: booking.estimatedStartTime, estimatedEndTime: booking.estimatedEndTime,
     collectionAddress: booking.collectionAddress, deliveryAddress: booking.deliveryAddress,
@@ -204,7 +205,7 @@ export async function withBookingLock<T>(bookingId: string, work: (tx: Tx) => Pr
 }
 
 export async function ensureDriverStops(tx: Tx, booking: PortalBooking) {
-  if (booking.driverStops.length || closedStatuses.includes(booking.status)) return;
+  if (booking.commercialAllocation || booking.driverStops.length || closedStatuses.includes(booking.status)) return;
   const quote = booking.quote;
   const rows: Prisma.DriverStopCreateManyInput[] = [];
   function add(type: DriverStopType, key: string, label: string, address: string, detail: unknown = null) {
@@ -327,7 +328,7 @@ export async function performDriverAction(input: {
       if (!shift || !shift.activities.some(activity => ["WORK", "DRIVING", "OTHER_WORK"].includes(activity.kind))) throw new DriverPortalError(409, "Clock in and end your break/rest before recording job progress.");
       if (!booking.driverAcknowledgedAt) throw new DriverPortalError(409, "Accept the assigned job first.");
       const next = booking.driverStops.find(stop => stop.status !== DriverStopStatus.COMPLETED);
-      if (!next) throw new DriverPortalError(409, "There are no remaining stops.");
+      if (!next && !(booking.commercialAllocation && input.action === "START")) throw new DriverPortalError(409, "There are no remaining stops.");
       if (input.action === "START") {
         if (booking.driverJourneyStartedAt) throw new DriverPortalError(409, "This journey has already started.");
         if (!booking.vehicleId || !driver.vehicleId || driver.vehicleId !== booking.vehicleId || !booking.vehicle?.active) {
@@ -340,11 +341,15 @@ export async function performDriverAction(input: {
         const other = await tx.booking.findFirst({ where: { driverId: input.driverId, id: { not: booking.id }, status: BookingStatus.IN_PROGRESS } });
         if (other) throw new DriverPortalError(409, "Finish your current job before starting another.");
         await tx.booking.update({ where: { id: booking.id }, data: { driverJourneyStartedAt: new Date(), status: BookingStatus.IN_PROGRESS } });
-        await tx.driverStop.update({ where: { id: next.id }, data: { status: DriverStopStatus.EN_ROUTE, enRouteAt: new Date() } });
-        title = `${next.label} en route`;
+        if (next) {
+          await tx.driverStop.update({ where: { id: next.id }, data: { status: DriverStopStatus.EN_ROUTE, enRouteAt: new Date() } });
+          title = `${next.label} en route`;
+        } else {
+          title = "Commercial shift started";
+        }
       } else {
         if (!booking.driverJourneyStartedAt) throw new DriverPortalError(409, "Start the journey first.");
-        if (next.id !== input.stopId) throw new DriverPortalError(409, "Complete the current stop before continuing.");
+        if (!next || next.id !== input.stopId) throw new DriverPortalError(409, "Complete the current stop before continuing.");
         if (next.evidence?.reviewStatus === DriverReviewStatus.PENDING) throw new DriverPortalError(409, "Dispatch is reviewing this delivery exception.");
         if (input.action === "EN_ROUTE") {
           if (next.status !== DriverStopStatus.PENDING) throw new DriverPortalError(409, "This stop has already started.");

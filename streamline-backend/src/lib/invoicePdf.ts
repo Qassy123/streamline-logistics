@@ -83,9 +83,23 @@ function ensureCloudinaryConfigured() {
   }
 }
 
+export async function renderCommercialAllocationInvoicePdf(invoice: PdfInvoiceInput) {
+  const members = invoice.invoiceType === "CONSOLIDATED"
+    ? await prisma.invoice.findMany({ where: { commercialGroupId: invoice.id }, orderBy: { supplyDate: "asc" },
+      include: { user: true, adjustments: true, lines: true, invoiceBookings: true,
+        allocations: { include: { payment: true } }, creditNotes: true, emailLogs: true, auditEvents: true,
+        booking: { include: { quote: true, payments: true, vehicle: true, driver: true, pod: true } } } })
+    : [];
+  if (!members.length) return renderInvoicePdf(invoice);
+  return renderInvoicePdf({ ...invoice, allocations: members.flatMap(row => row.allocations) }, {
+    periodLabel: invoice.commercialPeriod?.length === 10 ? "Week ending" : "Invoice month",
+    month: invoice.commercialPeriod || "", invoices: members,
+  });
+}
+
 export async function renderInvoicePdf(
   invoice: PdfInvoiceInput,
-  summary?: { month: string; invoices: PdfInvoiceInput[] },
+  summary?: { month: string; periodLabel?: string; invoices: PdfInvoiceInput[] },
 ): Promise<Buffer> {
   const settings = await prisma.companySettings.findFirst();
   if (!settings?.companyName?.trim()) throw new Error("Company settings and name are required before rendering invoices.");
@@ -99,7 +113,7 @@ export async function renderInvoicePdf(
   const outstanding = Prisma.Decimal.max(new Prisma.Decimal(0), invoice.total.sub(paid).sub(credited));
   const issuedAt = invoice.issuedAt || invoice.finalisedAt || invoice.createdAt;
   const isContract = invoice.lines.some(line => line.sourceType === "COMMERCIAL_CONTRACT");
-  const dueDate = !isContract && user?.accountType === "BUSINESS" ? invoiceTerms("BUSINESS", issuedAt).dueDate : invoice.dueDate;
+  const dueDate = !invoice.commercialPeriod && !isContract && user?.accountType === "BUSINESS" ? invoiceTerms("BUSINESS", issuedAt).dueDate : invoice.dueDate;
   const sources = summary?.invoices || [invoice];
   const ids = isContract ? [] : [...new Set(sources.flatMap(source => source.invoiceBookings.map(row => row.bookingId)))];
   const linkedBookings = ids.length
@@ -171,7 +185,8 @@ export async function renderInvoicePdf(
   const accountType=invoice.billingAccountType||user?.accountType;
   const accountLabel=isContract?"Commercial contract":accountType==="TRADE"?"Trade account":accountType==="BUSINESS"?"Business account":user?"Customer account":"Guest customer";
   const meta = [["Issue date", date(summary ? invoice.issuedAt : issuedAt)], ["Due date", date(dueDate)], ["Account type", accountLabel]];
-  if (summary) meta.push(["Invoice month", summary.month]);
+  if (summary) meta.push([summary.periodLabel || "Invoice month", summary.month]);
+  else if (invoice.commercialPeriod) meta.push(["Week ending", invoice.commercialPeriod]);
   if (invoice.invoiceType !== "CONSOLIDATED") meta.splice(2, 0, ["Supply date", date(invoice.supplyDate || primary?.collectionDate)]);
   text("BILL TO",left,y,260,9,true);const customerLines=wrap(customer,260,8.5);const customerStart=y+19;
   if(customerLines.length<16){customerLines.forEach((v,i)=>text(v,left,customerStart+i*12,260,8.5,i===0));meta.forEach(([label,value],i)=>{text(label,335,y+i*19,85,8,false,grey);text(value,420,y+i*19,right-420,8.5,true,navy,"right");});y+=Math.max(80,customerLines.length*12+22);}
@@ -212,6 +227,21 @@ export async function renderInvoicePdf(
   for (const { source, bookings } of bookingGroups) {
     if (isContract) {
       flow("MONTHLY CONTRACT CHARGES", 10, true);
+      table(source.lines.map(savedLine));
+      continue;
+    }
+    if (invoice.commercialPeriod) {
+      ensure(115);
+      flow(summary ? `SHIFT INVOICE ${source.invoiceNumber}` : "COMMERCIAL SHIFT", 11, true, blue);
+      if (source.booking) {
+        const booking = source.booking;
+        const shift = booking.commercialAllocation as { driverName?: string; registration?: string; startDate?: string; startTime?: string;
+          finishDate?: string; finishTime?: string; odoStart?: number; odoFinish?: number } | null;
+        flow([booking.reference, booking.customerReference, booking.vehicleType, shift?.registration, shift?.driverName].filter(Boolean).join(" | "), 8, false, grey);
+        if (shift?.startDate) flow(`Start ${shift.startDate} ${shift.startTime || ""} · Finish ${shift.finishDate || ""} ${shift.finishTime || ""}`, 8, false, grey);
+        if (shift?.odoFinish != null && shift.odoStart != null) flow(`Odometer ${shift.odoStart} to ${shift.odoFinish}`, 8, false, grey);
+      }
+      y += 7;
       table(source.lines.map(savedLine));
       continue;
     }

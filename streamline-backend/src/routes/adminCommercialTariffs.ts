@@ -68,7 +68,15 @@ router.put("/:id/rates", async (req, res) => {
   const tariff = await prisma.commercialTariff.findUnique({ where: { id }, select: { id: true } });
   if (!tariff) return res.status(404).json({ error: "Commercial tariff not found." });
 
-  const values = { fare8Hours, includedMiles8, fare12Hours, includedMiles12, extraMileRate };
+  const extras = {} as Partial<Record<"overtimePerQuarter" | "overtimePerHour" | "saturdayStartPercent" | "sundayStartPercent" | "bankHolidayStartPercent", Prisma.Decimal | null>>;
+  for (const key of ["overtimePerQuarter", "overtimePerHour", "saturdayStartPercent", "sundayStartPercent", "bankHolidayStartPercent"] as const) {
+    const raw = req.body[key];
+    if (raw === undefined) continue;
+    const value = raw === "" || raw === null ? null : decimalInput(raw);
+    if (value === null && raw !== "" && raw !== null) return res.status(400).json({ error: "Enter a valid non-negative rate." });
+    extras[key] = value;
+  }
+  const values = { fare8Hours, includedMiles8, fare12Hours, includedMiles12, extraMileRate, ...extras };
   const rate = await prisma.commercialTariffRate.upsert({
     where: { tariffId_vehicleType: { tariffId: id, vehicleType } },
     create: { tariffId: id, vehicleType, ...values },

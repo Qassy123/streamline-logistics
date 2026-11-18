@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 
+import CommercialShiftAllocation from "@/components/admin/CommercialShiftAllocation";
 import AdminCustomerQuoteForm, { type AdminQuotePayload } from "@/components/admin/AdminCustomerQuoteForm";
 
 const API_BASE =
@@ -63,6 +64,7 @@ const COLLECTION_WINDOWS = Array.from({ length: 23 }, (_, hour) => dropCollectio
 type JourneyType = "One Way" | "Return" | "Multi";
 
 type Customer = {
+  commercialTariffAssignment?: { tariffId: string; tariff: { name: string } } | null;
   id: string;
   name: string;
   companyName?: string | null;
@@ -1163,9 +1165,10 @@ export default function AdminPlanningBoardPage() {
             <FieldLabel label="Select Account">
               <select value={form.accountId} disabled={loadingCustomers || calculating} onChange={(event) => { updateForm("accountId", event.target.value); setCustomerFormPayload(null); setDiscountRuleId(""); }} className="manual-input">
                 <option value="GUEST">Guest Customer (No Account)</option>
-                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.accountType === "TRADE" ? "Trade" : "Business"}  ·  {customer.companyName || customer.legalEntity || customer.name}</option>)}
+                {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.commercialTariffAssignment ? "Commercial" : customer.accountType === "TRADE" ? "Trade" : "Business"}  ·  {customer.companyName || customer.legalEntity || customer.name}</option>)}
               </select>
             </FieldLabel>
+            {!selectedCustomer?.commercialTariffAssignment && <>
             <PlanningDiscountSelect customerId={form.accountId==="GUEST"?null:form.accountId} value={discountRuleId} onChange={id=>{setDiscountRuleId(id);setCalculation(null);setCustomerFormPayload(null);}} />
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <FieldLabel label="Purchase Order Number"><input value={form.purchaseOrderNumber} onChange={(event) => updateForm("purchaseOrderNumber", event.target.value)} className="manual-input" /></FieldLabel>
@@ -1187,11 +1190,12 @@ export default function AdminPlanningBoardPage() {
               {selectedCustomer?.accountType === "TRADE" && <FieldLabel label="Credit override reason (if required)"><input value={form.creditOverrideReason} onChange={(event) => updateForm("creditOverrideReason", event.target.value)} className="manual-input" /></FieldLabel>}
             </div>
             {error && <ErrorBox text={error} />}
+            </>}
           </div>
-          <AdminCustomerQuoteForm key={form.accountId + ":" + formVersion} apiBase={API_BASE} accountId={form.accountId} customer={selectedCustomer}
+          {selectedCustomer?.commercialTariffAssignment ? <CommercialShiftAllocation key={selectedCustomer.id} customerId={selectedCustomer.id} mode="allocate" /> : <AdminCustomerQuoteForm key={form.accountId + ":" + formVersion} apiBase={API_BASE} accountId={form.accountId} customer={selectedCustomer}
             onCalculate={calculateJourney}
             onOpenBoard={() => { setCalculation(null); setCreatedBookingId(null); setBoardOnly(true); setPlanningOpen(true); setMessage(""); setError(""); }}
-          />
+          />}
         </section>
       ) : (
         <>

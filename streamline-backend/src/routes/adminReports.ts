@@ -200,6 +200,7 @@ async function buildReport(dateFrom: Date, dateTo: Date) {
     prisma.invoice.findMany({
       where: {
         createdAt: createdAtRange,
+        NOT: { commercialPeriod: { not: null }, invoiceType: "CONSOLIDATED" },
       },
       select: {
         id: true,

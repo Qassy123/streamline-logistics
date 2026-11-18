@@ -20,6 +20,8 @@ type Booking = {
   collectionAddress: string;
   deliveryAddress: string;
   totalPrice: string | number;
+  vehicleType?: string | null;
+  customerReference?: string | null;
   quote?: {
     id: string;
     deliveryType?: string | null;
@@ -30,6 +32,12 @@ type Booking = {
     specialInstructions?: string | null;
   } | null;
 };
+
+function commercialShiftSection(shift: Booking) {
+  if (shift.status === "COMPLETED") return "COMPLETED";
+  if (shift.status === "IN_PROGRESS") return "CURRENT";
+  return "FUTURE";
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -47,6 +55,7 @@ function formatMoney(value: string | number) {
 }
 
 export default function DashboardBookingsPage() {
+  const [commercial, setCommercial] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -77,6 +86,7 @@ export default function DashboardBookingsPage() {
         throw new Error(data.error || "Failed to load bookings.");
       }
 
+      setCommercial(data.commercial === true);
       setBookings(Array.isArray(data.bookings) ? data.bookings : []);
       setAccountName(data.accountName||"");
     } catch (error) {
@@ -89,6 +99,41 @@ export default function DashboardBookingsPage() {
       setLoading(false);
     }
   }
+
+  if (commercial) return <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">
+    <div className="mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-[#D7E6FF] bg-white shadow-2xl shadow-black/10">
+      <header className="bg-[linear-gradient(135deg,_#020B1F_0%,_#071D49_55%,_#006CFF_100%)] p-8 text-white sm:p-10">
+        <h1 className="text-4xl font-bold tracking-tight md:text-6xl">Shifts</h1>
+      </header>
+      <div className="grid gap-5 p-5 sm:p-8">
+        {accountName && <p className="font-bold">{accountName}</p>}
+        <div role="tablist" aria-label="Commercial shifts" className="flex flex-wrap gap-2">
+          {[["CURRENT", "Shifts in progress"], ["FUTURE", "Upcoming shifts"], ["COMPLETED", "Completed shifts"]].map(([key, label]) =>
+            <button type="button" role="tab" aria-selected={section === key} key={key} onClick={() => setSection(key)}
+              className={`min-h-11 rounded-xl border px-4 py-3 font-bold ${section === key ? "bg-[#071D49] text-white" : "bg-white"}`}>
+              {label} ({bookings.filter(row => commercialShiftSection(row) === key).length})
+            </button>)}
+          <button type="button" onClick={() => void loadBookings()} className="min-h-11 rounded-xl border px-4 py-3" disabled={loading}>Refresh</button>
+        </div>
+        {loading && <p role="status">Loading shifts…</p>}
+        {error && <p role="alert" className="text-red-700">{error}</p>}
+        {!loading && !error && !bookings.some(row => commercialShiftSection(row) === section) && <p>No shifts in this section.</p>}
+        {!loading && !error && bookings.filter(row => commercialShiftSection(row) === section).map(shift =>
+          <details key={shift.id} className="rounded-2xl border border-[#D7E6FF] bg-[#F4F8FF] p-5">
+            <summary className="cursor-pointer font-bold">{shift.customerReference || shift.reference} · {formatDate(shift.collectionDate)}</summary>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <Info label="Shift reference" value={shift.reference} />
+              <Info label="Start time" value={shift.collectionWindow.split("-")[0] || "To be confirmed"} />
+              <Info label="Vehicle" value={shift.vehicleType || shift.quote?.vehicleSize || "Not provided"} />
+            </div>
+            {section === "CURRENT" && <Link href={`/dashboard/tracking?shift=${encodeURIComponent(shift.id)}`}
+              className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#006CFF] px-5 text-sm font-bold text-white">
+              Track Shift / Driver <ArrowRight size={16} />
+            </Link>}
+          </details>)}
+      </div>
+    </div>
+  </main>;
 
   return (
     <main className="min-h-screen bg-[#F4F8FF] px-4 py-10 text-[#071D49] sm:px-6">

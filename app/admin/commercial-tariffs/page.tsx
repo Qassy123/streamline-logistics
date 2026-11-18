@@ -12,7 +12,12 @@ const rateFields = [
   { key: "includedMiles8", label: "8-hour included miles" },
   { key: "fare12Hours", label: "12-hour fare (£)" },
   { key: "includedMiles12", label: "12-hour included miles" },
-  { key: "extraMileRate", label: "Extra mileage (£/mile)" },
+  { key: "extraMileRate", label: "Extra mileage per mile (£)" },
+  { key: "overtimePerQuarter", label: "Overtime per 15 minutes (£)", optional: true },
+  { key: "overtimePerHour", label: "Overtime per hour (£)", optional: true },
+  { key: "saturdayStartPercent", label: "Saturday start (%)", optional: true },
+  { key: "sundayStartPercent", label: "Sunday start (%)", optional: true },
+  { key: "bankHolidayStartPercent", label: "Bank holiday start (%)", optional: true },
 ] as const;
 
 type Rate = { vehicleType: string } & Record<(typeof rateFields)[number]["key"], string>;
@@ -43,7 +48,7 @@ export default function CommercialTariffsPage() {
         if (controller.signal.aborted) return;
         setTariffs(data.tariffs);
         setVehicleTypes(data.vehicleTypes);
-        setSelectedId(data.tariffs[0]?.id || "");
+        setSelectedId(data.tariffs.find(tariff => tariff.name.toLowerCase() === "bronze")?.id || data.tariffs[0]?.id || "");
       })
       .catch((error: Error) => {
         if (!controller.signal.aborted) setError(error.message);
@@ -111,7 +116,7 @@ export default function CommercialTariffsPage() {
 
           {selected && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-sm">
+              <table className="w-full min-w-[1450px] text-left text-sm">
                 <caption className="sr-only">{selected.name} rates by van and shift length</caption>
                 <thead className="bg-slate-50 text-slate-700">
                   <tr>
@@ -181,7 +186,7 @@ function VanRateRow({
       {rateFields.map(field => (
         <td key={field.key} className="min-w-28 px-2 py-2">
           {canEdit ? (
-            <input type="number" min="0" max="9999999999.99" step="0.01" required form={formId} name={field.key}
+            <input type="number" min="0" max="9999999999.99" step="0.01" required={!("optional" in field)} form={formId} name={field.key}
               defaultValue={rate?.[field.key] || ""} aria-label={`${vehicleType}: ${field.label}`}
               onChange={() => { if (saved) setSaved(false); }} className={fieldClass} readOnly={saving} />
           ) : rate?.[field.key] ?? "—"}

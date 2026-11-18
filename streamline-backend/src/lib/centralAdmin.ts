@@ -9,7 +9,7 @@ const operational=["customers","guest-bookings","quotes","bookings","planning-bo
 const finance=["customers","guest-bookings","trade-accounts","invoices","payments","pricing","commercial-tariffs","reports","notifications","search"];
 export function adminSections(role:string){if(role==="SUPER_ADMIN")return[...new Set([...operational,...finance,"permissions","settings"])];if(role==="READ_ONLY")return[...new Set([...operational,...finance,"settings"])];if(role==="OFFICE_MANAGER")return[...new Set([...operational,...finance,"settings"])];if(role==="DISPATCHER")return operational;if(role==="ACCOUNTS")return finance;return [];}
 function sectionForApi(path:string){
- if(/^\/api\/admin\//.test(path)){const group=path.split("/")[3];return ({planning:"planning-board","fleet-operations":"fleet","tariffs":"pricing","commercial-contracts":"commercial-tariffs",discounts:"pricing",audit:"reports",documents:"reports"} as Record<string,string>)[group]||group;}
+ if(/^\/api\/admin\//.test(path)){const group=path.split("/")[3];return ({planning:"planning-board","fleet-operations":"fleet","tariffs":"pricing","commercial-contracts":"commercial-tariffs","commercial-allocations":"commercial-tariffs",discounts:"pricing",audit:"reports",documents:"reports"} as Record<string,string>)[group]||group;}
  const group=path.split("/")[2];if(["bookings","quotes","payments","invoices","trade-accounts"].includes(group))return group;if(group==="saved-routes")return"customers";if(group==="vehicles")return"fleet";if(group==="tracking"&&/^\/api\/tracking\/(admin|fleet)(?:\/|$)/.test(path))return"tracking";return"";
 }
 export function canAdminRequest(role:string,path:string,method:string){
@@ -18,6 +18,7 @@ export function canAdminRequest(role:string,path:string,method:string){
  if(role==="DISPATCHER"&&(/^\/api\/bookings\/admin\/.*\/refunds(?:\/|$)/.test(path)||/\/confirm-payment$/.test(path)))return false;
  const section=sectionForApi(path),read=["GET","HEAD","OPTIONS"].includes(method);
  if(!section)return true; if(!adminSections(role).includes(section))return false;
+ if(section==="commercial-tariffs"&&path.startsWith("/api/admin/commercial-allocations"))return read||["OFFICE_MANAGER","ACCOUNTS"].includes(role);
  if(section==="commercial-tariffs"&&path.startsWith("/api/admin/commercial-contracts")&&role!=="OFFICE_MANAGER")return read;
  if(role==="READ_ONLY")return read;
  if(section==="permissions")return false;

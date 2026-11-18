@@ -333,7 +333,7 @@ export default function TrackingPage() {
   }, [selectedBooking]);
 
   useEffect(() => {
-    const storedBookingId = getSelectedBookingIdFromStorage();
+    const storedBookingId = new URLSearchParams(window.location.search).get("shift") || getSelectedBookingIdFromStorage();
 
     if (storedBookingId) {
       setSelectedBookingId(storedBookingId);
