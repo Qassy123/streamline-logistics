@@ -13,7 +13,7 @@ function load(file, mocks) {
   const source = fs.readFileSync(path.join(backend, "src", file), "utf8");
   const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } });
   const exports = {};
-  vm.runInNewContext(outputText, { exports, require: id => mocks[id] ?? deps(id), Date, console });
+  vm.runInNewContext(outputText, { exports, require: id => mocks[id] ?? deps(id), Date, console, Intl });
   return exports;
 }
 
@@ -49,6 +49,29 @@ const surcharge = pricing.allocationSurcharge([
 ], "Saturday start", decimal(20));
 assert.equal(surcharge.reduce((sum, line) => sum.add(line.grossAmount), decimal(0)).toNumber(), 92);
 
+const night = (start, end, percent = 20) => pricing.nightPremium(new Date(start), new Date(end), decimal(400), 12, decimal(percent));
+const example = night("2026-11-02T20:00:00Z", "2026-11-03T08:00:00Z");
+assert.equal(example.hours.toNumber(), 8);
+assert.equal(example.amount.toFixed(2), "53.33");
+assert.equal(example.amount.add(400).toFixed(2), "453.33");
+assert.equal(night("2026-11-02T06:00:00Z", "2026-11-02T22:00:00Z").amount.toNumber(), 0);
+assert.equal(night("2026-11-02T21:45:00Z", "2026-11-02T22:15:00Z").hours.toNumber(), 0.25);
+assert.equal(night("2026-11-02T05:45:00Z", "2026-11-02T06:15:00Z").hours.toNumber(), 0.25);
+assert.equal(night("2026-11-02T23:00:00Z", "2026-11-03T01:00:00Z").hours.toNumber(), 2);
+assert.equal(night("2026-11-02T20:00:00Z", "2026-11-03T08:00:00Z", 0).amount.toNumber(), 0);
+assert.equal(night("2026-11-02T20:00:00Z", "2026-11-03T08:00:00Z", 30).amount.toFixed(2), "80.00");
+assert.equal(night("2026-07-02T19:00:00Z", "2026-07-03T07:00:00Z").hours.toNumber(), 8);
+assert.equal(night("2026-03-28T22:00:00Z", "2026-03-29T05:00:00Z").hours.toNumber(), 7);
+assert.equal(night("2026-10-24T21:00:00Z", "2026-10-25T06:00:00Z").hours.toNumber(), 9);
+assert.equal(night("2026-11-02T20:00:00Z", "2026-11-04T08:00:00Z").hours.toNumber(), 16);
+const withNight = pricing.allocationCharges(
+  { ...start, startDate: "2026-11-02", startTime: "20:00", hours: 12 },
+  { ...finish, finishDate: "2026-11-03", finishTime: "08:00" },
+  { ...rate, fare12Hours: decimal(400), nightHoursPercent: decimal(20) }, false);
+assert.equal(withNight.night.amount.toFixed(2), "53.33");
+assert.equal(quote.night.amount.toNumber(), 0);
+console.log("Night premium example, daytime, exact boundaries, partial hours, summer time and both UK clock changes passed.");
+
 const routes = new Map();
 const period = "2026-11-01";
 const invoices = ["a", "b"].map((id, i) => ({
@@ -60,6 +83,12 @@ const profile = { accountsEmail: "accounts@example.invalid", paymentTermsDays: 3
 const user = { companyName: "Test Courier", billingProfile: profile };
 const emails = [];
 const payments = [];
+const previewBooking = {
+  id: "night-shift", userId: "customer", reference: "SL#NIGHT", commercialAllocation: {
+    driverName: "", routeReference: "NIGHT-1", registration: "", vehicleType: "SWB Van", hours: 12,
+    startDate: "2026-11-02", startTime: "20:00",
+  },
+};
 const members = id => invoices.filter(row => row.commercialGroupId === id);
 const one = id => invoices.find(row => row.id === id);
 const prisma = {
@@ -67,6 +96,9 @@ const prisma = {
   $queryRaw: async () => [],
   companySettings: { findFirstOrThrow: async () => ({ id: "settings" }) },
   billingProfile: { findUnique: async () => profile },
+  booking: { findFirstOrThrow: async () => previewBooking },
+  commercialTariffAssignment: { findUniqueOrThrow: async () => ({ tariffId: "premium" }) },
+  commercialTariffRate: { findUniqueOrThrow: async () => ({ ...rate, fare12Hours: decimal(400), nightHoursPercent: decimal(20) }) },
   invoice: {
     findFirst: async ({ where }) => invoices.find(row =>
       row.userId === where.userId && row.commercialPeriod === where.commercialPeriod && row.invoiceType === where.invoiceType && row.status === where.status),
@@ -93,7 +125,7 @@ load("routes/adminCommercialAllocations.ts", {
   express: { Router: () => ({
     use() {}, get() {}, post: (route, handler) => routes.set(route, handler),
   }) },
-  "../lib/commercialAllocation": pricing,
+  "../lib/commercialAllocation": { ...pricing, allocationBankHoliday: async () => false },
   "../lib/commercialContracts": { calendarDate },
   "../lib/centralAdmin": {},
   "../lib/driverPortal": {},
@@ -110,6 +142,27 @@ const call = (route, params, body) => routes.get(route)({ params: { customerId: 
 const act = (id, action, data) => call("/:customerId/invoices/:id/:action", { id, action }, data);
 
 async function run() {
+  const adjustedLines = [
+    { netAmount: decimal(400), vatRate: decimal(20), vatAmount: decimal(80), sourceType: "COMMERCIAL_ALLOCATION" },
+    { netAmount: decimal("53.33"), vatRate: decimal(20), vatAmount: decimal("10.67"), sourceType: pricing.nightSource },
+    { netAmount: decimal(100), vatRate: decimal(20), vatAmount: decimal(20), sourceType: "ADJUSTMENT" },
+    { netAmount: decimal(80), vatRate: decimal(20), vatAmount: decimal(16), sourceType: pricing.surchargeSource,
+      sourceId: "20", description: "Saturday start (20%)", bookingId: "night-shift", bookingReference: "SL#NIGHT" },
+  ];
+  const adjustedTotals = await pricing.refreshAllocationInvoiceTotals({ invoiceLine: {
+    findMany: async () => adjustedLines, deleteMany: async () => {}, createMany: async () => {},
+  } }, "invoice");
+  assert.equal(adjustedTotals.total.toFixed(2), "784.00");
+  assert.equal(adjustedTotals.subtotal.toFixed(2), "653.33");
+  prisma.companySettings.findFirstOrThrow = async () => ({ id: "settings", vatRate: decimal(20) });
+  const preview = await call("/:customerId/shifts/:id/preview", { id: "night-shift" }, {
+    finishDate: "2026-11-03", finishTime: "08:00", odoStart: 100, odoFinish: 200, waitingId: "", waitingHours: 1,
+    loadingId: "", additionalId: "", additionalQuantity: 1, discountId: "",
+  });
+  const nightLine = preview.lines.find(line => line.sourceType === pricing.nightSource);
+  assert.equal(nightLine.netAmount.toFixed(2), "53.33");
+  assert.match(nightLine.description, /8 hours at 20%/);
+  assert.equal(preview.total.toFixed(2), "544.00");
   const group = await call("/:customerId/consolidate", {}, { period });
   assert.equal(group.id, "group");
   assert.equal(emails.length, 0);

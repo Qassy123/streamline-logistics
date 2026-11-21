@@ -39,6 +39,26 @@ type Decimal = Prisma.Decimal;
 const zero = new Prisma.Decimal(0);
 export const round = (value: Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 export const surchargeSource = "COMMERCIAL_START_SURCHARGE";
+export const nightSource = "COMMERCIAL_NIGHT_PREMIUM";
+
+const londonClock = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London", hour: "2-digit", hourCycle: "h23",
+});
+
+export function nightPremium(start: Date, end: Date, fare: Decimal, shiftHours: number, percent: Decimal | null | undefined) {
+  let milliseconds = 0;
+  // UK offsets use whole hours. Split at UTC hour boundaries to also count clock-change nights correctly.
+  for (let cursor = +start; cursor < +end;) {
+    const next = Math.min(+end, (Math.floor(cursor / 3600000) + 1) * 3600000);
+    const hour = Number(londonClock.format(new Date(cursor)));
+    if (hour >= 22 || hour < 6) milliseconds += next - cursor;
+    cursor = next;
+  }
+  const hours = new Prisma.Decimal(milliseconds).div(3600000);
+  const rate = percent ?? zero;
+  const amount = round(fare.mul(milliseconds).div(shiftHours * 3600000).mul(rate).div(100));
+  return { hours, percent: rate, amount };
+}
 
 export function allocationWeekEnd(day: Date) {
   const date = new Date(day);
@@ -93,7 +113,7 @@ export async function refreshAllocationInvoiceTotals(tx: Prisma.TransactionClien
   const surcharge = lines.find(line => line.sourceType === surchargeSource);
   const base = lines.filter(line => line.sourceType !== surchargeSource);
   const rebuilt = surcharge?.sourceId
-    ? allocationSurcharge(base, surcharge.description, new Prisma.Decimal(surcharge.sourceId))
+    ? allocationSurcharge(base.filter(line => line.sourceType !== nightSource), surcharge.description, new Prisma.Decimal(surcharge.sourceId))
     : [];
   if (surcharge) {
     await tx.invoiceLine.deleteMany({ where: { invoiceId, sourceType: surchargeSource } });
@@ -128,6 +148,7 @@ export function allocationCharges(shift: Allocation, finish: Completion, rate: C
 
   return {
     end, surcharge,
+    night: nightPremium(start, end, shift.hours === 8 ? rate.fare8Hours : rate.fare12Hours, shift.hours, rate.nightHoursPercent),
     charges: [
       { chargeType: "BASE_SERVICE" as const, description: `${shift.hours}-hour shift · ${shift.vehicleType}`,
         quantity: new Prisma.Decimal(1), unitPrice: shift.hours === 8 ? rate.fare8Hours : rate.fare12Hours },

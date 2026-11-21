@@ -18,6 +18,7 @@ const rateFields = [
   { key: "saturdayStartPercent", label: "Saturday start (%)", optional: true },
   { key: "sundayStartPercent", label: "Sunday start (%)", optional: true },
   { key: "bankHolidayStartPercent", label: "Bank holiday start (%)", optional: true },
+  { key: "nightHoursPercent", label: "Night hours between 22:00 hrs- 06:00 hrs (%)", optional: true },
 ] as const;
 
 type Rate = { vehicleType: string } & Record<(typeof rateFields)[number]["key"], string>;
@@ -187,7 +188,7 @@ function VanRateRow({
         <td key={field.key} className="min-w-28 px-2 py-2">
           {canEdit ? (
             <input type="number" min="0" max="9999999999.99" step="0.01" required={!("optional" in field)} form={formId} name={field.key}
-              defaultValue={rate?.[field.key] || ""} aria-label={`${vehicleType}: ${field.label}`}
+              defaultValue={rate?.[field.key] ?? (field.key === "nightHoursPercent" && !rate ? "20" : "")} aria-label={`${vehicleType}: ${field.label}`}
               onChange={() => { if (saved) setSaved(false); }} className={fieldClass} readOnly={saving} />
           ) : rate?.[field.key] ?? "—"}
         </td>

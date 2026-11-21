@@ -265,6 +265,10 @@ function CompletionForm({ endpoint, shift, overview, busy, onSubmit }: {
           .map(charge => <option key={charge.id} value={charge.id}>{charge.name} · {money(charge.amount)}</option>)}
       </select><input aria-label="Waiting hours" className={input + " mt-2"} name="waitingHours" type="number" min="0.25" max="48" step="0.25" defaultValue="1" required /></Field>
       <Field label="Overtime per 15 minutes"><output>{note("Overtime")}</output></Field>
+      <Field label="Night hours between 22:00 hrs- 06:00 hrs"><output>
+        {(complete ? preview : []).filter(line => line.description.startsWith("Night premium"))
+          .map(line => `${line.description} · ${money(line.unitPrice)} excluding VAT`).join(", ") || "—"}
+      </output></Field>
       <Field label="Weekend % / Charge"><output>{(complete ? preview : []).filter(line => /^(Saturday|Sunday|Bank holiday) start/.test(line.description))
         .map(line => `${line.description} · ${money(line.grossAmount)}`).join(", ") || "—"}</output></Field>
       <Field label="Loading Charge"><select className={input} name="loadingId"><option value="">N/A</option>

@@ -68,8 +68,8 @@ router.put("/:id/rates", async (req, res) => {
   const tariff = await prisma.commercialTariff.findUnique({ where: { id }, select: { id: true } });
   if (!tariff) return res.status(404).json({ error: "Commercial tariff not found." });
 
-  const extras = {} as Partial<Record<"overtimePerQuarter" | "overtimePerHour" | "saturdayStartPercent" | "sundayStartPercent" | "bankHolidayStartPercent", Prisma.Decimal | null>>;
-  for (const key of ["overtimePerQuarter", "overtimePerHour", "saturdayStartPercent", "sundayStartPercent", "bankHolidayStartPercent"] as const) {
+  const extras = {} as Partial<Record<"overtimePerQuarter" | "overtimePerHour" | "saturdayStartPercent" | "sundayStartPercent" | "bankHolidayStartPercent" | "nightHoursPercent", Prisma.Decimal | null>>;
+  for (const key of ["overtimePerQuarter", "overtimePerHour", "saturdayStartPercent", "sundayStartPercent", "bankHolidayStartPercent", "nightHoursPercent"] as const) {
     const raw = req.body[key];
     if (raw === undefined) continue;
     const value = raw === "" || raw === null ? null : decimalInput(raw);

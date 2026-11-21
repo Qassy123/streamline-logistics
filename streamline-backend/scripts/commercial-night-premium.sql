@@ -1,0 +1,4 @@
+BEGIN;
+ALTER TABLE "CommercialTariffRate"
+  ADD COLUMN IF NOT EXISTS "nightHoursPercent" DECIMAL(12,2) DEFAULT 20;
+COMMIT;

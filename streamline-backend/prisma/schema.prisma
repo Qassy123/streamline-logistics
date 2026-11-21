@@ -111,6 +111,7 @@ model CommercialTariffRate {
   saturdayStartPercent Decimal? @db.Decimal(12, 2)
   sundayStartPercent Decimal? @db.Decimal(12, 2)
   bankHolidayStartPercent Decimal? @db.Decimal(12, 2)
+  nightHoursPercent Decimal? @default(20) @db.Decimal(12, 2)
 
   tariff CommercialTariff @relation(fields: [tariffId], references: [id], onDelete: Cascade)
 

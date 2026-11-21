@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { centralAdminAccess } from "../lib/centralAdmin";
-import { allocationBankHoliday, allocationCharges, allocationSurcharge, allocationInput, allocationWeekEnd, completionInput, refreshAllocationGroupTotals, round } from "../lib/commercialAllocation";
+import { allocationBankHoliday, allocationCharges, allocationSurcharge, allocationInput, allocationWeekEnd, completionInput, refreshAllocationGroupTotals, nightPremium, nightSource, round } from "../lib/commercialAllocation";
 import { calendarDate, contractMonthBounds, contractShiftTiming } from "../lib/commercialContracts";
 import { reconcileDriverActivity } from "../lib/driverPortal";
 import { assertPlan, fleetMutation } from "../lib/fleetOperations";
@@ -109,6 +109,8 @@ router.post("/:customerId/shifts", async (req, res) => {
     const rate = customer.commercialTariffAssignment.tariff.rates.find(row => row.vehicleType === shift.vehicleType);
     if (!rate) throw new Error("Save rates for this vehicle category first.");
     const fare = shift.hours === 8 ? rate.fare8Hours : rate.fare12Hours;
+    const night = nightPremium(timing.estimatedStartTime!, timing.estimatedEndTime!, fare, shift.hours, rate.nightHoursPercent);
+    const netFare = fare.add(night.amount);
     const company = await settings(tx);
     if (driver || vehicle) {
       await fleetMutation(tx, access.admin ? { id: access.admin.id, label: access.admin.name } : undefined, "Commercial shift allocation");
@@ -121,7 +123,7 @@ router.post("/:customerId/shifts", async (req, res) => {
       driverAssignedAt: driver ? new Date() : null, vehicleAssignedAt: vehicle ? new Date() : null,
       createdByAdminId: access.admin?.id, assignedByAdminId: access.admin?.id,
       collectionDate: day, ...timing, collectionAddress: "", deliveryAddress: "", vehicleType: shift.vehicleType,
-      customerReference: shift.routeReference || null, totalPrice: fare.add(round(fare.mul(company.vatRate).div(100))),
+      customerReference: shift.routeReference || null, totalPrice: netFare.add(round(netFare.mul(company.vatRate).div(100))),
       commercialAllocation: { ...shift, driverId: driver?.id ?? null, vehicleId: vehicle?.id ?? null },
       ...(vehicle ? { reservation: { create: { vehicleId: vehicle.id, status: "CONFIRMED",
         reservedFrom: timing.estimatedStartTime!, reservedUntil: timing.estimatedEndTime! } } } : {}),
@@ -193,6 +195,12 @@ async function pricedShift(tx: Prisma.TransactionClient, customerId: string, boo
     lines.push(...allocationSurcharge(base, `${label} (${percent}%)`, percent).map(line => ({
       ...line, bookingId: booking.id, bookingReference: booking.reference,
     })));
+  }
+  if (calculated.night.amount.gt(0)) {
+    const { hours, percent, amount } = calculated.night;
+    addLine(`Night premium · 22:00–06:00 · ${hours.toDecimalPlaces(4)} hours at ${percent}%`,
+      new Prisma.Decimal(1), amount, company.vatRate, "OTHER", amount);
+    lines[lines.length - 1].sourceType = nightSource;
   }
   const subtotal = net();
   const vatAmount = lines.reduce((sum, line) => sum.add(line.vatAmount as Prisma.Decimal), zero);
